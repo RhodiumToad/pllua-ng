@@ -1,0 +1,6 @@
+# pllua_ng extension
+default_version = '1.0'
+comment = 'Lua as a procedural language'
+module_pathname = '$libdir/pllua_ng'
+relocatable = false
+schema = 'pg_catalog'
