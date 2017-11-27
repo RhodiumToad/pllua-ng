@@ -3,7 +3,39 @@
 
 #include "access/htup_details.h"
 #include "catalog/pg_proc.h"
+#include "catalog/pg_language.h"
 #include "utils/syscache.h"
+
+
+/*
+ * Do fairly minimalist validation on the procTup to ensure that we're not
+ * going to do something dangerous or security-violating. More detailed checks
+ * can be left to the validator func. Throws a pg error on failure.
+ */
+
+static void pllua_validate_proctup(lua_State *L, Oid fn_oid,
+								   HeapTuple procTup, bool trusted)
+{
+	HeapTuple lanTup;
+	Form_pg_language lanStruct;
+	Form_pg_proc procStruct;
+	procStruct = (Form_pg_proc) GETSTRUCT(procTup);
+
+	ASSERT_PG_CONTEXT;
+
+	lanTup = SearchSysCache1(LANGOID, ObjectIdGetDatum(procStruct->prolang));
+	if (!HeapTupleIsValid(lanTup))
+		elog(ERROR, "cache lookup failed for language %u", procStruct->prolang);
+	lanStruct = (Form_pg_language) GETSTRUCT(lanTup);
+
+	if ((trusted && !lanStruct->lanpltrusted)
+		|| (!trusted && lanStruct->lanpltrusted))
+	{
+		elog(ERROR, "trusted state mismatch for function %u in language %u",
+			 fn_oid, procStruct->prolang);
+	}
+	ReleaseSysCache(lanTup);
+}
 
 /*
  * Given a comp_info containing the info we need, compile a function and make
@@ -101,10 +133,18 @@ static bool pllua_function_valid(pllua_function_info *func_info,
 
 /*
  * Returns with a function object on top of the lua stack.
+ *
+ * Also returns a pointer to the func_info as a convenience to the caller.
  */
-void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
+pllua_function_info *
+pllua_validate_and_push(lua_State *L,
+						FmgrInfo *flinfo,
+						ReturnSetInfo *rsi,
+						bool trusted)
 {
 	MemoryContext oldcontext = CurrentMemoryContext;
+	pllua_function_info *volatile retval = NULL;
+	int nstack = lua_gettop(L);
 
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
@@ -133,6 +173,8 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 		 */
 		for (;;)
 		{
+			Assert(lua_gettop(L) == nstack);
+			
 			/* We'll need the pg_proc tuple in any case... */
 			procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(fn_oid));
 			if (!HeapTupleIsValid(procTup))
@@ -144,6 +186,7 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 				/* fastpath out when data is already valid. */
 				pllua_getactivation(L, act);
 				ReleaseSysCache(procTup);
+				retval = act->func_info;
 				break;
 			}
 			
@@ -187,6 +230,7 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 					}
 					lua_remove(L, -2);
 					ReleaseSysCache(procTup);
+					retval = func_info;
 					break;
 				}
 
@@ -200,11 +244,11 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 				lua_pushnil(L);
 				lua_pushinteger(L, (lua_Integer) fn_oid);
 				pllua_pcall(L, 2, 0, 0);
-				lua_pop(L, 2);
 			}
-			else
-				lua_pop(L, 1);
+			lua_pop(L, 2);
 
+			Assert(lua_gettop(L) == nstack);
+						
 			/*
 			 * If we get this far, we need to compile up the function from
 			 * scratch.  Create the func_info, compile_info and
@@ -229,8 +273,18 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 			func_info = palloc(sizeof(pllua_function_info));
 			func_info->mcxt = fcxt;
 			func_info->name = pstrdup(NameStr(procStruct->proname));
+			func_info->fn_oid = fn_oid;
 			func_info->fn_xmin = HeapTupleHeaderGetRawXmin(procTup->t_data);
 			func_info->fn_tid = procTup->t_self;
+			func_info->rettype = procStruct->prorettype;
+			func_info->retset = procStruct->proretset;
+			func_info->language_oid = procStruct->prolang;
+			func_info->trusted = trusted;
+
+			/*
+			 * Redo the most essential validation steps out of sheer paranoia
+			 */
+			pllua_validate_proctup(L, fn_oid, procTup, trusted);
 
 			MemoryContextSwitchTo(ccxt);
 				
@@ -242,6 +296,9 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 			/*
 			 * XXX dig out all the needed info about arg and result types
 			 * and stash it in the compile info.
+			 */
+
+			/*
 			 *
 			 * Beware, compiling can invoke user-supplied code, which might
 			 * in turn recurse here. We trust that stack depth checks will
@@ -283,6 +340,8 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 			pllua_pcall(L, 2, 0, 0);
 			func_info = NULL;
 			ReleaseSysCache(procTup);
+
+			Assert(lua_gettop(L) == nstack);
 		}
 	}
 	PG_CATCH();
@@ -293,4 +352,5 @@ void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted)
 	PG_END_TRY();
 	pllua_setcontext(PLLUA_CONTEXT_LUA);
 	MemoryContextSwitchTo(oldcontext);
+	return retval;
 }

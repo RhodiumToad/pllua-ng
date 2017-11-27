@@ -318,13 +318,34 @@ void pllua_getactivation(lua_State *L, pllua_func_activation *act)
  * The uservalue slot of the object contains the actual Lua function, and we
  * proxy function calls to that in a __call method.
  */
+static void pllua_destroy_funcinfo(lua_State *L, pllua_function_info *obj)
+{
+	MemoryContext oldmcxt = CurrentMemoryContext;
+	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
+	PG_TRY();
+	{
+		/*
+		 * funcinfo is allocated in its own memory context (since we expect it
+		 * to have stuff dangling off), so free it by destroying that.
+		 */
+		MemoryContextDelete(obj->mcxt);
+	}
+	PG_CATCH();
+	{
+		pllua_setcontext(oldctx);
+		pllua_rethrow_from_pg(L, oldmcxt);
+	}
+	PG_END_TRY();
+	pllua_setcontext(oldctx);
+}
+
 static int pllua_funcobject_gc(lua_State *L)
 {
 	void **p = pllua_torefobject(L, 1, PLLUA_FUNCTION_OBJECT);
 	void *obj = *p;
 	*p = NULL;
 	if (obj)
-		pfree(obj);
+		pllua_destroy_funcinfo(L, obj);
 	return 0;
 }
 

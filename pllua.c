@@ -75,6 +75,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 {
 	lua_State *L;
 	pllua_activation_record act;
+	pllua_func_activation *funcact = (fcinfo->flinfo) ? fcinfo->flinfo->fn_extra : NULL;
 
 	/* XXX luajit may need this to be palloc'd. check later */
 	
@@ -84,14 +85,29 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
-	L = pllua_getstate(trusted);
+	if (funcact && funcact->thread)
+	{
+		/*
+		 * We're resuming a value-per-call SRF, so we bypass almost everything
+		 * since we don't want to, for example, compile a new version of the
+		 * function halfway through a result set. We know we're in a
+		 * non-first-row condition if there's an existing thread in the
+		 * function activation.
+		 */
 
-	if (CALLED_AS_TRIGGER(fcinfo))
-		pllua_initial_protected_call(L, pllua_call_trigger, &act);
-	else if (CALLED_AS_EVENT_TRIGGER(fcinfo))
-		pllua_initial_protected_call(L, pllua_call_event_trigger, &act);
+		pllua_initial_protected_call(funcact->L, pllua_resume_function, &act);
+	}
 	else
-		pllua_initial_protected_call(L, pllua_call_function, &act);
+	{
+		L = pllua_getstate(trusted);
+
+		if (CALLED_AS_TRIGGER(fcinfo))
+			pllua_initial_protected_call(L, pllua_call_trigger, &act);
+		else if (CALLED_AS_EVENT_TRIGGER(fcinfo))
+			pllua_initial_protected_call(L, pllua_call_event_trigger, &act);
+		else
+			pllua_initial_protected_call(L, pllua_call_function, &act);
+	}
 
 	return act.retval;
 }

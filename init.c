@@ -27,7 +27,7 @@ typedef struct pllua_interp_desc
 } pllua_interp_desc;
 
 
-static lua_State *pllua_newstate(bool trusted);
+static lua_State *pllua_newstate(bool trusted, Oid user_id);
 static int pllua_init_state(lua_State *L);
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
@@ -56,7 +56,7 @@ lua_State *pllua_getstate(bool trusted)
 	if (!found)
 		interp_desc->interp = NULL;
 
-	interp_desc->interp = pllua_newstate(trusted);
+	interp_desc->interp = pllua_newstate(trusted, user_id);
 
 	return interp_desc->interp;
 }
@@ -217,8 +217,9 @@ static void pllua_runstring(lua_State *L, const char *chunkname, const char *str
 static int pllua_init_state(lua_State *L)
 {
 	bool trusted = lua_toboolean(L, 1);
-	MemoryContext *mcxt = lua_touserdata(L, 2);
-	MemoryContext *emcxt = lua_touserdata(L, 3);
+	lua_Integer user_id = lua_tointeger(L, 2);
+	MemoryContext *mcxt = lua_touserdata(L, 3);
+	MemoryContext *emcxt = lua_touserdata(L, 4);
 
 	lua_pushliteral(L, "0.01");
 	lua_setglobal(L, "_PLVERSION");
@@ -226,6 +227,10 @@ static int pllua_init_state(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
 	lua_pushlightuserdata(L, emcxt);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
+	lua_pushinteger(L, user_id);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_USERID);
+	lua_pushboolean(L, trusted);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED);
 
 	pllua_init_objects(L, trusted);
 	pllua_init_error(L);
@@ -248,7 +253,7 @@ static int pllua_init_state(lua_State *L)
 /*
  * PG-environment part of interpreter setup.
  */
-static lua_State *pllua_newstate(bool trusted)
+static lua_State *pllua_newstate(bool trusted, Oid user_id)
 {
 	static bool first_time = true;
 	MemoryContext mcxt = NULL;
@@ -290,9 +295,10 @@ static lua_State *pllua_newstate(bool trusted)
 
 		lua_pushcfunction(L, pllua_init_state);
 		lua_pushboolean(L, trusted);
+		lua_pushinteger(L, (lua_Integer) user_id);
 		lua_pushlightuserdata(L, mcxt);
 		lua_pushlightuserdata(L, emcxt);
-		pllua_pcall(L, 3, 0, 0);
+		pllua_pcall(L, 4, 0, 0);
 	}
 	PG_CATCH();
 	{

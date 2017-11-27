@@ -38,6 +38,9 @@ typedef enum
 
 extern pllua_context_type pllua_context;
 
+#define ASSERT_PG_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_PG)
+#define ASSERT_LUA_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_PG)
+
 static inline pllua_context_type
 pllua_setcontext(pllua_context_type newctx)
 {
@@ -65,6 +68,7 @@ typedef struct pllua_function_info
 	TransactionId fn_xmin;
 	ItemPointerData fn_tid;
 
+	Oid rettype;
 	bool retset;
 	
 	Oid language_oid;
@@ -126,14 +130,39 @@ typedef struct pllua_activation_record
 extern bool pllua_ending;
 
 /*
- * Addresses used as lua registry keys
+ * Addresses used as lua registry or object keys
  *
  * Note the key is the address, not the string; the string is only for
  * debugging purposes.
+ *
+ * The registry looks like this (all keys are light userdata):
+ *
+ * global state:
+ * reg[PLLUA_MEMORYCONTEXT] = light(MemoryContext) - for refobj data
+ * reg[PLLUA_ERRORCONTEXT] = light(MemoryContext) - for error handling
+ * reg[PLLUA_USERID] = int user_id for trusted, InvalidOid for untrusted
+ * reg[PLLUA_TRUSTED] = boolean
+ * reg[PLLUA_LAST_ERROR] = last pg error object to enter error handling
+ * reg[PLLUA_RECURSIVE_ERROR] = preallocated error object
+ *
+ * registries for cached data:
+ * reg[PLLUA_FUNCS] = { [integer oid] = funcinfo object }
+ * reg[PLLUA_ACTIVATIONS] = { [light(act)] = activation object }
+ *
+ * metatables:
+ * reg[PLLUA_FUNCTION_OBJECT]
+ * reg[PLLUA_ACTIVATION_OBJECT]
+ * reg[PLLUA_ERROR_OBJECT]
+ *
+ * reg[PLLUA_]
+ *
+ *
  */
 
 extern char PLLUA_MEMORYCONTEXT[];
 extern char PLLUA_ERRORCONTEXT[];
+extern char PLLUA_USERID[];
+extern char PLLUA_TRUSTED[];
 extern char PLLUA_FUNCS[];
 extern char PLLUA_ACTIVATIONS[];
 extern char PLLUA_FUNCTION_OBJECT[];
@@ -152,7 +181,7 @@ lua_State *pllua_getstate(bool trusted);
 
 /* compile.c */
 
-void pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, bool trusted);
+pllua_function_info *pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, ReturnSetInfo *rsi, bool trusted);
 
 /* elog.c */
 
@@ -176,6 +205,7 @@ void pllua_init_error(lua_State *L);
 
 /* exec.c */
 
+int pllua_resume_function(lua_State *L);
 int pllua_call_function(lua_State *L);
 int pllua_call_trigger(lua_State *L);
 int pllua_call_event_trigger(lua_State *L);

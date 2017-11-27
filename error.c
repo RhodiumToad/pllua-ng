@@ -108,11 +108,21 @@ void pllua_rethrow_from_lua(lua_State *L, int rc)
  *
  * There had better be space on the Lua stack for a couple of objects - it's
  * the caller's responsibility to deal with that.
+ *
+ * Remember the correct protocol for volatile variables! Any variable modified
+ * in the try block and used later should be declared volatile, but for pointer
+ * variables remember that it's the _variable_ which is volatile, not the data
+ * pointed at. So declarations typically look like
+ *
+ *   ErrorData *volatile edata;
+ *
+ * (and NOT like  volatile ErrorData *edata)
+ *
  */
 void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 {
 	MemoryContext emcxt;
-	volatile ErrorData *edata = NULL;
+	ErrorData *volatile edata = NULL;
 	
 	if (pllua_context == PLLUA_CONTEXT_PG)
 		PG_RE_THROW();
