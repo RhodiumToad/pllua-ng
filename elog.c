@@ -82,7 +82,18 @@ int pllua_p_print(lua_State *L)
  *          table = ?, schema = ? }
  *
  *   elog("error", ...)
+ *
+ * pllua_p_elog exists under multiple closures, with upvalues:
+ *
+ *  1: elevel integer, or nil for the elog() version
+ *  2: table mapping "error", "notice" etc. to elevels
+ *  3: table mapping error names to sqlstates (lazy init)
  */
+
+static struct { const char *str; int val; } ecodes[] = {
+#include "plerrcodes.h"
+	{ NULL, 0 }
+};
 
 static int pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 {
@@ -94,7 +105,32 @@ static int pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 	else
 	{
 		int code;
+
 		lua_getfield(L, tidx, str);
+		if (lua_isnil(L, -1))
+		{
+			if (lua_next(L, tidx)) /* already a nil on the stack */
+			{
+				lua_pop(L,2);
+				return 0;  /* not found, table not empty */
+			}
+
+			/* table is empty so populate it */
+			
+			{
+				int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
+				int i;
+				
+				for (i = 0; i < ncodes; ++i)
+				{
+					lua_pushinteger(L, ecodes[i].val);
+					lua_setfield(L, tidx, ecodes[i].str);
+				}
+			}
+
+			lua_getfield(L, tidx, str);
+		}
+
 		code = lua_tointeger(L, -1);
 		lua_pop(L, 1);
 		return code;
@@ -226,10 +262,6 @@ static struct { const char *str; int val; } elevels[] = {
 	{ "error", ERROR }
 };
 
-static struct { const char *str; int val; } ecodes[] = {
-#include "plerrcodes.h"
-	{ NULL, 0 }
-};
 
 void pllua_init_error_functions(lua_State *L)
 {
@@ -246,11 +278,6 @@ void pllua_init_error_functions(lua_State *L)
 		lua_setfield(L, -2, elevels[i].str);
 	}
 	lua_createtable(L, 0, ncodes);
-	for (i = 0; i < ncodes; ++i)
-	{
-		lua_pushinteger(L, ecodes[i].val);
-		lua_setfield(L, -2, ecodes[i].str);
-	}
 
 	for (i = 0; i < nlevels; ++i)
 	{
