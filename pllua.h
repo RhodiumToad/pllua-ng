@@ -39,7 +39,7 @@ typedef enum
 extern pllua_context_type pllua_context;
 
 #define ASSERT_PG_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_PG)
-#define ASSERT_LUA_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_PG)
+#define ASSERT_LUA_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_LUA)
 
 static inline pllua_context_type
 pllua_setcontext(pllua_context_type newctx)
@@ -228,7 +228,11 @@ void *pllua_checkobject(lua_State *L, int nd, char *objtype);
 int pllua_newactivation(lua_State *L);
 int pllua_setactivation(lua_State *L);
 void pllua_getactivation(lua_State *L, pllua_func_activation *act);
+int pllua_activation_getfunc(lua_State *L);
 
+lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
+void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
+	
 void pllua_init_objects(lua_State *L, bool trusted);
 void pllua_init_functions(lua_State *L, bool trusted);
 

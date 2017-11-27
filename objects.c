@@ -201,7 +201,8 @@ static void pllua_freeactivation_cb(void *arg)
 
 static int pllua_resetactivation(lua_State *L)
 {
-	pllua_func_activation *act = lua_touserdata(L, 1);
+	int opos = lua_gettop(L) - 1;
+	pllua_func_activation *act = lua_touserdata(L, -1);
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
@@ -213,9 +214,10 @@ static int pllua_resetactivation(lua_State *L)
 	pllua_checkobject(L, -1, PLLUA_ACTIVATION_OBJECT);
 
 	act->thread = NULL;
-	lua_getuservalue(L, 2);
+	lua_getuservalue(L, -1);
 	lua_pushnil(L);
 	lua_rawsetp(L, -2, PLLUA_THREAD_MEMBER);
+	lua_settop(L, opos);
 	
 	return 0;
 }
@@ -272,7 +274,8 @@ int pllua_newactivation(lua_State *L)
 }
 
 /*
- * Update the activation to point to a new function (e.g. after a recompile)
+ * Update the activation to point to a new function (e.g. after a recompile).
+ * Returns the object on the stack.
  */
 int pllua_setactivation(lua_State *L)
 {
@@ -294,8 +297,9 @@ int pllua_setactivation(lua_State *L)
 	lua_getuservalue(L, -1);
 	lua_pushvalue(L, 2);
 	lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
+	lua_pop(L, 1);
 
-	return 0;
+	return 1;
 }
 
 /*
@@ -303,20 +307,95 @@ int pllua_setactivation(lua_State *L)
  */
 void pllua_getactivation(lua_State *L, pllua_func_activation *act)
 {
+	ASSERT_PG_CONTEXT;
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
 		elog(ERROR, "failed to find an activation: %p", act);
+	lua_remove(L, -2);
+}
+
+int pllua_activation_getfunc(lua_State *L)
+{
 	lua_getuservalue(L, -1);
 	lua_rawgetp(L, -1, PLLUA_FUNCTION_MEMBER);
-	lua_insert(L, -4);
-	lua_pop(L, 3);
+	lua_getuservalue(L, -1);
+	lua_insert(L, -3);
+	lua_pop(L, 2);
+	return 1;
+}
+
+/*
+ * nd is the stack index of an activation object, which should not already have
+ * a thread, which needs to be registered in the econtext and have a thread
+ * allocated to it.
+ */
+lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext)
+{
+	pllua_func_activation *act = pllua_toobject(L, nd, PLLUA_ACTIVATION_OBJECT);
+	MemoryContext oldmcxt = CurrentMemoryContext;
+	lua_State *newthread = NULL;
+	
+	ASSERT_LUA_CONTEXT;
+
+	Assert(act->thread == NULL);
+
+	pllua_setcontext(PLLUA_CONTEXT_PG);
+	PG_TRY();
+	{
+		RegisterExprContextCallback(econtext,
+									pllua_resetactivation_cb,
+									PointerGetDatum(act));
+	}
+	PG_CATCH();
+	{
+		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_rethrow_from_pg(L, oldmcxt);
+	}
+	PG_END_TRY();
+	pllua_setcontext(PLLUA_CONTEXT_LUA);
+
+	lua_getuservalue(L, nd);
+	newthread = lua_newthread(L);
+	act->thread = newthread;
+	lua_rawsetp(L, -2, PLLUA_THREAD_MEMBER);
+	lua_pop(L, 1);
+	
+	return newthread;
+}
+
+/*
+ * act is an activation object which needs to be deregistered
+ * in the econtext and have its thread released
+ */
+void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext)
+{
+	MemoryContext oldmcxt = CurrentMemoryContext;
+	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
+	
+	Assert(act->thread != NULL);
+
+	PG_TRY();
+	{
+		UnregisterExprContextCallback(econtext,
+									  pllua_resetactivation_cb,
+									  PointerGetDatum(act));
+	}
+	PG_CATCH();
+	{
+		pllua_setcontext(oldctx);
+		pllua_rethrow_from_pg(L, oldmcxt);
+	}
+	PG_END_TRY();
+	pllua_setcontext(oldctx);
+
+	lua_pushlightuserdata(L, act);
+	pllua_resetactivation(L);
 }
 
 /*
  * Function objects are refobjects containing cached function info.
  *
- * The uservalue slot of the object contains the actual Lua function, and we
- * proxy function calls to that in a __call method.
+ * The uservalue slot of the object contains the actual Lua function.
  */
 static void pllua_destroy_funcinfo(lua_State *L, pllua_function_info *obj)
 {
@@ -349,22 +428,12 @@ static int pllua_funcobject_gc(lua_State *L)
 	return 0;
 }
 
-static int pllua_funcobject_call(lua_State *L)
-{
-	int nargs = lua_gettop(L) - 1;
-	lua_getuservalue(L, 1);
-	lua_replace(L, 1);
-	lua_call(L, nargs, LUA_MULTRET);
-	return lua_gettop(L);
-}
-
 /*
  * metatables for objects and global functions
  */
 
 static struct luaL_Reg funcobj_mt[] = {
 	{ "__gc", pllua_funcobject_gc },
-	{ "__call", pllua_funcobject_call },
 	{ NULL, NULL }
 };
 

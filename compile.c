@@ -132,7 +132,7 @@ static bool pllua_function_valid(pllua_function_info *func_info,
 }
 
 /*
- * Returns with a function object on top of the lua stack.
+ * Returns with a function activation object on top of the lua stack.
  *
  * Also returns a pointer to the func_info as a convenience to the caller.
  */
@@ -144,7 +144,6 @@ pllua_validate_and_push(lua_State *L,
 {
 	MemoryContext oldcontext = CurrentMemoryContext;
 	pllua_function_info *volatile retval = NULL;
-	int nstack = lua_gettop(L);
 
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
@@ -173,8 +172,6 @@ pllua_validate_and_push(lua_State *L,
 		 */
 		for (;;)
 		{
-			Assert(lua_gettop(L) == nstack);
-			
 			/* We'll need the pg_proc tuple in any case... */
 			procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(fn_oid));
 			if (!HeapTupleIsValid(procTup))
@@ -211,7 +208,7 @@ pllua_validate_and_push(lua_State *L,
 						pllua_pushcfunction(L, pllua_setactivation);
 						lua_pushlightuserdata(L, act);
 						lua_pushvalue(L, -3);
-						pllua_pcall(L, 2, 0, 0);
+						pllua_pcall(L, 2, 1, 0);
 					}
 					else
 					{
@@ -224,11 +221,11 @@ pllua_validate_and_push(lua_State *L,
 						lua_pushlightuserdata(L, flinfo->fn_mcxt);
 						pllua_pcall(L, 2, 1, 0);
 						act = lua_touserdata(L, -1);
-						lua_pop(L, 1); /* activation is referenced, so won't be GCed */
 						if (flinfo && flinfo->fn_extra == NULL)
 							flinfo->fn_extra = act;
 					}
-					lua_remove(L, -2);
+					lua_insert(L, -3);
+					lua_pop(L, 2);
 					ReleaseSysCache(procTup);
 					retval = func_info;
 					break;
@@ -247,8 +244,6 @@ pllua_validate_and_push(lua_State *L,
 			}
 			lua_pop(L, 2);
 
-			Assert(lua_gettop(L) == nstack);
-						
 			/*
 			 * If we get this far, we need to compile up the function from
 			 * scratch.  Create the func_info, compile_info and
@@ -340,8 +335,20 @@ pllua_validate_and_push(lua_State *L,
 			pllua_pcall(L, 2, 0, 0);
 			func_info = NULL;
 			ReleaseSysCache(procTup);
+		}
 
-			Assert(lua_gettop(L) == nstack);
+		/*
+		 * Post-compile per-call validation (mostly here to avoid more catch
+		 * blocks)
+		 */
+		if (func_info->retset)
+		{
+			if (!rsi ||
+				!IsA(rsi, ReturnSetInfo) ||
+				!(rsi->allowedModes & SFRM_ValuePerCall))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("set-valued function called in context that cannot accept a set")));
 		}
 	}
 	PG_CATCH();
