@@ -441,9 +441,12 @@ static struct luaL_Reg actobj_mt[] = {
 	{ NULL, NULL }
 };
 
+static struct luaL_Reg serverfuncs[] = {
+	{ NULL, NULL }
+};
+
 static struct luaL_Reg globfuncs[] = {
 	{ "print", pllua_p_print },
-	{ "info", pllua_p_print },
 	{ NULL, NULL }
 };
 
@@ -460,4 +463,9 @@ void pllua_init_functions(lua_State *L, bool trusted)
 	lua_pushglobaltable(L);
 	luaL_setfuncs(L, globfuncs, 0);
 	lua_pop(L, 1);
+
+	lua_newtable(L);
+	luaL_setfuncs(L, serverfuncs, 0);
+	lua_setglobal(L, "server");
+	pllua_init_error_functions(L);
 }

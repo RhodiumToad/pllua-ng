@@ -186,6 +186,7 @@ pllua_function_info *pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, Ret
 /* elog.c */
 
 int pllua_p_print (lua_State *L);
+void pllua_init_error_functions(lua_State *L);
 
 /* error.c */
 int pllua_panic(lua_State *L);
