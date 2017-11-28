@@ -152,6 +152,10 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
+	/* probably excess paranoia */
+	if (act.cblock->langIsTrusted != act.trusted)
+		elog(ERROR, "trusted state mismatch");
+			
 	L = pllua_getstate(trusted);
 
 	pllua_initial_protected_call(L, pllua_call_inline, &act);
