@@ -331,7 +331,7 @@ int pllua_activation_getfunc(lua_State *L)
 static int pllua_get_cur_act(lua_State *L)
 {
 	FmgrInfo *flinfo = *(void **)(lua_getextraspace(L));
-	pllua_func_activation *act = flinfo->fn_extra;
+	pllua_func_activation *act = (flinfo) ? flinfo->fn_extra : NULL;
 	if (!act)
 		return 0;
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
