@@ -49,6 +49,9 @@ pllua_setcontext(pllua_context_type newctx)
 	return oldctx;
 }
 
+#define pllua_debug(L_, ...)												\
+	do { if (pllua_context==PLLUA_CONTEXT_PG) elog(DEBUG1, __VA_ARGS__); else pllua_debug_lua(L_, __VA_ARGS__); } while(0)
+
 /*
  * We don't put this in the body of a lua userdata for error handling reasons;
  * we want to build it from pg data without involving lua too much until we're
@@ -216,6 +219,7 @@ pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fc
 
 int pllua_p_print (lua_State *L);
 void pllua_init_error_functions(lua_State *L);
+void pllua_debug_lua(lua_State *L, const char *msg, ...);
 
 /* error.c */
 int pllua_panic(lua_State *L);

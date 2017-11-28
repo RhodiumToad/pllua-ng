@@ -112,7 +112,7 @@ static int pllua_compile(lua_State *L)
 	luaL_pushresult(&b);
 	src = lua_tostring(L, -1);
 
-	elog(DEBUG1, "compiling: %s", src);
+	pllua_debug(L, "compiling: %s", src);
 	
 	if (luaL_loadbuffer(L, src, strlen(src), fname))
 		pllua_rethrow_from_lua(L, LUA_ERRRUN);

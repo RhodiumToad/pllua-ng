@@ -42,6 +42,22 @@ static void pllua_elog(lua_State *L, int elevel, int e_code,
 }
 
 
+void pllua_debug_lua(lua_State *L, const char *msg, ...)
+{
+	luaL_Buffer b;
+	char *buf = luaL_buffinitsize(L, &b, 4096);
+	va_list va;
+
+	va_start(va, msg);
+	vsnprintf(buf, 4096, msg, va);
+	va_end(va);
+	luaL_addsize(&b, strlen(buf));
+   	luaL_pushresult(&b);
+	msg = lua_tostring(L, -1);
+	pllua_elog(L, DEBUG1, 0, msg, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	lua_pop(L, 1);
+}
+
 int pllua_p_print(lua_State *L)
 {
 	int i, n = lua_gettop(L); /* nargs */
