@@ -4,7 +4,9 @@
 #include "access/htup_details.h"
 #include "catalog/pg_proc.h"
 #include "catalog/pg_language.h"
+#include "catalog/pg_type.h"
 #include "utils/syscache.h"
+#include "utils/lsyscache.h"
 
 
 /*
@@ -72,7 +74,37 @@ static int pllua_compile(lua_State *L)
 	luaL_addstring(&b, fname);
 	luaL_addchar(&b, ' ');
 	luaL_addstring(&b, fname);
-	luaL_addstring(&b, "=function(...) ");
+	luaL_addstring(&b, "=function(");
+	if (comp_info->nargs > 0)
+	{
+		int n = 0;
+		int i;
+		if (comp_info->argnames && comp_info->argnames[0])
+		{
+			for(i = 0; i < comp_info->nallargs; ++i)
+			{
+				if (!comp_info->argmodes || comp_info->argmodes[i] != 'o')
+				{
+					if (comp_info->argnames[i] && comp_info->argnames[i][0])
+					{
+						if (n > 0)
+							luaL_addchar(&b, ',');
+						luaL_addstring(&b, comp_info->argnames[i]);
+						++n;
+					}
+					else
+						break;
+				}
+			}
+		}
+		if (n < comp_info->nargs)
+		{
+			if (n > 0)
+				luaL_addchar(&b, ',');
+			luaL_addstring(&b, "...");
+		}
+	}
+	luaL_addstring(&b, ") ");
 	luaL_addlstring(&b, VARDATA_ANY(comp_info->prosrc),
 					VARSIZE_ANY_EXHDR(comp_info->prosrc));
 	luaL_addstring(&b, " end return ");
@@ -80,6 +112,8 @@ static int pllua_compile(lua_State *L)
 	luaL_pushresult(&b);
 	src = lua_tostring(L, -1);
 
+	elog(DEBUG1, "compiling: %s", src);
+	
 	if (luaL_loadbuffer(L, src, strlen(src), fname))
 		pllua_rethrow_from_lua(L, LUA_ERRRUN);
 	lua_remove(L, -2); /* source */
@@ -134,17 +168,20 @@ static bool pllua_function_valid(pllua_function_info *func_info,
 /*
  * Returns with a function activation object on top of the lua stack.
  *
- * Also returns a pointer to the func_info as a convenience to the caller.
+ * Also returns a pointer to the activation as a convenience to the caller.
  */
-pllua_function_info *
+pllua_func_activation *
 pllua_validate_and_push(lua_State *L,
-						FmgrInfo *flinfo,
-						ReturnSetInfo *rsi,
+						FunctionCallInfo fcinfo,
 						bool trusted)
 {
 	MemoryContext oldcontext = CurrentMemoryContext;
-	pllua_function_info *volatile retval = NULL;
-
+	pllua_func_activation *volatile retval = NULL;
+	FmgrInfo *flinfo = fcinfo->flinfo;
+	ReturnSetInfo *rsi = ((fcinfo->resultinfo && IsA(fcinfo->resultinfo, ReturnSetInfo))
+						  ?	(ReturnSetInfo *)(fcinfo->resultinfo)
+						  : NULL);
+							
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
 	/*
@@ -166,6 +203,7 @@ pllua_validate_and_push(lua_State *L,
 		MemoryContext fcxt;
 		MemoryContext ccxt;
 		int rc;
+		int i;
 		
 		/*
 		 * This part may have to be repeated in some rare recursion scenarios.
@@ -183,7 +221,6 @@ pllua_validate_and_push(lua_State *L,
 				/* fastpath out when data is already valid. */
 				pllua_getactivation(L, act);
 				ReleaseSysCache(procTup);
-				retval = act->func_info;
 				break;
 			}
 			
@@ -227,7 +264,6 @@ pllua_validate_and_push(lua_State *L,
 					lua_insert(L, -3);
 					lua_pop(L, 2);
 					ReleaseSysCache(procTup);
-					retval = func_info;
 					break;
 				}
 
@@ -275,7 +311,26 @@ pllua_validate_and_push(lua_State *L,
 			func_info->retset = procStruct->proretset;
 			func_info->language_oid = procStruct->prolang;
 			func_info->trusted = trusted;
+			func_info->nargs = procStruct->pronargs;
+			func_info->variadic = procStruct->provariadic != InvalidOid;
+			func_info->variadic_any = procStruct->provariadic == ANYOID;
+			func_info->polymorphic = false;
 
+			Assert(func_info->nargs == procStruct->proargtypes.dim1);
+			func_info->argtypes = (Oid *) palloc(func_info->nargs * sizeof(Oid));
+			memcpy(func_info->argtypes,
+				   procStruct->proargtypes.values,
+				   func_info->nargs * sizeof(Oid));
+
+			for (i = 0; i < func_info->nargs; ++i)
+			{
+				if (IsPolymorphicType(func_info->argtypes[i])
+					|| func_info->argtypes[i] == ANYOID)
+				{
+					func_info->polymorphic = true;
+					break;
+				}
+			}
 			/*
 			 * Redo the most essential validation steps out of sheer paranoia
 			 */
@@ -292,6 +347,13 @@ pllua_validate_and_push(lua_State *L,
 			 * XXX dig out all the needed info about arg and result types
 			 * and stash it in the compile info.
 			 */
+
+			comp_info->nargs = procStruct->pronargs;
+			comp_info->nallargs = get_func_arg_info(procTup,
+													&comp_info->allargtypes,
+													&comp_info->argnames,
+													&comp_info->argmodes);
+			comp_info->variadic = procStruct->provariadic;
 
 			/*
 			 *
@@ -350,6 +412,46 @@ pllua_validate_and_push(lua_State *L,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("set-valued function called in context that cannot accept a set")));
 		}
+
+		if (!act->resolved)
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(flinfo->fn_mcxt);
+			Oid rettype = act->func_info->rettype;
+
+			if (IsPolymorphicType(rettype)
+				|| type_is_rowtype(rettype))
+			{
+				act->typefuncclass = get_call_result_type(fcinfo,
+														  &act->rettype,
+														  &act->tupdesc);
+			}
+			else
+			{
+				act->rettype = rettype;
+				act->typefuncclass = TYPEFUNC_SCALAR;
+			}
+
+			act->polymorphic = act->func_info->polymorphic;
+			act->variadic_call = get_fn_expr_variadic(fcinfo->flinfo);
+			act->nargs = act->func_info->nargs;
+			act->retset = act->func_info->retset;
+			
+			if (act->polymorphic)
+			{
+				act->argtypes = palloc(act->nargs * sizeof(Oid));
+				memcpy(act->argtypes, act->func_info->argtypes, act->nargs * sizeof(Oid));
+				if (!resolve_polymorphic_argtypes(act->nargs, act->argtypes,
+												  NULL, flinfo->fn_expr))
+					elog(ERROR,"failed to resolve polymorphic argtypes");
+			}
+			else
+				act->argtypes = act->func_info->argtypes;
+
+			MemoryContextSwitchTo(oldcontext);
+			act->resolved = true;
+		}
+
+		retval = act;
 	}
 	PG_CATCH();
 	{

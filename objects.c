@@ -253,6 +253,9 @@ int pllua_newactivation(lua_State *L)
 
 	act->func_info = (*p);
 	act->thread = NULL;
+	act->resolved = false;
+	act->rettype = InvalidOid;
+	act->tupdesc = NULL;
 	
 	lua_getuservalue(L, -1);
 	lua_pushvalue(L, 1);
@@ -293,6 +296,7 @@ int pllua_setactivation(lua_State *L)
 
 	Assert(act->thread == NULL);
 	act->func_info = (*p);
+	act->resolved = false; /* need to re-resolve types */
 
 	lua_getuservalue(L, -1);
 	lua_pushvalue(L, 2);
@@ -321,6 +325,49 @@ int pllua_activation_getfunc(lua_State *L)
 	lua_getuservalue(L, -1);
 	lua_insert(L, -3);
 	lua_pop(L, 2);
+	return 1;
+}
+
+static int pllua_get_cur_act(lua_State *L)
+{
+	FmgrInfo *flinfo = *(void **)(lua_getextraspace(L));
+	pllua_func_activation *act = flinfo->fn_extra;
+	if (!act)
+		return 0;
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
+	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
+		luaL_error(L, "activation not found: %p", act);
+	lua_remove(L, -2);
+	return 1;
+}
+
+static int pllua_dump_activation(lua_State *L)
+{
+	pllua_func_activation *act = pllua_checkobject(L, 1, PLLUA_ACTIVATION_OBJECT);
+	luaL_Buffer b;
+	char *buf = luaL_buffinitsize(L, &b, 1024);
+	int i;
+
+	snprintf(buf, 1024,
+			 "func_info: %p  thread: %p  "
+			 "resolved: %d  polymorphic: %d  variadic_call: %d  retset: %d  "
+			 "rettype: %u  tupdesc: %p  typefuncclass: %d  "
+			 "nargs: %d  argtypes:",
+			 act->func_info, act->thread,
+			 (int) act->resolved, (int) act->polymorphic, (int) act->variadic_call,
+			 (int) act->retset,
+			 (unsigned) act->rettype, act->tupdesc, (int) act->typefuncclass,
+			 act->nargs);
+	luaL_addsize(&b, strlen(buf));
+
+	for (i = 0; i < act->nargs; ++i)
+	{
+		buf = luaL_prepbuffsize(&b, 64);
+		snprintf(buf, 64, " %u", (unsigned) act->argtypes[i]);
+		luaL_addsize(&b, strlen(buf));
+	}
+	
+   	luaL_pushresult(&b);
 	return 1;
 }
 
@@ -438,6 +485,12 @@ static struct luaL_Reg funcobj_mt[] = {
 };
 
 static struct luaL_Reg actobj_mt[] = {
+	{ "__tostring", pllua_dump_activation },
+	{ NULL, NULL }
+};
+
+static struct luaL_Reg serverdebugfuncs[] = {
+	{ "act", pllua_get_cur_act },
 	{ NULL, NULL }
 };
 
@@ -466,6 +519,9 @@ void pllua_init_functions(lua_State *L, bool trusted)
 
 	lua_newtable(L);
 	luaL_setfuncs(L, serverfuncs, 0);
+	lua_newtable(L);
+	luaL_setfuncs(L, serverdebugfuncs, 0);
+	lua_setfield(L, -2, "dbg");
 	lua_setglobal(L, "server");
 	pllua_init_error_functions(L);
 }

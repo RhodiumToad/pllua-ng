@@ -255,10 +255,11 @@ void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh)
  */
 
 void pllua_initial_protected_call(lua_State *L,
-										 lua_CFunction func,
-										 void *arg)
+								  lua_CFunction func,
+								  void *arg)
 {
 	sigjmp_buf *cur_catch_block PG_USED_FOR_ASSERTS_ONLY = PG_exception_stack;
+	void *save_extra = *(void **)(lua_getextraspace(L));
 	int rc;
 
 	Assert(pllua_context == PLLUA_CONTEXT_PG);
@@ -274,6 +275,8 @@ void pllua_initial_protected_call(lua_State *L,
 	 * We better not have longjmp'd past any pg catch blocks.
 	 */
 	Assert(cur_catch_block == PG_exception_stack);
+
+	*(void **)(lua_getextraspace(L)) = save_extra;
 	
 	if (rc)
 		pllua_rethrow_from_lua(L, rc);

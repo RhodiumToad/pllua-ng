@@ -70,6 +70,13 @@ typedef struct pllua_function_info
 
 	Oid rettype;
 	bool retset;
+
+	int nargs;
+	bool variadic;
+	bool variadic_any;
+	bool polymorphic;
+
+	Oid *argtypes;
 	
 	Oid language_oid;
 	bool trusted;
@@ -87,6 +94,15 @@ typedef struct pllua_function_compile_info
 	MemoryContext mcxt;
 
 	text *prosrc;
+
+	int nargs;
+	int nallargs;
+
+	Oid variadic;
+	
+	Oid *allargtypes;
+	char *argmodes;
+	char **argnames;
 	
 } pllua_function_compile_info;
    
@@ -98,6 +114,19 @@ typedef struct pllua_func_activation
 	pllua_function_info *func_info;
 	lua_State *thread;
 
+	bool resolved;
+
+	bool polymorphic;
+	bool variadic_call;
+	bool retset;
+	
+	Oid rettype;
+	TupleDesc tupdesc;
+	TypeFuncClass typefuncclass;
+
+	int nargs;
+	Oid *argtypes;
+	
 	/*
 	 * this data is allocated in lua, so we need to arrange to drop it for GC
 	 * when the context containing the pointer to it is reset
@@ -181,7 +210,7 @@ lua_State *pllua_getstate(bool trusted);
 
 /* compile.c */
 
-pllua_function_info *pllua_validate_and_push(lua_State *L, FmgrInfo *flinfo, ReturnSetInfo *rsi, bool trusted);
+pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fcinfo, bool trusted);
 
 /* elog.c */
 

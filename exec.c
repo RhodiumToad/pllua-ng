@@ -1,15 +1,18 @@
 
 #include "pllua.h"
 
-static void pllua_common_lua_init(lua_State *L)
+#include "catalog/pg_type.h"
+
+static void pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
 {
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
-	luaL_checkstack(L, 20 + FUNC_MAX_ARGS, NULL);
+	*(void **)(lua_getextraspace(L)) = fcinfo->flinfo;
+	luaL_checkstack(L, 40, NULL);
 }
 
 static Datum pllua_return_result(lua_State *L, int nret,
-						  pllua_function_info *func_info,
-						  bool *isnull)
+								 pllua_func_activation *act,
+								 bool *isnull)
 {
 	/* XXX much work needed here. */
 
@@ -22,6 +25,42 @@ static Datum pllua_return_result(lua_State *L, int nret,
 
 	*isnull = true;
 	return (Datum)0;
+}
+
+static int pllua_push_args(lua_State *L,
+						   FunctionCallInfo fcinfo,
+						   pllua_func_activation *act)
+{
+	int i;
+	int nargs = PG_NARGS();   /* _actual_ args in call */
+
+	/*
+	 * If we're variadic, pg has collected the variadic args into an array,
+	 * _unless_ we're doing variadic_any in which case the extra arguments are
+	 * still separate (but there can't be more than FUNC_MAX_ARGS of them).
+	 */
+	if (nargs != act->nargs && !act->func_info->variadic_any)
+		luaL_error(L, "wrong number of args: expected %d got %d", act->nargs, nargs);
+	luaL_checkstack(L, 40 + nargs, NULL);
+	for (i = 0; i < nargs; ++i)
+	{
+		if (i < act->nargs
+			&& act->argtypes[i] != ANYOID)
+		{
+			/* XXX */
+			lua_pushinteger(L, act->argtypes[i]);
+		}
+		else
+		{
+			/* arg is ANYOID, so resolve what type the caller thinks it is. */
+			/* we rely on this not throwing! */
+			Oid argtype = get_fn_expr_argtype(fcinfo->flinfo, i);
+			if (argtype == InvalidOid)
+				luaL_error(L, "cannot determine type of argument %d", i);
+			lua_pushinteger(L, argtype);
+		}
+	}
+	return nargs;
 }
 
 /*
@@ -65,7 +104,7 @@ int pllua_resume_function(lua_State *L)
 	}
 
 	act->retval = pllua_return_result(L, lua_gettop(L) - 1,
-									  fact->func_info,
+									  fact,
 									  &fcinfo->isnull);
 
 	return 0;
@@ -76,18 +115,15 @@ int pllua_call_function(lua_State *L)
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 	ReturnSetInfo *rsi = (ReturnSetInfo *) fcinfo->resultinfo;
-	pllua_function_info *func_info;
+	pllua_func_activation *fact;
 	int nstack;
 	int nargs;
 	int rc;
 
-	pllua_common_lua_init(L);
+	pllua_common_lua_init(L, fcinfo);
 
 	/* pushes the activation on the stack */
-	func_info = pllua_validate_and_push(L,
-										fcinfo->flinfo,
-										rsi,
-										act->trusted);
+	fact = pllua_validate_and_push(L, fcinfo, act->trusted);
 
 	/* stack mark for result processing */
 	nstack = lua_gettop(L);
@@ -99,10 +135,9 @@ int pllua_call_function(lua_State *L)
 	/* func should be the only thing on the stack after the arg*/
 	Assert(lua_gettop(L) == nstack + 1);
 
-	/* XXX push the args at some point here */
-	nargs = 0;
+	nargs = pllua_push_args(L, fcinfo, fact);
 	
-	if (func_info->retset)
+	if (fact->retset)
 	{
 		/*
 		 * This is the initial call into a SRF. We already registered the
@@ -162,7 +197,7 @@ int pllua_call_function(lua_State *L)
 	}
 	else
 	{
-		lua_call(L, 0, 1);
+		lua_call(L, nargs, LUA_MULTRET);
 	}
 
 	/*
@@ -172,7 +207,7 @@ int pllua_call_function(lua_State *L)
 	 */
 	
 	act->retval = pllua_return_result(L, lua_gettop(L) - nstack,
-									  func_info,
+									  fact,
 									  &fcinfo->isnull);
 	
 	return 0;
@@ -183,7 +218,7 @@ int pllua_call_trigger(lua_State *L)
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 
-	pllua_common_lua_init(L);
+	pllua_common_lua_init(L, fcinfo);
 
 	fcinfo->isnull = true;
 	act->retval = (Datum)0;
@@ -195,7 +230,7 @@ int pllua_call_event_trigger(lua_State *L)
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 
-	pllua_common_lua_init(L);
+	pllua_common_lua_init(L, fcinfo);
 		
 	return 0;
 }
@@ -205,7 +240,7 @@ int pllua_call_inline(lua_State *L)
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 
-	pllua_common_lua_init(L);
+	pllua_common_lua_init(L, fcinfo);
 
 	return 0;
 }
@@ -215,7 +250,7 @@ int pllua_validate(lua_State *L)
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 
-	pllua_common_lua_init(L);
+	pllua_common_lua_init(L, fcinfo);
 		
 	return 0;
 }
