@@ -201,7 +201,10 @@ static int pllua_datum_gc(lua_State *L)
 	return 0;
 }
 
-/* check that the item at "nd" is a datum whose typeinfo is "td" */
+/*
+ * check that the item at "nd" is a datum whose typeinfo is "td"
+ * (caller must have already checked that it really is a typeinfo)
+ */
 static pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
 {
 	void *p = lua_touserdata(L, nd);
@@ -217,6 +220,59 @@ static pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
 		}
 	}
 	return NULL;
+}
+
+static pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td)
+{
+	pllua_datum *p = pllua_todatum(L, nd, td);
+	if (!p)
+		luaL_argerror(L, nd, "datum");
+	return p;
+}
+
+/*
+ * check that the item at "nd" is a datum, and also (if it is) push its
+ * typeinfo and return it (else push nothing)
+ */
+static pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
+{
+	void *p = lua_touserdata(L,nd);
+	nd = lua_absindex(L,nd);
+	if (p)
+	{
+		if (lua_getmetatable(L, nd))
+		{
+			if (lua_getfield(L, -1, "typeinfo") != LUA_TUSERDATA)
+			{
+				lua_pop(L, 2);
+				return NULL;
+			}
+			*ti = *pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+			if (!*ti)
+			{
+				lua_pop(L, 2);
+				return NULL;
+			}
+			lua_insert(L, -2);
+			lua_getuservalue(L, -2);
+			if (!lua_rawequal(L, -1, -2))
+			{
+				lua_pop(L, 3);
+				return NULL;
+			}
+			lua_pop(L, 2);
+			return p;
+		}
+	}
+	return NULL;
+}
+
+static pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
+{
+	pllua_datum *p = pllua_toanydatum(L, nd, ti);
+	if (!p)
+		luaL_argerror(L, nd, "datum");
+	return p;
 }
 
 pllua_datum *pllua_newdatum(lua_State *L)
@@ -270,7 +326,7 @@ void pllua_savedatum(lua_State *L,
  */
 static int pllua_datum_tostring(lua_State *L)
 {
-	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(1));
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	void **p = pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
 	char *volatile str = NULL;
@@ -306,7 +362,7 @@ static int pllua_datum_tostring(lua_State *L)
  */
 static int pllua_datum_tobinary(lua_State *L)
 {
-	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(1));
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	void **p = pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
 	bytea *volatile res = NULL;
@@ -343,7 +399,6 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 	HeapTupleHeader htup = (HeapTupleHeader) DatumGetPointer(d->value);
 	Datum values[MaxTupleAttributeNumber + 1];
 	bool nulls[MaxTupleAttributeNumber + 1];
-	HeapTupleData tuple;
 	TupleDesc tupdesc = t->tupdesc;
 	int i;
 
@@ -372,17 +427,23 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 
 	/*
 	 * XXX Currently, heap_deform_tuple can't fail or throw error. How thin is
-	 * the ice here?
+	 * the ice here?  Do a catch-block anyway.
 	 */
 
-	/* Build a temporary HeapTuple control structure */
-	tuple.t_len = HeapTupleHeaderGetDatumLength(htup);
-	ItemPointerSetInvalid(&(tuple.t_self));
-	tuple.t_tableOid = InvalidOid;
-	tuple.t_data = htup;
+	PLLUA_TRY();
+	{
+		HeapTupleData tuple;
 
-	/* Break down the tuple into fields */
-	heap_deform_tuple(&tuple, tupdesc, values, nulls);
+		/* Build a temporary HeapTuple control structure */
+		tuple.t_len = HeapTupleHeaderGetDatumLength(htup);
+		ItemPointerSetInvalid(&(tuple.t_self));
+		tuple.t_tableOid = InvalidOid;
+		tuple.t_data = htup;
+
+		/* Break down the tuple into fields */
+		heap_deform_tuple(&tuple, tupdesc, values, nulls);
+	}
+	PLLUA_CATCH_RETHROW();
 
 	for (i = 0; i < t->natts; ++i)
 	{
@@ -413,11 +474,8 @@ static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
 	{
 		case LUA_TUSERDATA:
 			{
-				pllua_datum *ed = lua_touserdata(L, -1);
 				pllua_typeinfo *et;
-				if (luaL_getmetafield(L, -1, "_typeinfo") != LUA_TUSERDATA)
-					luaL_error(L, "datum metafield error");
-				et = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+				pllua_datum *ed = pllua_checkanydatum(L, -1, &et);
 				if (pllua_value_from_datum(L, ed->value, et->typeoid) == LUA_TNONE)
 					lua_pop(L,1);
 				else
@@ -467,7 +525,7 @@ static void pllua_datum_getattrs(lua_State *L, int nd, int td)
  */
 static int pllua_datum_index(lua_State *L)
 {
-	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(1));
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	void **p = pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
 	lua_Integer attno;
@@ -522,7 +580,7 @@ static int pllua_datum_next(lua_State *L)
 	int idx = lua_tointeger(L, lua_upvalueindex(3));
 
 	/* don't need the original datum but do this for sanity check */
-	pllua_todatum(L, lua_upvalueindex(2), lua_upvalueindex(1));
+	pllua_checkdatum(L, lua_upvalueindex(2), lua_upvalueindex(1));
 
 	lua_pushvalue(L, lua_upvalueindex(4));
 	for (++idx; idx <= t->natts; ++idx)
@@ -543,9 +601,8 @@ static int pllua_datum_next(lua_State *L)
 
 static int pllua_datum_pairs(lua_State *L)
 {
-	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(1));
-	void **p = pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
-	pllua_typeinfo *t = *p;
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 
 	lua_pushvalue(L, lua_upvalueindex(1));
 	lua_pushvalue(L, 1);
@@ -651,7 +708,7 @@ static int pllua_newtypeinfo(lua_State *L)
 	lua_pushcfunction(L, pllua_datum_gc);
 	lua_setfield(L, -2, "__gc");
 	lua_pushvalue(L, -2);
-	lua_setfield(L, -2, "_typeinfo");
+	lua_setfield(L, -2, "typeinfo");
 	lua_pushvalue(L, -2);
 	luaL_setfuncs(L, datumobj_mt, 1);
 	lua_pop(L, 1);
