@@ -65,7 +65,12 @@ static void pllua_verify_encoding(lua_State *L, const char *str)
 {
 	/* XXX improve error message */
 	if (str && !pg_verifymbstr(str, strlen(str), true))
-		luaL_error(L, "invalid encoding");
+	{
+		if (pllua_context == PLLUA_CONTEXT_LUA)
+			luaL_error(L, "invalid encoding");
+		else
+			elog(ERROR, "invalid encoding");
+	}
 }
 
 /*
@@ -145,6 +150,165 @@ int pllua_value_from_datum(lua_State *L,
 		case INT8OID:
 			lua_pushinteger(L, (lua_Integer) DatumGetInt64(value));
 			return LUA_TNUMBER;
+
+		default:
+			return LUA_TNONE;
+	}
+}
+
+/*
+ * If a datum type corresponds to a simple Lua type, then take a value of that
+ * type and return as Datum/isnull. May copy the data into the current memory
+ * context (and hence requires PG context for call).
+ *
+ * nil is accepted as input for any type whatsoever (and treated as NULL).
+ *
+ * returns true for an acceptable value, false if not.
+ */
+bool pllua_datum_from_value(lua_State *L, int nd,
+							Oid typeid,
+							Datum *result,
+							bool *isnull)
+{
+	ASSERT_PG_CONTEXT;
+
+	if (lua_type(L, nd) == LUA_TNIL)
+	{
+		*isnull = true;
+		*result = (Datum)0;
+		return true;
+	}
+	else
+		*isnull = false;
+
+	switch (lua_type(L, nd))
+	{
+		case LUA_TNIL:
+		case LUA_TNONE:
+			elog(ERROR, "pllua_datum_from_value: missing value");
+
+		case LUA_TBOOLEAN:
+			if (typeid == BOOLOID)
+			{
+				*result = BoolGetDatum( (lua_toboolean(L, nd) != 0) );
+				return true;
+			}
+			return false;
+
+		case LUA_TSTRING:
+			{
+				size_t len;
+				const char *str = lua_tolstring(L, nd, &len);
+
+				switch (typeid)
+				{
+					case TEXTOID:
+					case VARCHAROID:
+						{
+							if (len != strlen(str))
+								elog(ERROR, "null characters not allowed in text values");
+							pllua_verify_encoding(L, str);
+							*result = CStringGetDatum(cstring_to_text_with_len(str, len));
+						}
+						return true;
+
+					case BYTEAOID:
+						{
+							bytea *b = palloc(len + VARHDRSZ);
+							memcpy(VARDATA(b), str, len);
+							SET_VARSIZE(b, len + VARHDRSZ);
+							*result = PointerGetDatum(b);
+						}
+						return true;
+
+					case NAMEOID:
+						{
+							Name v;
+							/* Truncate oversize input */
+							if (len >= NAMEDATALEN)
+								len = pg_mbcliplen(str, len, NAMEDATALEN - 1);
+							/* We use palloc0 here to ensure result is zero-padded */
+							v = (Name) palloc0(NAMEDATALEN);
+							memcpy(NameStr(*v), str, len);
+							*result = NameGetDatum(v);
+						}
+						return true;
+
+					case CSTRINGOID:
+						{
+							if (len != strlen(str))
+								elog(ERROR, "null characters not allowed in text values");
+							pllua_verify_encoding(L, str);
+							*result = CStringGetDatum(str);
+						}
+						return true;
+
+					case BOOLOID:
+						{
+							bool v = false;
+							if (parse_bool_with_len(str, len, &v))
+								*result = BoolGetDatum(v);
+							else
+								elog(ERROR, "invalid input for bool");
+						}
+						return true;
+				}
+			}
+			return false;
+
+		case LUA_TNUMBER:
+			{
+				int isint = 0;
+				lua_Integer intval = lua_tointegerx(L, nd, &isint);
+				lua_Number floatval = lua_tonumber(L, nd);
+
+				switch (typeid)
+				{
+					case FLOAT4OID:
+						*result = Float4GetDatum((float4) floatval);
+						return true;
+
+					case FLOAT8OID:
+						*result = Float8GetDatum((float4) floatval);
+						return true;
+
+					case BOOLOID:
+						if (isint && (intval == 0 || intval == 1))
+							*result = BoolGetDatum( (intval == 1) );
+						else
+							elog(ERROR, "invalid input for bool");
+						return true;
+
+					case OIDOID:
+						if (isint && intval == (lua_Integer)(Oid)intval)
+							*result = ObjectIdGetDatum( (Oid)intval );
+						else
+							elog(ERROR, "oid out of range");
+						return true;
+
+					case INT2OID:
+						if (isint && intval >= PG_INT16_MIN && intval <= PG_INT16_MAX)
+							*result = Int16GetDatum(intval);
+						else
+							elog(ERROR, "smallint out of range");
+						return true;
+
+					case INT4OID:
+						if (isint && intval >= PG_INT32_MIN && intval <= PG_INT32_MAX)
+							*result = Int32GetDatum(intval);
+						else
+							elog(ERROR, "integer out of range");
+						return true;
+
+					case INT8OID:
+						if (isint)
+							*result = Int64GetDatum(intval);
+						else
+							elog(ERROR, "bigint out of range");
+						return true;
+				}
+			}
+			return false;
 
 		default:
 			return LUA_TNONE;
@@ -659,6 +823,7 @@ static int pllua_newtypeinfo(lua_State *L)
 		t->typeoid = oid;
 		t->typmod = typmod;
 		t->tupdesc = NULL;
+		t->arity = 1;
 		t->natts = -1;
 		t->hasoid = false;
 		t->revalidate = false;
@@ -678,6 +843,16 @@ static int pllua_newtypeinfo(lua_State *L)
 			t->tupdesc = CreateTupleDescCopy(tupdesc);
 			t->reloid = get_typ_typrelid(oid);
 			ReleaseTupleDesc(tupdesc);
+		}
+
+		if (tupdesc)
+		{
+			int arity = 0;
+			int i;
+			for (i = 0; i < t->natts; ++i)
+				if (!TupleDescAttr(tupdesc,i)->attisdropped)
+					++arity;
+			t->arity = arity;
 		}
 
 		get_type_io_data(oid, IOFunc_output,
@@ -733,6 +908,7 @@ static int pllua_typeinfo_eq(lua_State *L)
 	 */
 	if (obj1->typeoid != obj2->typeoid
 		|| obj1->typmod != obj2->typmod
+		|| obj1->arity != obj2->arity
 		|| obj1->natts != obj2->natts
 		|| obj1->hasoid != obj2->hasoid
 		|| (obj1->tupdesc && !obj2->tupdesc)
@@ -1265,10 +1441,118 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 	return 1;
 }
 
+/*
+ * "call" for a typeinfo is to invoke it as a value constructor:
+ *
+ * t(val,val,val,...)
+ *
+ * The number of args must match the arity of the type. Each value must either
+ * be acceptable simple input for the field type, or a datum of the correct
+ * type - probably this needs extending to allow casts.
+ *
+ */
+static int pllua_typeinfo_call(lua_State *L)
+{
+	pllua_typeinfo *t = *pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
+	pllua_datum *newd;
+	int nargs = lua_gettop(L) - 1;
+	Datum values[MaxTupleAttributeNumber + 1];
+	bool isnull[MaxTupleAttributeNumber + 1];
+	int i;
+	int argno = 0;
+	int natts = t->natts;
+
+	if (nargs != t->arity)
+		luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
+				   t->arity, nargs);
+
+	for (argno = 0, i = 0; i < ((natts < 0) ? 1 : natts); ++i)
+	{
+		Oid coltype = ((i == 0 && t->natts < 0)
+					   ? t->typeoid
+					   : TupleDescAttr(t->tupdesc, i)->atttypid);
+		if (TupleDescAttr(t->tupdesc, i)->attisdropped)
+		{
+			values[i] = (Datum)0;
+			isnull[i] = true;
+			continue;
+		}
+
+		++argno;
+
+		if (lua_type(L, 2+argno) == LUA_TUSERDATA)
+		{
+			pllua_typeinfo *dt;
+			pllua_datum *d = pllua_checkanydatum(L, 1+argno, &dt);
+			if (dt->typeoid != coltype)
+				luaL_error(L, "incorrect argtype");
+			values[i] = d->value;
+			isnull[i] = false;
+			lua_pop(L,1);
+		}
+	}
+
+	PLLUA_TRY();
+	{
+		for (argno = 0, i = 0; i < ((natts < 0) ? 1 : natts); ++i)
+		{
+			Oid coltype = ((i == 0 && t->natts < 0)
+						   ? t->typeoid
+						   : TupleDescAttr(t->tupdesc, i)->atttypid);
+			if (TupleDescAttr(t->tupdesc, i)->attisdropped)
+				continue;
+
+			++argno;
+
+			if (lua_type(L, 1+argno) != LUA_TUSERDATA)
+			{
+				if (!pllua_datum_from_value(L, 1+argno, coltype, &values[i], &isnull[i]))
+					elog(ERROR, "incompatible value type");
+			}
+		}
+	}
+	PLLUA_CATCH_RETHROW();
+
+	if (natts < 0 && isnull[0])
+	{
+		lua_pushnil(L);
+		return 1;
+	}
+
+	lua_pushvalue(L, 1);
+	newd = pllua_newdatum(L);
+	lua_remove(L, -2);
+
+	PLLUA_TRY();
+	{
+		MemoryContext mcxt = pllua_get_memory_cxt(L);
+
+		if (natts < 0)
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+			newd->value = values[0];
+			pllua_savedatum(L, newd, t);
+			MemoryContextSwitchTo(oldcontext);
+		}
+		else
+		{
+			HeapTuple htup = heap_form_tuple(t->tupdesc, values, isnull);
+			MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+			newd->value = heap_copy_tuple_as_datum(htup, t->tupdesc);
+			newd->need_gc = true;
+			MemoryContextSwitchTo(oldcontext);
+		}
+	}
+	PLLUA_CATCH_RETHROW();
+
+	return 1;
+}
+
 static struct luaL_Reg typeinfo_mt[] = {
 	{ "__eq", pllua_typeinfo_eq },
 	{ "__gc", pllua_typeinfo_gc },
 	{ "__tostring", pllua_dump_typeinfo },
+	{ "__call", pllua_typeinfo_call },
 	{ NULL, NULL }
 };
 

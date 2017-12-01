@@ -181,7 +181,10 @@ typedef struct pllua_typeinfo {
 	Oid typeoid;
 	int32 typmod;  /* only for RECORD */
 
-	/* -1 for scalars, since composites can have no columns */
+	/* 1 for scalars, otherwise natts - num_dropped_cols */
+	int arity;
+
+	/* -1 for scalars, since composites might have no columns */
 	int natts;
 	bool hasoid;
 	bool revalidate;
@@ -290,6 +293,10 @@ void pllua_savedatum(lua_State *L,
 int pllua_value_from_datum(lua_State *L,
 						   Datum value,
 						   Oid typeid);
+bool pllua_datum_from_value(lua_State *L, int nd,
+							Oid typeid,
+							Datum *result,
+							bool *isnull);
 pllua_datum *pllua_newdatum(lua_State *L);
 void pllua_savedatum(lua_State *L,
 					 pllua_datum *d,
