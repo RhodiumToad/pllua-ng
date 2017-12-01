@@ -34,6 +34,7 @@ void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt)
 	luaL_setfuncs(L, mt, 0);
 	lua_pushstring(L, objtype);
 	lua_setfield(L, -2, "__name");
+	lua_pushvalue(L, -1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, objtype);
 }
 
@@ -63,9 +64,11 @@ MemoryContext pllua_get_memory_cxt(lua_State *L)
 /*
  * Create a refobj of the specified type and value (which may be NULL)
  *
+ * Optionally create a table and put it in the uservalue slot.
+ *
  * Leaves the object on the stack, and returns the pointer to the pointer slot.
  */
-void **pllua_newrefobject(lua_State *L, char *objtype, void *value)
+void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool uservalue)
 {
 	void **p = lua_newuserdata(L, sizeof(void*));
 	*p = value;
@@ -74,6 +77,11 @@ void **pllua_newrefobject(lua_State *L, char *objtype, void *value)
 		int t = lua_rawgetp(L, LUA_REGISTRYINDEX, objtype);
 		Assert(t == LUA_TTABLE);
 		lua_setmetatable(L, -2);
+	}
+	if (uservalue)
+	{
+		lua_newtable(L);
+		lua_setuservalue(L, -2);
 	}
 	return p;
 }
@@ -142,7 +150,7 @@ void pllua_type_error(lua_State *L, char *expected)
 void **pllua_checkrefobject(lua_State *L, int nd, char *objtype)
 {
 	void **p = pllua_torefobject(L, nd, objtype);
-	if (!p)
+	if (!p || !*p)
 		luaL_argerror(L, nd, objtype);
 	return p;
 }
@@ -172,6 +180,14 @@ static int pllua_freeactivation(lua_State *L)
 {
 	pllua_func_activation *act = lua_touserdata(L, 1);
 
+	act->dead = true;
+	/*
+	 * These are allocated in the memory context that's going away, so forget
+	 * they exist
+	 */
+	act->argtypes = NULL;
+	act->tupdesc = NULL;
+	
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	lua_pushnil(L);
 	lua_rawsetp(L, -2, act);
@@ -256,7 +272,12 @@ int pllua_newactivation(lua_State *L)
 	act->resolved = false;
 	act->rettype = InvalidOid;
 	act->tupdesc = NULL;
-	
+
+	act->L = L;
+	act->cb.func = pllua_freeactivation_cb;
+	act->cb.arg = act;
+	act->dead = false;
+
 	lua_getuservalue(L, -1);
 	lua_pushvalue(L, 1);
 	lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
@@ -268,9 +289,6 @@ int pllua_newactivation(lua_State *L)
 	lua_pop(L, 1);
 
 	/* this can't throw a pg error, thankfully */
-	act->L = L;
-	act->cb.func = pllua_freeactivation_cb;
-	act->cb.arg = act;
 	MemoryContextRegisterResetCallback(mcxt, &act->cb);
 	
 	return 1;
@@ -328,10 +346,19 @@ int pllua_activation_getfunc(lua_State *L)
 	return 1;
 }
 
-static int pllua_get_cur_act(lua_State *L)
+int pllua_get_cur_act(lua_State *L)
 {
-	FmgrInfo *flinfo = *(void **)(lua_getextraspace(L));
-	pllua_func_activation *act = (flinfo) ? flinfo->fn_extra : NULL;
+	lua_State *mainthread;
+	FmgrInfo *flinfo;
+	pllua_func_activation *act;
+		
+	lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
+	mainthread = lua_tothread(L, -1);
+	lua_pop(L, 1);
+	if (!mainthread)
+		luaL_error(L, "main thread not found");
+	flinfo = *(void **)(lua_getextraspace(mainthread));
+	act = (flinfo) ? flinfo->fn_extra : NULL;
 	if (!act)
 		return 0;
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
@@ -349,10 +376,12 @@ static int pllua_dump_activation(lua_State *L)
 	int i;
 
 	snprintf(buf, 1024,
+			 "%s"
 			 "func_info: %p  thread: %p  "
 			 "resolved: %d  polymorphic: %d  variadic_call: %d  retset: %d  "
 			 "rettype: %u  tupdesc: %p  typefuncclass: %d  "
 			 "nargs: %d  argtypes:",
+			 (act->dead) ? "DEAD " : "",
 			 act->func_info, act->thread,
 			 (int) act->resolved, (int) act->polymorphic, (int) act->variadic_call,
 			 (int) act->retset,
@@ -360,12 +389,17 @@ static int pllua_dump_activation(lua_State *L)
 			 act->nargs);
 	luaL_addsize(&b, strlen(buf));
 
-	for (i = 0; i < act->nargs; ++i)
+	if (!act->dead && act->argtypes)
 	{
-		buf = luaL_prepbuffsize(&b, 64);
-		snprintf(buf, 64, " %u", (unsigned) act->argtypes[i]);
-		luaL_addsize(&b, strlen(buf));
+		for (i = 0; i < act->nargs; ++i)
+		{
+			buf = luaL_prepbuffsize(&b, 64);
+			snprintf(buf, 64, " %u", (unsigned) act->argtypes[i]);
+			luaL_addsize(&b, strlen(buf));
+		}
 	}
+	else if (!act->dead)
+		luaL_addstring(&b, " (null)");
 	
    	luaL_pushresult(&b);
 	return 1;
@@ -507,6 +541,8 @@ void pllua_init_objects(lua_State *L, bool trusted)
 {
 	pllua_newmetatable(L, PLLUA_FUNCTION_OBJECT, funcobj_mt);
 	pllua_newmetatable(L, PLLUA_ACTIVATION_OBJECT, actobj_mt);
+	lua_pop(L, 2);
+	pllua_init_datum_objects(L);
 }
 
 void pllua_init_functions(lua_State *L, bool trusted)

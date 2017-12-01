@@ -8,6 +8,8 @@
 #include "pllua.h"
 
 #include "storage/ipc.h"
+#include "utils/inval.h"
+#include "utils/syscache.h"
 
 PGDLLEXPORT void _PG_init(void);
 
@@ -23,11 +25,12 @@ static char *pllua_on_untrusted_init = NULL;
 typedef struct pllua_interp_desc
 {
 	Oid			user_id;		/* Hash key (must be first!) */
+	bool		trusted;
 	lua_State  *interp;			/* The interpreter */
 } pllua_interp_desc;
 
 
-static lua_State *pllua_newstate(bool trusted, Oid user_id);
+static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_desc);
 static int pllua_init_state(lua_State *L);
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
@@ -54,9 +57,16 @@ lua_State *pllua_getstate(bool trusted)
 		return interp_desc->interp;
 
 	if (!found)
+	{
 		interp_desc->interp = NULL;
+		interp_desc->trusted = trusted;
+	}
 
-	interp_desc->interp = pllua_newstate(trusted, user_id);
+	/*
+	 * this can throw a pg error, but is required to ensure the interpreter is
+	 * removed from interp_desc first if it does.
+	 */
+	pllua_newstate(trusted, user_id, interp_desc);
 
 	return interp_desc->interp;
 }
@@ -146,7 +156,18 @@ pllua_fini(int code, Datum arg)
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
 	{
 		if (interp_desc->interp)
-			lua_close(interp_desc->interp);
+		{
+			lua_State *L = interp_desc->interp;
+			interp_desc->interp = NULL;
+			/*
+			 * We intentionally do not worry about trying to rethrow any errors
+			 * happening here; we're trying to shut down, and ignoring an error
+			 * is probably less likely to crash us than 
+			 */
+			pllua_setcontext(PLLUA_CONTEXT_LUA);
+			lua_close(L); /* can't throw, but has internal lua catch blocks */
+			pllua_setcontext(PLLUA_CONTEXT_PG);
+		}
 		/*
 		 * we intentionally do not worry about deleting the memory contexts
 		 * here; we're about to die anyway.
@@ -154,6 +175,55 @@ pllua_fini(int code, Datum arg)
 	}
 
 	elog(DEBUG3, "pllua_fini: done");
+}
+
+
+static void pllua_relcache_callback(Datum arg, Oid relid)
+{
+	HASH_SEQ_STATUS hash_seq;
+	pllua_interp_desc *interp_desc;
+	
+	hash_seq_init(&hash_seq, pllua_interp_hash);
+	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
+	{
+		lua_State *L = interp_desc->interp;
+		if (L)
+		{
+			int rc;
+			pllua_pushcfunction(L, pllua_typeinfo_invalidate);
+			lua_pushnil(L);
+			lua_pushinteger(L, (lua_Integer) relid);
+			rc = pllua_pcall_nothrow(L, 2, 0, 0);
+			if (rc)
+			{
+				elog(WARNING, "lua error in relcache invalidation");
+			}
+		}
+	}
+}
+
+static void pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashvalue)
+{
+	HASH_SEQ_STATUS hash_seq;
+	pllua_interp_desc *interp_desc;
+	
+	hash_seq_init(&hash_seq, pllua_interp_hash);
+	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
+	{
+		lua_State *L = interp_desc->interp;
+		if (L)
+		{
+			int rc;
+			pllua_pushcfunction(L, pllua_typeinfo_invalidate);
+			lua_pushinteger(L, (lua_Integer) InvalidOid);
+			lua_pushnil(L);
+			rc = pllua_pcall_nothrow(L, 2, 0, 0);
+			if (rc)
+			{
+				elog(WARNING, "lua error in syscache invalidation");
+			}
+		}
+	}
 }
 
 /*
@@ -196,19 +266,6 @@ static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize)
 }
 
 
-/*
- * Simple bare-bones execution of a single string.
- */
-static void pllua_runstring(lua_State *L, const char *chunkname, const char *str)
-{
-	if (str)
-	{
-		int rc = luaL_loadbuffer(L, str, strlen(str), chunkname);
-		if (rc)
-			lua_error(L);
-		lua_call(L, 0, 0);
-	}
-}
 
 /*
  * Lua-environment part of interpreter setup.
@@ -240,7 +297,49 @@ static int pllua_init_state(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
 
+	/* don't run user code yet. */
+	return 0;
+}
+
+/*
+ * Remove anything installed by pllua_init_state that isn't safe for the user
+ * to play with. This is a separate step because we want the
+ * (superuser-controlled) init strings to be able to load modules and so on.
+ */
+static int pllua_trusted_lockdown(lua_State *L)
+{
+	/* XXX TODO */
+	return 0;
+}
+
+/*
+ * Simple bare-bones execution of a single string.
+ */
+static void pllua_runstring(lua_State *L, const char *chunkname, const char *str)
+{
+	if (str)
+	{
+		int rc = luaL_loadbuffer(L, str, strlen(str), chunkname);
+		if (rc)
+			lua_error(L);
+		lua_call(L, 0, 0);
+	}
+}
+
+static int pllua_run_init_strings(lua_State *L)
+{
+	bool trusted;
+	
+	if (lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED) != LUA_TBOOLEAN)
+		luaL_error(L, "inconsistency in interpreter setup");
+		
+	trusted = lua_toboolean(L, -1);
+	
 	pllua_runstring(L, "on_init", pllua_on_init);
 	if (trusted)
 		pllua_runstring(L, "on_trusted_init", pllua_on_trusted_init);
@@ -253,11 +352,12 @@ static int pllua_init_state(lua_State *L)
 /*
  * PG-environment part of interpreter setup.
  */
-static lua_State *pllua_newstate(bool trusted, Oid user_id)
+static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_desc)
 {
 	static bool first_time = true;
 	MemoryContext mcxt = NULL;
 	MemoryContext emcxt = NULL;
+	MemoryContext oldcontext = CurrentMemoryContext;
 	lua_State *L;
 
 	Assert(pllua_context == PLLUA_CONTEXT_PG);
@@ -283,6 +383,7 @@ static lua_State *pllua_newstate(bool trusted, Oid user_id)
 
 	PG_TRY();
 	{
+		int rc;
 		/*
 		 * Since we just created this interpreter, we know we're not in any
 		 * protected environment yet, so Lua errors outside of pcall will
@@ -299,22 +400,65 @@ static lua_State *pllua_newstate(bool trusted, Oid user_id)
 		lua_pushlightuserdata(L, mcxt);
 		lua_pushlightuserdata(L, emcxt);
 		pllua_pcall(L, 4, 0, 0);
+
+		if (first_time)
+		{
+			on_proc_exit(pllua_fini, (Datum)0);
+			CacheRegisterRelcacheCallback(pllua_relcache_callback, (Datum)0);
+			CacheRegisterSyscacheCallback(TYPEOID, pllua_syscache_typeoid_callback, (Datum)0);
+			first_time = false;
+		}
+
+		interp_desc->interp = L;
+
+		/*
+		 * Now that we have everything set up, it should finally be safe to run
+		 * some arbitrary code.
+		 */
+		rc = pllua_cpcall(L, pllua_run_init_strings, NULL);
+		if (rc)
+			pllua_rethrow_from_lua(L, rc);
+
+		if (trusted)
+		{
+			/*
+			 * Anything not nailed down belongs to the user. Anything they can
+			 * pry loose is not nailed down.
+			 */
+			rc = pllua_cpcall(L, pllua_trusted_lockdown, NULL);
+			if (rc)
+				pllua_rethrow_from_lua(L, rc);
+		}
 	}
 	PG_CATCH();
 	{
+		ErrorData *e;
 		Assert(pllua_context == PLLUA_CONTEXT_PG);
-		lua_close(L); /* can't throw */
+
+		interp_desc->interp = NULL;
+		
+		/*
+		 * If we got a lua error (which could be a caught pg error) during the
+		 * protected part of interpreter initialization, then we need to kill
+		 * the interpreter; but that could provoke further errors, so we exit
+		 * pg's error handling first. Since we need to kill off the lua memory
+		 * contexts too, we temporarily use the caller's memory (which should
+		 * be a transient context) to store the error data.
+		 */
+		MemoryContextSwitchTo(oldcontext);
+		e = CopyErrorData();
+		FlushErrorState();
+
+		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_ending = true;  /* we're ending _this_ interpreter at least */
+		lua_close(L); /* can't throw, but has internal lua catch blocks */
+		pllua_ending = false;
+		pllua_setcontext(PLLUA_CONTEXT_PG);
+		
 		MemoryContextDelete(mcxt);
-		PG_RE_THROW();
+		
+		ReThrowError(e);
 	}
 	PG_END_TRY();
-
-	if (first_time)
-	{
-		first_time = false;
-		on_proc_exit(pllua_fini, (Datum)0);
-	}
-
-	return L;
 }
 

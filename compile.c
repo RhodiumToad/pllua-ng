@@ -60,7 +60,7 @@ static int pllua_compile(lua_State *L)
 	 * caller fills in pointer value, but it's our job to put in the lua
 	 * function object
 	 */
-	pllua_newrefobject(L, PLLUA_FUNCTION_OBJECT, NULL);
+	pllua_newrefobject(L, PLLUA_FUNCTION_OBJECT, NULL, true);
 
 	luaL_buffinit(L, &b);
 
@@ -119,7 +119,11 @@ static int pllua_compile(lua_State *L)
 	lua_remove(L, -2); /* source */
 	lua_call(L, 0, 1);
 	
-	lua_setuservalue(L, -2);
+	lua_getuservalue(L, -2);
+	lua_insert(L, -2);
+	lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
+	lua_pop(L, 1);
+	
 	return 1;
 }
 
@@ -424,6 +428,18 @@ pllua_validate_and_push(lua_State *L,
 				act->typefuncclass = get_call_result_type(fcinfo,
 														  &act->rettype,
 														  &act->tupdesc);
+				if (act->tupdesc && act->tupdesc->tdrefcount != -1)
+				{
+					/*
+					 * This is a ref-counted tupdesc, but we can't pin it
+					 * because any such pin would belong to a resource owner,
+					 * and we can't guarantee that our required data lifetimes
+					 * nest properly with the resource owners. So make a copy
+					 * instead. (If it's not refcounted, then it'll already be
+					 * in fn_mcxt.)
+					 */
+					act->tupdesc = CreateTupleDescCopy(act->tupdesc);
+				}
 			}
 			else
 			{

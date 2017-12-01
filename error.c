@@ -21,7 +21,7 @@ void pllua_poperror(lua_State *L)
 int pllua_newerror(lua_State *L)
 {
 	void *p = lua_touserdata(L, 1);
-	pllua_newrefobject(L, PLLUA_ERROR_OBJECT, p);
+	pllua_newrefobject(L, PLLUA_ERROR_OBJECT, p, false);
 	lua_pushvalue(L, -1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
 	return 1;
@@ -289,7 +289,21 @@ static int pllua_errobject_gc(lua_State *L)
 	void *obj = *p;
 	*p = NULL;
 	if (obj)
-		FreeErrorData(obj);
+	{
+		MemoryContext oldmcxt = CurrentMemoryContext;
+		pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
+		PG_TRY();
+		{
+			FreeErrorData(obj);
+		}
+		PG_CATCH();
+		{
+			pllua_setcontext(oldctx);
+			pllua_rethrow_from_pg(L, oldmcxt);
+		}
+		PG_END_TRY();
+		pllua_setcontext(oldctx);
+	}
 	return 0;
 }
 

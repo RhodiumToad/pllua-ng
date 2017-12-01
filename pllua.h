@@ -136,6 +136,7 @@ typedef struct pllua_func_activation
 	 */
 	lua_State *L;
 	MemoryContextCallback cb;
+	bool dead;
 	
 } pllua_func_activation;
 
@@ -196,14 +197,19 @@ extern char PLLUA_ERRORCONTEXT[];
 extern char PLLUA_USERID[];
 extern char PLLUA_TRUSTED[];
 extern char PLLUA_FUNCS[];
+extern char PLLUA_TYPES[];
+extern char PLLUA_RECORDS[];
 extern char PLLUA_ACTIVATIONS[];
 extern char PLLUA_FUNCTION_OBJECT[];
 extern char PLLUA_ERROR_OBJECT[];
 extern char PLLUA_ACTIVATION_OBJECT[];
+extern char PLLUA_TYPEINFO_OBJECT[];
+extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
 extern char PLLUA_LAST_ERROR[];
 extern char PLLUA_RECURSIVE_ERROR[];
 extern char PLLUA_FUNCTION_MEMBER[];
 extern char PLLUA_THREAD_MEMBER[];
+extern char PLLUA_TYPEINFO_MEMBER[];
 
 /* functions */
 
@@ -214,6 +220,16 @@ lua_State *pllua_getstate(bool trusted);
 /* compile.c */
 
 pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fcinfo, bool trusted);
+
+/* datum.c */
+
+void pllua_init_datum_objects(lua_State *L);
+int pllua_typeinfo_invalidate(lua_State *L);
+struct pllua_datum;
+struct pllua_typeinfo;
+void pllua_savedatum(lua_State *L,
+					 struct pllua_datum *d,
+					 struct pllua_typeinfo *t);
 
 /* elog.c */
 
@@ -251,7 +267,7 @@ int pllua_validate(lua_State *L);
 bool pllua_isobject(lua_State *L, int nd, char *objtype);	
 void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt);
 MemoryContext pllua_get_memory_cxt(lua_State *L);
-void **pllua_newrefobject(lua_State *L, char *objtype, void *value);
+void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool uservalue);
 void **pllua_torefobject(lua_State *L, int nd, char *objtype);
 void *pllua_newobject(lua_State *L, char *objtype, size_t sz, bool uservalue);
 void *pllua_toobject(lua_State *L, int nd, char *objtype);
@@ -263,6 +279,7 @@ int pllua_newactivation(lua_State *L);
 int pllua_setactivation(lua_State *L);
 void pllua_getactivation(lua_State *L, pllua_func_activation *act);
 int pllua_activation_getfunc(lua_State *L);
+int pllua_get_cur_act(lua_State *L);
 
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
