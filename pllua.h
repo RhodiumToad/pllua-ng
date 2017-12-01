@@ -114,6 +114,7 @@ typedef struct pllua_function_compile_info
 
 typedef struct pllua_func_activation
 {
+	FmgrInfo *flinfo;
 	pllua_function_info *func_info;
 	lua_State *thread;
 
@@ -155,6 +156,48 @@ typedef struct pllua_activation_record
 	Oid			validate_func;
 
 } pllua_activation_record;
+
+typedef struct pllua_datum {
+	Datum value;
+	bool need_gc;
+} pllua_datum;
+
+typedef struct pllua_typeinfo {
+
+	Oid typeoid;
+	int32 typmod;  /* only for RECORD */
+
+	/* -1 for scalars, since composites can have no columns */
+	int natts;
+	bool hasoid;
+	bool revalidate;
+	TupleDesc tupdesc;
+	Oid reloid;  /* for named composite types */
+
+	int16 typlen;
+	bool typbyval;
+	char typalign;
+	char typdelim;
+	Oid typioparam;
+	Oid outfuncid;
+
+	/* we don't look these up until we need them */
+	Oid infuncid;
+	Oid sendfuncid;
+	Oid recvfuncid;
+
+	FmgrInfo outfunc;
+	FmgrInfo infunc;
+	FmgrInfo sendfunc;
+	FmgrInfo recvfunc;
+
+	/*
+	 * we give this its own context, because we can't control what fmgr will
+	 * dangle off the FmgrInfo structs
+     */
+	MemoryContext mcxt;
+
+} pllua_typeinfo;
 
 /*
  * are we shutting down?
@@ -230,6 +273,14 @@ struct pllua_typeinfo;
 void pllua_savedatum(lua_State *L,
 					 struct pllua_datum *d,
 					 struct pllua_typeinfo *t);
+int pllua_value_from_datum(lua_State *L,
+						   Datum value,
+						   Oid typeid);
+pllua_datum *pllua_newdatum(lua_State *L);
+void pllua_savedatum(lua_State *L,
+					 pllua_datum *d,
+					 pllua_typeinfo *t);
+int pllua_typeinfo_lookup(lua_State *L);
 
 /* elog.c */
 
@@ -280,6 +331,7 @@ int pllua_setactivation(lua_State *L);
 void pllua_getactivation(lua_State *L, pllua_func_activation *act);
 int pllua_activation_getfunc(lua_State *L);
 int pllua_get_cur_act(lua_State *L);
+FmgrInfo *pllua_get_cur_flinfo(lua_State *L);
 
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);

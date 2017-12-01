@@ -50,50 +50,7 @@
  *
  */
 
-typedef struct pllua_datum {
-	Datum value;
-	bool need_gc;
-} pllua_datum;
 
-typedef struct pllua_typeinfo {
-
-	Oid typeoid;
-	int32 typmod;  /* only for RECORD */
-
-	/* -1 for scalars, since composites can have no columns */
-	int natts;
-	bool hasoid;
-	bool revalidate;
-	TupleDesc tupdesc;
-	Oid reloid;  /* for named composite types */
-
-	int16 typlen;
-	bool typbyval;
-	char typalign;
-	char typdelim;
-	Oid typioparam;
-	Oid outfuncid;
-
-	/* we don't look these up until we need them */
-	Oid infuncid;
-	Oid sendfuncid;
-	Oid recvfuncid;
-
-	FmgrInfo outfunc;
-	FmgrInfo infunc;
-	FmgrInfo sendfunc;
-	FmgrInfo recvfunc;
-
-	/*
-	 * we give this its own context, because we can't control what fmgr will
-	 * dangle off the FmgrInfo structs
-     */
-	MemoryContext mcxt;
-
-} pllua_typeinfo;
-
-static int pllua_typeinfo_lookup(lua_State *L);
-static pllua_datum *pllua_newdatum(lua_State *L);
 static bool pllua_typeinfo_iofunc(lua_State *L,
 								  pllua_typeinfo *t,
 								  IOFuncSelector whichfunc);
@@ -146,9 +103,9 @@ static Datum pllua_detoast_light(lua_State *L, Datum d)
  *
  * Returns the Lua type or LUA_TNONE
  */
-static int pllua_value_from_datum(lua_State *L,
-								  Datum value,
-								  Oid typeid)
+int pllua_value_from_datum(lua_State *L,
+						   Datum value,
+						   Oid typeid)
 {
 	ASSERT_LUA_CONTEXT;
 
@@ -277,7 +234,7 @@ static pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
 	return NULL;
 }
 
-static pllua_datum *pllua_newdatum(lua_State *L)
+pllua_datum *pllua_newdatum(lua_State *L)
 {
 	pllua_datum *d;
 	pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
@@ -653,7 +610,7 @@ static int pllua_newtypeinfo(lua_State *L)
 	lua_Integer typmod = luaL_optinteger(L, 2, -1);
 	MemoryContext oldcontext = CurrentMemoryContext;
 	void **p = pllua_newrefobject(L, PLLUA_TYPEINFO_OBJECT, NULL, true);
-	pllua_typeinfo *t;
+	pllua_typeinfo *volatile t;
 
 	if (typmod != -1 && oid != RECORDOID)
 		luaL_error(L, "cannot specify typmod for non-RECORD typeinfo");
@@ -776,7 +733,7 @@ static int pllua_typeinfo_eq(lua_State *L)
 	return 1;
 }
 
-static int pllua_typeinfo_lookup(lua_State *L)
+int pllua_typeinfo_lookup(lua_State *L)
 {
 	Oid oid = luaL_checkinteger(L, 1);
 	lua_Integer typmod = luaL_optinteger(L, 2, -1);
@@ -1057,13 +1014,12 @@ static int pllua_typeinfo_package_call(lua_State *L)
 	if (lua_isinteger(L, 3))
 	{
 		int idx = lua_tointeger(L, 3);
-		void **p;
+		FmgrInfo *flinfo;
 		pllua_func_activation *act;
 		Oid oid = InvalidOid;
 		int32 typmod = -1;
 		pllua_get_cur_act(L); /* throws if not in a function */
-		p = pllua_torefobject(L, -1, PLLUA_ACTIVATION_OBJECT);
-		act = *p;
+		act = pllua_toobject(L, -1, PLLUA_ACTIVATION_OBJECT);
 		if (idx == 0)
 		{
 			oid = act->rettype;
@@ -1072,10 +1028,23 @@ static int pllua_typeinfo_package_call(lua_State *L)
 		}
 		else if (idx > 0 && idx <= act->nargs)
 		{
-			oid = act->argtypes[idx - 1];
+			if (act->argtypes[idx - 1] != ANYOID)
+				oid = act->argtypes[idx - 1];
+			else if ((flinfo = pllua_get_cur_flinfo(L)))
+				oid = get_fn_expr_argtype(flinfo, idx-1);
+			else
+				oid = ANYOID;
 		}
-		else
+		else if (idx > act->nargs
+				 && act->func_info->variadic_any
+				 && (flinfo = pllua_get_cur_flinfo(L)))
+		{
+			oid = get_fn_expr_argtype(flinfo, idx-1);
+		}
+
+		if (!OidIsValid(oid))
 			luaL_error(L, "argument index out of range");
+
 		lua_pushcfunction(L, pllua_typeinfo_lookup);
 		lua_pushinteger(L, (lua_Integer) oid);
 		lua_pushinteger(L, (lua_Integer) typmod);

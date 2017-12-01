@@ -341,23 +341,31 @@ int pllua_activation_getfunc(lua_State *L)
 	lua_getuservalue(L, -1);
 	lua_rawgetp(L, -1, PLLUA_FUNCTION_MEMBER);
 	lua_getuservalue(L, -1);
-	lua_insert(L, -3);
-	lua_pop(L, 2);
+	lua_rawgetp(L, -1, PLLUA_FUNCTION_MEMBER);
+	lua_insert(L, -4);
+	lua_pop(L, 3);
 	return 1;
 }
 
-int pllua_get_cur_act(lua_State *L)
+FmgrInfo *pllua_get_cur_flinfo(lua_State *L)
 {
 	lua_State *mainthread;
 	FmgrInfo *flinfo;
-	pllua_func_activation *act;
 
 	lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
 	mainthread = lua_tothread(L, -1);
 	lua_pop(L, 1);
 	if (!mainthread)
-		luaL_error(L, "main thread not found");
+		luaL_error(L, "main thread not found!");
 	flinfo = *(void **)(lua_getextraspace(mainthread));
+	return flinfo;
+}
+
+int pllua_get_cur_act(lua_State *L)
+{
+	FmgrInfo *flinfo = pllua_get_cur_flinfo(L);
+	pllua_func_activation *act;
+
 	act = (flinfo) ? flinfo->fn_extra : NULL;
 	if (!act)
 		return 0;

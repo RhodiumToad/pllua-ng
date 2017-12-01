@@ -1,7 +1,9 @@
 
 #include "pllua.h"
 
+#include "access/htup_details.h"
 #include "catalog/pg_type.h"
+
 
 static void pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
 {
@@ -16,6 +18,31 @@ static Datum pllua_return_result(lua_State *L, int nret,
 {
 	/* XXX much work needed here. */
 
+	/*
+	 * Basic outline of possibilities:
+	 *
+	 * 0 results: if the function is an SRF this is already handled by
+	 * returning 0 rows, so here, we treat it as returning NULL.
+	 *
+	 * 1 result: if the function has a scalar return type, then this is the
+	 * return value. If the function has a composite return type, then this
+	 * must either be a Lua table or a composite datum object (for which we'll
+	 * have to figure out a coercion - or we could punt and use the deformed
+	 * datum as if it were the table case).
+	 *
+	 * >1 result: the function must have a composite return type, and the
+	 * result values are the columns.
+	 *
+	 * On types: in all cases except bytea we should accept a lua string as
+	 * being the text representation and convert accordingly. We MUST do
+	 * encoding validation on all strings for non-bytea types. Lua numbers can
+	 * be accepted for integer, float and numeric types.
+	 *
+	 * If we get a datum object, though, we have the issue of converting it to
+	 * the correct type...
+	 *
+	 */
+
 	if (nret > 0)
 	{
 		lua_Integer r = lua_tointeger(L, -1);
@@ -27,12 +54,77 @@ static Datum pllua_return_result(lua_State *L, int nret,
 	return (Datum)0;
 }
 
+static void pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, int32 *argtypmod)
+{
+	/* this may detoast, so we need a catch block */
+	MemoryContext oldmcxt = CurrentMemoryContext;
+	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
+	PG_TRY();
+	{
+		HeapTupleHeader arg = DatumGetHeapTupleHeader(*value);
+		*value = PointerGetDatum(arg);
+		*argtype = HeapTupleHeaderGetTypeId(arg);
+		*argtypmod = HeapTupleHeaderGetTypMod(arg);
+	}
+	PG_CATCH();
+	{
+		pllua_setcontext(oldctx);
+		pllua_rethrow_from_pg(L, oldmcxt);
+	}
+	PG_END_TRY();
+	pllua_setcontext(oldctx);
+}
+
+
+/*
+ * args are on stack at -nargs .. -1
+ *
+ */
+static void pllua_save_args(lua_State *L, int nargs, pllua_typeinfo **argtypes)
+{
+	MemoryContext oldmcxt = CurrentMemoryContext;
+
+	ASSERT_LUA_CONTEXT;
+
+	if (nargs == 0)
+		return;
+
+	pllua_setcontext(PLLUA_CONTEXT_PG);
+	PG_TRY();
+	{
+		int i;
+		int arg0 = lua_absindex(L, -nargs);
+
+		MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+
+		for (i = 0; i < nargs; ++i)
+		{
+			if (lua_type(L, arg0+i) == LUA_TUSERDATA
+				&& argtypes[i])
+			{
+				pllua_datum *d = lua_touserdata(L, arg0+i);
+				pllua_savedatum(L, d, argtypes[i]);
+			}
+		}
+
+		MemoryContextSwitchTo(oldmcxt);
+	}
+	PG_CATCH();
+	{
+		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_rethrow_from_pg(L, oldmcxt);
+	}
+	PG_END_TRY();
+	pllua_setcontext(PLLUA_CONTEXT_LUA);
+}
+
 static int pllua_push_args(lua_State *L,
 						   FunctionCallInfo fcinfo,
 						   pllua_func_activation *act)
 {
 	int i;
 	int nargs = PG_NARGS();   /* _actual_ args in call */
+	pllua_typeinfo *argtinfo[FUNC_MAX_ARGS];
 
 	/*
 	 * If we're variadic, pg has collected the variadic args into an array,
@@ -44,22 +136,69 @@ static int pllua_push_args(lua_State *L,
 	luaL_checkstack(L, 40 + nargs, NULL);
 	for (i = 0; i < nargs; ++i)
 	{
+		Datum value = PG_GETARG_DATUM(i);
+		Oid argtype = InvalidOid;
+		int32 argtypmod = -1;
+
 		if (i < act->nargs
 			&& act->argtypes[i] != ANYOID)
 		{
-			/* XXX */
-			lua_pushinteger(L, act->argtypes[i]);
+			argtype = act->argtypes[i];
 		}
 		else
 		{
 			/* arg is ANYOID, so resolve what type the caller thinks it is. */
 			/* we rely on this not throwing! */
-			Oid argtype = get_fn_expr_argtype(fcinfo->flinfo, i);
+			argtype = get_fn_expr_argtype(fcinfo->flinfo, i);
 			if (argtype == InvalidOid)
 				luaL_error(L, "cannot determine type of argument %d", i);
-			lua_pushinteger(L, argtype);
 		}
+
+		if (argtype == RECORDOID && !PG_ARGISNULL(i))
+		{
+			/*
+			 * RECORD type with a non-null value - prefer to take the type
+			 * from the real record
+			 */
+			pllua_get_record_argtype(L, &value, &argtype, &argtypmod);
+		}
+
+		/*
+		 * Try pushing the value as a simple lua value first, and only push a
+		 * datum object if that failed.
+		 */
+		if (PG_ARGISNULL(i))
+		{
+			lua_pushnil(L);
+		}
+		else if (pllua_value_from_datum(L, value, argtype) == LUA_TNONE)
+		{
+			void **p;
+			pllua_datum *d;
+
+			lua_pushcfunction(L, pllua_typeinfo_lookup);
+			lua_pushinteger(L, (lua_Integer) argtype);
+			lua_pushinteger(L, (lua_Integer) argtypmod);
+			lua_call(L, 2, 1);
+
+			if (lua_isnil(L, -1))
+				luaL_error(L, "failed to find typeinfo");
+			p = pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+			argtinfo[i] = *p;
+			d = pllua_newdatum(L);
+			d->value = value;
+			lua_remove(L,-2);
+		}
+		else
+			argtinfo[i] = NULL;
 	}
+
+	/*
+	 * Now, we have the arg datums at index -nargs .. -1, but we need to
+	 * run savedatum on all of them to get them copied safely.
+	 */
+	pllua_save_args(L, nargs, argtinfo);
+
 	return nargs;
 }
 
@@ -140,11 +279,9 @@ int pllua_call_function(lua_State *L)
 	if (fact->retset)
 	{
 		/*
-		 * This is the initial call into a SRF. We already registered the
-		 * activation into the exprcontext (in validate_and_push above), but we
-		 * haven't made a thread for it yet. We have to do that, install it
-		 * into the activation, move the func and parameters over to the new
-		 * thread and resume it.
+		 * This is the initial call into a SRF. Activate a new thread (which
+		 * also handles registering into the ExprContext), move the func and
+		 * parameters over to the new thread and resume it.
 		 */
 		lua_State *thr = pllua_activate_thread(L, nstack, rsi->econtext);
 		lua_xmove(L, thr, nargs + 1);  /* args plus function */
