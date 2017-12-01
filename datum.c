@@ -939,6 +939,9 @@ int pllua_typeinfo_lookup(lua_State *L)
 	void **np = NULL;
 	pllua_typeinfo *nobj;
 
+	if (lua_type(L, 2) == LUA_TNONE)
+		lua_pushinteger(L, -1);
+
 	if (oid == InvalidOid)
 	{
 		/* safety check so we never intern an entry for InvalidOid */
@@ -1461,17 +1464,18 @@ static int pllua_typeinfo_call(lua_State *L)
 	int i;
 	int argno = 0;
 	int natts = t->natts;
+	TupleDesc tupdesc = (natts >= 0) ? t->tupdesc : NULL;
+	int nmax = (natts < 0) ? 1 : natts;
 
 	if (nargs != t->arity)
 		luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
 				   t->arity, nargs);
 
-	for (argno = 0, i = 0; i < ((natts < 0) ? 1 : natts); ++i)
+	for (argno = 0, i = 0; i < nmax; ++i)
 	{
-		Oid coltype = ((i == 0 && t->natts < 0)
-					   ? t->typeoid
-					   : TupleDescAttr(t->tupdesc, i)->atttypid);
-		if (TupleDescAttr(t->tupdesc, i)->attisdropped)
+		Oid coltype = tupdesc ? TupleDescAttr(t->tupdesc, i)->atttypid : t->typeoid;
+
+		if (tupdesc && TupleDescAttr(t->tupdesc, i)->attisdropped)
 		{
 			values[i] = (Datum)0;
 			isnull[i] = true;
@@ -1494,12 +1498,11 @@ static int pllua_typeinfo_call(lua_State *L)
 
 	PLLUA_TRY();
 	{
-		for (argno = 0, i = 0; i < ((natts < 0) ? 1 : natts); ++i)
+		for (argno = 0, i = 0; i < nmax; ++i)
 		{
-			Oid coltype = ((i == 0 && t->natts < 0)
-						   ? t->typeoid
-						   : TupleDescAttr(t->tupdesc, i)->atttypid);
-			if (TupleDescAttr(t->tupdesc, i)->attisdropped)
+			Oid coltype = tupdesc ? TupleDescAttr(t->tupdesc, i)->atttypid : t->typeoid;
+
+			if (tupdesc && TupleDescAttr(t->tupdesc, i)->attisdropped)
 				continue;
 
 			++argno;
