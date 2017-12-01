@@ -591,7 +591,8 @@ static int pllua_datum_next(lua_State *L)
 			lua_replace(L, lua_upvalueindex(3));
 			lua_geti(L, lua_upvalueindex(5), idx);
 			lua_insert(L, -2);
-			return 2;
+			lua_pushinteger(L, idx);
+			return 3;
 		}
 	}
 	lua_pushinteger(L, idx);
@@ -724,11 +725,9 @@ static int pllua_typeinfo_eq(lua_State *L)
 	pllua_typeinfo *obj2 = *p2;
 	if (p1 == p2)
 		return 1;
-	if (!obj1 || !obj2)
-		luaL_error(L, "pllua_typeinfo_eq: empty refobject");
 
 	/*
-	 * We don't need to compare everything. If all these fields match, we can
+	 * We don't need to compare everything. If all these fields match, we
 	 * assume that existing datums aren't affected by any changes to the
 	 * remaining values.
 	 */
@@ -736,13 +735,17 @@ static int pllua_typeinfo_eq(lua_State *L)
 		|| obj1->typmod != obj2->typmod
 		|| obj1->natts != obj2->natts
 		|| obj1->hasoid != obj2->hasoid
-		|| !equalTupleDescs(obj1->tupdesc, obj2->tupdesc)
+		|| (obj1->tupdesc && !obj2->tupdesc)
+		|| (!obj1->tupdesc && obj2->tupdesc)
+		|| (obj1->tupdesc && obj2->tupdesc
+			&& !equalTupleDescs(obj1->tupdesc, obj2->tupdesc))
 		|| obj1->reloid != obj2->reloid
 		|| obj1->typlen != obj2->typlen
 		|| obj1->typbyval != obj2->typbyval
 		|| obj1->typalign != obj2->typalign
 		|| obj1->typdelim != obj2->typdelim
-		|| obj1->typioparam != obj2->typioparam)
+		|| obj1->typioparam != obj2->typioparam
+		|| obj1->outfuncid != obj2->outfuncid)
 	{
 		lua_pushboolean(L, false);
 		return 1;
@@ -795,10 +798,9 @@ int pllua_typeinfo_lookup(lua_State *L)
 	if (p)
 	{
 		/*
-		 * compare old and new object. If they're equal, then just swap in the
-		 * new object's data for the old one (to pick up changes in
-		 * non-compared values). Otherwise we have to intern the new object in
-		 * place of the old one.
+		 * compare old and new object. If they're equal, just drop the new one
+		 * and mark the old one valid again. Otherwise we have to intern the
+		 * new object in place of the old one.
 		 */
 		lua_pushcfunction(L, pllua_typeinfo_eq);
 		lua_pushvalue(L, -3);
@@ -806,9 +808,8 @@ int pllua_typeinfo_lookup(lua_State *L)
 		lua_call(L, 2, 1);
 		if (lua_toboolean(L, -1))
 		{
-			/* equal. swap the content and pop the new object */
-			*p = nobj;
-			*np = obj;
+			/* equal. pop the new object */
+			obj->revalidate = false;
 			lua_pop(L,2);
 			return 1;
 		}
