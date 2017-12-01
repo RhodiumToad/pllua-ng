@@ -36,9 +36,9 @@ int pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int msgh)
 
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
-	
+
 	pllua_setcontext(oldctx);
-	
+
 	return rc;
 }
 
@@ -55,7 +55,7 @@ void pllua_rethrow_from_lua(lua_State *L, int rc)
 	/*
 	 * If out of memory, avoid doing anything even slightly fancy.
 	 */
-	
+
 	if (rc == LUA_ERRMEM)
 	{
 		lua_pop(L, -1);
@@ -82,7 +82,7 @@ void pllua_rethrow_from_lua(lua_State *L, int rc)
 		else
 			elog(ERROR, "recursive error in Lua error handling");
 	}
-	
+
 	ereport(ERROR,
 			(errmsg_internal("pllua: %s",
 							 (lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "(error is not a string)")),
@@ -123,7 +123,7 @@ void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 {
 	MemoryContext emcxt;
 	ErrorData *volatile edata = NULL;
-	
+
 	if (pllua_context == PLLUA_CONTEXT_PG)
 		PG_RE_THROW();
 
@@ -131,7 +131,7 @@ void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 	emcxt = lua_touserdata(L, -1);
 	lua_pop(L, 1);
 	MemoryContextSwitchTo(emcxt);
-	
+
 	/*
 	 * absorb the error and exit pg's error handling.
 	 *
@@ -154,7 +154,7 @@ void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 		edata = NULL;
 	}
 	PG_END_TRY();
-	
+
 	PG_TRY();
 	{
 		FlushErrorState();
@@ -166,7 +166,7 @@ void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 	PG_END_TRY();
 
 	MemoryContextSwitchTo(mcxt);
-		
+
 	/*
 	 * make a lua object to hold the error. This can throw an out of memory
 	 * error from lua, but we don't want to let that supersede a pg error,
@@ -203,7 +203,7 @@ int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
-	
+
 	pllua_setcontext(oldctx);
 	return rc;
 }
@@ -214,10 +214,10 @@ int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 	int rc;
 
 	rc = lua_cpcall(L, func, arg);
-	
+
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
-	
+
 	pllua_setcontext(oldctx);
 	return rc;
 }
@@ -232,9 +232,9 @@ void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh)
 
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
-	
+
 	pllua_setcontext(oldctx);
-	
+
 	if (rc)
 		pllua_rethrow_from_lua(L, rc);
 }
@@ -277,10 +277,10 @@ void pllua_initial_protected_call(lua_State *L,
 	Assert(cur_catch_block == PG_exception_stack);
 
 	*(void **)(lua_getextraspace(L)) = save_extra;
-	
+
 	if (rc)
 		pllua_rethrow_from_lua(L, rc);
-}	
+}
 
 
 static int pllua_errobject_gc(lua_State *L)
@@ -315,7 +315,7 @@ static struct luaL_Reg errobj_mt[] = {
 void pllua_init_error(lua_State *L)
 {
 	pllua_newmetatable(L, PLLUA_ERROR_OBJECT, errobj_mt);
-	
+
 	lua_pushlightuserdata(L, NULL);
 	pllua_newerror(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);

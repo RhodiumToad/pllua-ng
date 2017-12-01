@@ -79,7 +79,7 @@ int pllua_resume_function(lua_State *L)
 	Assert(lua_gettop(L) == 1);
 
 	rc = lua_resume(thr, L, 0);
-	
+
 	if (rc == LUA_OK)
 	{
 		pllua_deactivate_thread(L, fact, rsi->econtext);
@@ -93,7 +93,7 @@ int pllua_resume_function(lua_State *L)
 		lua_xmove(thr, L, lua_gettop(thr));
 		/* leave thread active */
 		rsi->isDone = ExprMultipleResult;
-			
+
 		/* drop out to normal result processing */
 	}
 	else
@@ -136,7 +136,7 @@ int pllua_call_function(lua_State *L)
 	Assert(lua_gettop(L) == nstack + 1);
 
 	nargs = pllua_push_args(L, fcinfo, fact);
-	
+
 	if (fact->retset)
 	{
 		/*
@@ -165,7 +165,7 @@ int pllua_call_function(lua_State *L)
 		if (rc == LUA_OK)
 		{
 			int nret = lua_gettop(thr);
-			
+
 			lua_xmove(thr, L, nret);
 
 			pllua_deactivate_thread(L, fcinfo->flinfo->fn_extra, rsi->econtext);
@@ -185,7 +185,7 @@ int pllua_call_function(lua_State *L)
 			lua_xmove(thr, L, lua_gettop(thr));
 			/* leave thread active */
 			rsi->isDone = ExprMultipleResult;
-			
+
 			/* drop out to normal result processing */
 		}
 		else
@@ -205,11 +205,11 @@ int pllua_call_function(lua_State *L)
 	 * result. the func_info is not on the stack any more, but we know it must
 	 * be referenced from the activation
 	 */
-	
+
 	act->retval = pllua_return_result(L, lua_gettop(L) - nstack,
 									  fact,
 									  &fcinfo->isnull);
-	
+
 	return 0;
 }
 
@@ -231,7 +231,7 @@ int pllua_call_event_trigger(lua_State *L)
 	FunctionCallInfo fcinfo = act->fcinfo;
 
 	pllua_common_lua_init(L, fcinfo);
-		
+
 	return 0;
 }
 
@@ -255,6 +255,6 @@ int pllua_validate(lua_State *L)
 	FunctionCallInfo fcinfo = act->fcinfo;
 
 	pllua_common_lua_init(L, fcinfo);
-		
+
 	return 0;
 }

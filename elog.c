@@ -13,7 +13,7 @@ static void pllua_elog(lua_State *L, int elevel, int e_code,
 {
 	MemoryContext oldmcxt = CurrentMemoryContext;
 	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
-	
+
 	PG_TRY();
 	{
 		ereport(elevel,
@@ -52,7 +52,7 @@ void pllua_debug_lua(lua_State *L, const char *msg, ...)
 	vsnprintf(buf, 4096, msg, va);
 	va_end(va);
 	luaL_addsize(&b, strlen(buf));
-   	luaL_pushresult(&b);
+	luaL_pushresult(&b);
 	msg = lua_tostring(L, -1);
 	pllua_elog(L, DEBUG1, 0, msg, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	lua_pop(L, 1);
@@ -67,7 +67,7 @@ int pllua_p_print(lua_State *L)
 
 	lua_getglobal(L, "tostring");
 	fidx = lua_absindex(L, -1);
-	
+
 	luaL_buffinit(L, &b);
 
 	for (i = 1; i <= n; i++)
@@ -132,11 +132,11 @@ static int pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 			}
 
 			/* table is empty so populate it */
-			
+
 			{
 				int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
 				int i;
-				
+
 				for (i = 0; i < ncodes; ++i)
 				{
 					lua_pushinteger(L, ecodes[i].val);
@@ -184,7 +184,7 @@ static int pllua_p_elog(lua_State *L)
 	{
 		int ss = lua_gettop(L);
 		luaL_checkstack(L, 30, NULL);
-		
+
 		lua_getfield(L, 1, "sqlstate");
 		if (!lua_isnil(L, -1))
 			e_code = pllua_get_sqlstate(L, lua_upvalueindex(3), luaL_tolstring(L, -1, NULL));
@@ -233,7 +233,7 @@ static int pllua_p_elog(lua_State *L)
 				e_code = pllua_get_sqlstate(L, lua_upvalueindex(3),
 											luaL_tolstring(L, 1, NULL));
 				break;
-				
+
 			default:
 				luaL_error(L, "wrong number of parameters to elog");
 		}
@@ -261,7 +261,7 @@ static int pllua_p_elog(lua_State *L)
 				e_code = 0;
 			break;
 	}
-	
+
 	pllua_elog(L, elevel, e_code, e_message,
 			   e_detail, e_hint, e_column, e_constraint,
 			   e_datatype, e_table, e_schema);

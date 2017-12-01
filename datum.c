@@ -47,7 +47,7 @@
  *  reg[PLLUA_RECORDS] = { [typmod] = typeobject }
  *  reg[PLLUA_TYPES] = { [oid] = typeobject }
  *
- * 
+ *
  */
 
 typedef struct pllua_datum {
@@ -56,7 +56,7 @@ typedef struct pllua_datum {
 } pllua_datum;
 
 typedef struct pllua_typeinfo {
-	
+
 	Oid typeoid;
 	int32 typmod;  /* only for RECORD */
 
@@ -78,7 +78,7 @@ typedef struct pllua_typeinfo {
 	Oid infuncid;
 	Oid sendfuncid;
 	Oid recvfuncid;
-	
+
 	FmgrInfo outfunc;
 	FmgrInfo infunc;
 	FmgrInfo sendfunc;
@@ -94,7 +94,7 @@ typedef struct pllua_typeinfo {
 
 static int pllua_typeinfo_lookup(lua_State *L);
 static pllua_datum *pllua_newdatum(lua_State *L);
-static bool pllua_typeinfo_iofunc(lua_State *L,								  
+static bool pllua_typeinfo_iofunc(lua_State *L,
 								  pllua_typeinfo *t,
 								  IOFuncSelector whichfunc);
 
@@ -136,7 +136,7 @@ static Datum pllua_detoast_light(lua_State *L, Datum d)
 	}
 	PG_END_TRY();
 	pllua_setcontext(oldcxt);
-	
+
 	return nd;
 }
 
@@ -151,7 +151,7 @@ static int pllua_value_from_datum(lua_State *L,
 								  Oid typeid)
 {
 	ASSERT_LUA_CONTEXT;
-	
+
 	switch (typeid)
 	{
 		case TEXTOID:
@@ -173,7 +173,7 @@ static int pllua_value_from_datum(lua_State *L,
 		case FLOAT4OID:
 			lua_pushnumber(L, DatumGetFloat4(value));
 			return LUA_TNUMBER;
-			
+
 		case FLOAT8OID:
 			lua_pushnumber(L, DatumGetFloat8(value));
 			return LUA_TNUMBER;
@@ -181,11 +181,11 @@ static int pllua_value_from_datum(lua_State *L,
 		case BOOLOID:
 			lua_pushboolean(L, DatumGetBool(value) ? 1 : 0);
 			return LUA_TBOOLEAN;
-			
+
 		case OIDOID:
 			lua_pushinteger(L, (lua_Integer) DatumGetObjectId(value));
 			return LUA_TNUMBER;
-			
+
 		case INT2OID:
 			lua_pushinteger(L, (lua_Integer) DatumGetInt16(value));
 			return LUA_TNUMBER;
@@ -218,7 +218,7 @@ static void pllua_make_datum(lua_State *L, Datum value, Oid typeid, int32 typmod
 
 	if (lua_isnil(L, -1))
 		luaL_error(L, "failed to find typeinfo");
-				
+
 	{
 		pllua_datum *d;
 		pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
@@ -235,7 +235,7 @@ static int pllua_datum_gc(lua_State *L)
 	pllua_datum *p = lua_touserdata(L, 1);
 
 	ASSERT_LUA_CONTEXT;
-	
+
 	if (!p->need_gc || !DatumGetPointer(p->value))
 		return 0;
 
@@ -299,7 +299,7 @@ void pllua_savedatum(lua_State *L,
 					 pllua_typeinfo *t)
 {
 	Datum nv;
-	
+
 	ASSERT_PG_CONTEXT;
 
 	if (t->typbyval)
@@ -333,7 +333,7 @@ static int pllua_datum_tostring(lua_State *L)
 	pllua_typeinfo *t = *p;
 	MemoryContext oldcxt = CurrentMemoryContext;
 	char *volatile str = NULL;
-		
+
 	ASSERT_LUA_CONTEXT;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
@@ -378,7 +378,7 @@ static int pllua_datum_tobinary(lua_State *L)
 	MemoryContext oldcxt = CurrentMemoryContext;
 	bytea *volatile res = NULL;
 	volatile bool done = false;
-		
+
 	ASSERT_LUA_CONTEXT;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
@@ -401,7 +401,7 @@ static int pllua_datum_tobinary(lua_State *L)
 
 	if (!done)
 		luaL_error(L, "failed to find send function for type");
-	
+
 	if (res)
 		lua_pushlstring(L, VARDATA_ANY(res), VARSIZE_ANY_EXHDR(res));
 	else
@@ -501,7 +501,7 @@ static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
 				}
 			}
 			break;
-												   
+
 		case LUA_TBOOLEAN:
 			/* false is a dropped col; true is a present but null col */
 			if (skip_dropped && !lua_toboolean(L,-1))
@@ -512,10 +512,10 @@ static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
 			lua_pop(L,1);
 			lua_pushnil(L);
 			break;
-						
+
 		case LUA_TNIL:
 			luaL_error(L, "missing attribute");
-						
+
 		default:
 			luaL_error(L, "unexpected type in datum cache");
 	}
@@ -549,12 +549,12 @@ static int pllua_datum_index(lua_State *L)
 
 	if (!d)
 		luaL_error(L, "pllua_datum_index: not a datum object");
-	
+
 	if (t->natts < 0)
 		luaL_error(L, "datum is not a row type");
 
 	tup = (HeapTupleHeader) DatumGetPointer(d->value);
-	
+
 	switch (lua_type(L, 2))
 	{
 		default:
@@ -659,7 +659,7 @@ static int pllua_newtypeinfo(lua_State *L)
 		luaL_error(L, "cannot specify typmod for non-RECORD typeinfo");
 	if (oid == RECORDOID && typmod == -1)
 		luaL_error(L, "must specify typmod for RECORD typeinfo");
-	
+
 	ASSERT_LUA_CONTEXT;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
@@ -669,11 +669,11 @@ static int pllua_newtypeinfo(lua_State *L)
 		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
 												   "pllua type object",
 												   ALLOCSET_SMALL_SIZES);
-		
+
 		MemoryContextSwitchTo(mcxt);
 		t = palloc0(sizeof(pllua_typeinfo));
 		t->mcxt = mcxt;
-		
+
 		t->typeoid = oid;
 		t->typmod = typmod;
 		t->tupdesc = NULL;
@@ -681,7 +681,7 @@ static int pllua_newtypeinfo(lua_State *L)
 		t->hasoid = false;
 		t->revalidate = false;
 		t->reloid = InvalidOid;
-		
+
 		if (oid == RECORDOID)
 		{
 			tupdesc = lookup_rowtype_tupdesc_copy(oid, typmod);
@@ -697,14 +697,14 @@ static int pllua_newtypeinfo(lua_State *L)
 			t->reloid = get_typ_typrelid(oid);
 			ReleaseTupleDesc(tupdesc);
 		}
-				
+
 		get_type_io_data(oid, IOFunc_output,
 						 &t->typlen, &t->typbyval, &t->typalign,
 						 &t->typdelim, &t->typioparam, &t->outfuncid);
 		t->infuncid = InvalidOid;
 		t->sendfuncid = InvalidOid;
 		t->recvfuncid = InvalidOid;
-		
+
 		t->outfunc.fn_oid = InvalidOid;
 		t->infunc.fn_oid = InvalidOid;
 		t->sendfunc.fn_oid = InvalidOid;
@@ -737,7 +737,7 @@ static int pllua_newtypeinfo(lua_State *L)
 	lua_pushvalue(L, -2);
 	luaL_setfuncs(L, datumobj_mt, 1);
 	lua_pop(L, 1);
-	
+
 	return 1;
 }
 
@@ -902,7 +902,7 @@ static int pllua_typeinfo_gc(lua_State *L)
 	void **p = pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *obj = *p;
 	MemoryContext oldmcxt = CurrentMemoryContext;
-	
+
 	*p = NULL;
 	if (!obj)
 		return 0;
@@ -940,7 +940,7 @@ static int pllua_dump_typeinfo(lua_State *L)
 		luaL_pushresult(&b);
 		return 1;
 	}
-	
+
 	snprintf(buf, 1024,
 			 "oid: %u  typmod: %d  natts: %d  hasoid: %c  revalidate: %c  "
 			 "tupdesc: %p  reloid: %u  typlen: %d  typbyval: %c  "
@@ -958,7 +958,7 @@ static int pllua_dump_typeinfo(lua_State *L)
 			 obj->outfuncid);
 	luaL_addsize(&b, strlen(buf));
 
-   	luaL_pushresult(&b);
+	luaL_pushresult(&b);
 	return 1;
 }
 
@@ -1008,14 +1008,14 @@ static int pllua_typeinfo_attrs(lua_State *L)
 	pllua_typeinfo *obj = *p;
 	int i;
 	TupleDesc tupdesc = obj->tupdesc;
-	
+
 	if (obj->natts < 0)
 		return 0;
 	lua_getuservalue(L, 1);
 	lua_createtable(L, obj->natts, obj->natts);
-	
+
 	/* stack: typeinfo metatable attrtab */
-	
+
 	for (i = 0; i < obj->natts; ++i)
 	{
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
@@ -1127,12 +1127,12 @@ static int pllua_typeinfo_name(lua_State *L)
 
 	if (!name)
 		luaL_error(L, "type not found when generating name");
-	
+
 	lua_pushstring(L, name);
 	return 1;
 }
 
-static bool pllua_typeinfo_iofunc(lua_State *L,								  
+static bool pllua_typeinfo_iofunc(lua_State *L,
 								  pllua_typeinfo *t,
 								  IOFuncSelector whichfunc)
 {
@@ -1142,7 +1142,7 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 	FmgrInfo *flinfo;
 
 	ASSERT_PG_CONTEXT;
-	
+
 	typeTuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(t->typeoid));
 	if (!HeapTupleIsValid(typeTuple))
 		elog(ERROR, "cache lookup failed for type %u", t->typeoid);
@@ -1195,7 +1195,7 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	pllua_datum *d = NULL;
 	volatile bool done = false;
-		
+
 	if (!str)
 	{
 		lua_pushnil(L);
@@ -1206,18 +1206,18 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 
 	if (str)
 		pllua_verify_encoding(L, str);
-	
+
 	lua_pushvalue(L, 1);
 	if (str)
 		d = pllua_newdatum(L);
 	else
 		lua_pushnil(L);
-	
+
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 	PG_TRY();
 	{
 		Datum nv;
-		
+
 		if ((OidIsValid(t->infuncid) && OidIsValid(t->infunc.fn_oid))
 			|| pllua_typeinfo_iofunc(L, t, IOFunc_input))
 		{
@@ -1264,7 +1264,7 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	pllua_datum *d = NULL;
 	volatile bool done = false;
-		
+
 	if (!str)
 		return 0;
 
@@ -1275,7 +1275,7 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 		d = pllua_newdatum(L);
 	else
 		lua_pushnil(L);
-	
+
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 	PG_TRY();
 	{
@@ -1284,7 +1284,7 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 		initStringInfo(&buf);
 		if (str)
 			appendBinaryStringInfo(&buf, str, len);
-		
+
 		if ((OidIsValid(t->recvfuncid) && OidIsValid(t->recvfunc.fn_oid))
 			|| pllua_typeinfo_iofunc(L, t, IOFunc_receive))
 		{

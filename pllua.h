@@ -80,7 +80,7 @@ typedef struct pllua_function_info
 	bool polymorphic;
 
 	Oid *argtypes;
-	
+
 	Oid language_oid;
 	bool trusted;
 
@@ -93,7 +93,7 @@ typedef struct pllua_function_info
 typedef struct pllua_function_compile_info
 {
 	pllua_function_info *func_info;
-	
+
 	MemoryContext mcxt;
 
 	text *prosrc;
@@ -102,13 +102,13 @@ typedef struct pllua_function_compile_info
 	int nallargs;
 
 	Oid variadic;
-	
+
 	Oid *allargtypes;
 	char *argmodes;
 	char **argnames;
-	
+
 } pllua_function_compile_info;
-   
+
 
 /* this one ends up in flinfo->fn_extra */
 
@@ -122,14 +122,14 @@ typedef struct pllua_func_activation
 	bool polymorphic;
 	bool variadic_call;
 	bool retset;
-	
+
 	Oid rettype;
 	TupleDesc tupdesc;
 	TypeFuncClass typefuncclass;
 
 	int nargs;
 	Oid *argtypes;
-	
+
 	/*
 	 * this data is allocated in lua, so we need to arrange to drop it for GC
 	 * when the context containing the pointer to it is reset
@@ -137,7 +137,7 @@ typedef struct pllua_func_activation
 	lua_State *L;
 	MemoryContextCallback cb;
 	bool dead;
-	
+
 } pllua_func_activation;
 
 
@@ -153,7 +153,7 @@ typedef struct pllua_activation_record
 	/* if fcinfo is null, we're validating or doing inline */
 	InlineCodeBlock *cblock;
 	Oid			validate_func;
-	
+
 } pllua_activation_record;
 
 /*
@@ -264,7 +264,7 @@ int pllua_validate(lua_State *L);
 
 /* objects.c */
 
-bool pllua_isobject(lua_State *L, int nd, char *objtype);	
+bool pllua_isobject(lua_State *L, int nd, char *objtype);
 void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt);
 MemoryContext pllua_get_memory_cxt(lua_State *L);
 void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool uservalue);
@@ -283,7 +283,7 @@ int pllua_get_cur_act(lua_State *L);
 
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
-	
+
 void pllua_init_objects(lua_State *L, bool trusted);
 void pllua_init_functions(lua_State *L, bool trusted);
 

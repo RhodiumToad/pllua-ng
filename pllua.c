@@ -78,7 +78,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 	pllua_func_activation *funcact = (fcinfo->flinfo) ? fcinfo->flinfo->fn_extra : NULL;
 
 	/* XXX luajit may need this to be palloc'd. check later */
-	
+
 	act.fcinfo = fcinfo;
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
@@ -123,7 +123,7 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 		PG_RETURN_VOID();
 
 	/* XXX luajit may need this to be palloc'd. check later */
-	
+
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
@@ -144,7 +144,7 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	pllua_activation_record act;
 
 	/* XXX luajit may need this to be palloc'd. check later */
-	
+
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
@@ -155,7 +155,7 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	/* probably excess paranoia */
 	if (act.cblock->langIsTrusted != act.trusted)
 		elog(ERROR, "trusted state mismatch");
-			
+
 	L = pllua_getstate(trusted);
 
 	pllua_initial_protected_call(L, pllua_call_inline, &act);

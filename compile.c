@@ -113,17 +113,17 @@ static int pllua_compile(lua_State *L)
 	src = lua_tostring(L, -1);
 
 	pllua_debug(L, "compiling: %s", src);
-	
+
 	if (luaL_loadbuffer(L, src, strlen(src), fname))
 		pllua_rethrow_from_lua(L, LUA_ERRRUN);
 	lua_remove(L, -2); /* source */
 	lua_call(L, 0, 1);
-	
+
 	lua_getuservalue(L, -2);
 	lua_insert(L, -2);
 	lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
 	lua_pop(L, 1);
-	
+
 	return 1;
 }
 
@@ -154,7 +154,7 @@ static int pllua_intern_function(lua_State *L)
 	lua_pushvalue(L, 1);
 	lua_rawseti(L, -2, oid);
 	lua_pushboolean(L, 1);
-	
+
 	return 1;
 }
 
@@ -185,7 +185,7 @@ pllua_validate_and_push(lua_State *L,
 	ReturnSetInfo *rsi = ((fcinfo->resultinfo && IsA(fcinfo->resultinfo, ReturnSetInfo))
 						  ?	(ReturnSetInfo *)(fcinfo->resultinfo)
 						  : NULL);
-							
+
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
 	/*
@@ -208,7 +208,7 @@ pllua_validate_and_push(lua_State *L,
 		MemoryContext ccxt;
 		int rc;
 		int i;
-		
+
 		/*
 		 * This part may have to be repeated in some rare recursion scenarios.
 		 */
@@ -227,7 +227,7 @@ pllua_validate_and_push(lua_State *L,
 				ReleaseSysCache(procTup);
 				break;
 			}
-			
+
 			/*
 			 * Lookup function by oid in our lua table (this can't throw)
 			 */
@@ -302,9 +302,9 @@ pllua_validate_and_push(lua_State *L,
 			ccxt = AllocSetContextCreate(CurrentMemoryContext,
 										 "pllua compile context",
 										 ALLOCSET_SMALL_SIZES);
-			
+
 			MemoryContextSwitchTo(fcxt);
-				
+
 			func_info = palloc(sizeof(pllua_function_info));
 			func_info->mcxt = fcxt;
 			func_info->name = pstrdup(NameStr(procStruct->proname));
@@ -341,12 +341,12 @@ pllua_validate_and_push(lua_State *L,
 			pllua_validate_proctup(L, fn_oid, procTup, trusted);
 
 			MemoryContextSwitchTo(ccxt);
-				
+
 			comp_info = palloc(sizeof(pllua_function_compile_info));
 			comp_info->mcxt = ccxt;
 			comp_info->func_info = func_info;
 			comp_info->prosrc = DatumGetTextPP(psrc);
-			
+
 			/*
 			 * XXX dig out all the needed info about arg and result types
 			 * and stash it in the compile info.
@@ -451,7 +451,7 @@ pllua_validate_and_push(lua_State *L,
 			act->variadic_call = get_fn_expr_variadic(fcinfo->flinfo);
 			act->nargs = act->func_info->nargs;
 			act->retset = act->func_info->retset;
-			
+
 			if (act->polymorphic)
 			{
 				act->argtypes = palloc(act->nargs * sizeof(Oid));

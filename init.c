@@ -52,7 +52,7 @@ lua_State *pllua_getstate(bool trusted)
 	interp_desc = hash_search(pllua_interp_hash, &user_id,
 							  HASH_ENTER,
 							  &found);
-	
+
 	if (found && interp_desc->interp)
 		return interp_desc->interp;
 
@@ -162,7 +162,7 @@ pllua_fini(int code, Datum arg)
 			/*
 			 * We intentionally do not worry about trying to rethrow any errors
 			 * happening here; we're trying to shut down, and ignoring an error
-			 * is probably less likely to crash us than 
+			 * is probably less likely to crash us than
 			 */
 			pllua_setcontext(PLLUA_CONTEXT_LUA);
 			lua_close(L); /* can't throw, but has internal lua catch blocks */
@@ -182,7 +182,7 @@ static void pllua_relcache_callback(Datum arg, Oid relid)
 {
 	HASH_SEQ_STATUS hash_seq;
 	pllua_interp_desc *interp_desc;
-	
+
 	hash_seq_init(&hash_seq, pllua_interp_hash);
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
 	{
@@ -206,7 +206,7 @@ static void pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashv
 {
 	HASH_SEQ_STATUS hash_seq;
 	pllua_interp_desc *interp_desc;
-	
+
 	hash_seq_init(&hash_seq, pllua_interp_hash);
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
 	{
@@ -237,7 +237,7 @@ static void pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashv
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize)
 {
 	void *nptr;
-	
+
 	(void)ud;  /* not used */
 
 	if (simulate_memory_failure)
@@ -248,10 +248,10 @@ static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize)
 	}
 	else
 		nptr = realloc(ptr, nsize);
-	
+
 	if (nsize == 0)
 		return NULL;
-	
+
 	if (ptr && nsize < osize)
 	{
 		if (!nptr)
@@ -334,12 +334,12 @@ static void pllua_runstring(lua_State *L, const char *chunkname, const char *str
 static int pllua_run_init_strings(lua_State *L)
 {
 	bool trusted;
-	
+
 	if (lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED) != LUA_TBOOLEAN)
 		luaL_error(L, "inconsistency in interpreter setup");
-		
+
 	trusted = lua_toboolean(L, -1);
-	
+
 	pllua_runstring(L, "on_init", pllua_on_init);
 	if (trusted)
 		pllua_runstring(L, "on_trusted_init", pllua_on_trusted_init);
@@ -361,7 +361,7 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_
 	lua_State *L;
 
 	Assert(pllua_context == PLLUA_CONTEXT_PG);
-		
+
 	mcxt = AllocSetContextCreate(TopMemoryContext,
 								 "PL/Lua context",
 								 ALLOCSET_DEFAULT_MINSIZE,
@@ -436,7 +436,7 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_
 		Assert(pllua_context == PLLUA_CONTEXT_PG);
 
 		interp_desc->interp = NULL;
-		
+
 		/*
 		 * If we got a lua error (which could be a caught pg error) during the
 		 * protected part of interpreter initialization, then we need to kill
@@ -454,9 +454,9 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_
 		lua_close(L); /* can't throw, but has internal lua catch blocks */
 		pllua_ending = false;
 		pllua_setcontext(PLLUA_CONTEXT_PG);
-		
+
 		MemoryContextDelete(mcxt);
-		
+
 		ReThrowError(e);
 	}
 	PG_END_TRY();

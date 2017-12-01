@@ -53,7 +53,7 @@ void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt)
 MemoryContext pllua_get_memory_cxt(lua_State *L)
 {
 	void *p;
-	
+
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
 	p = lua_touserdata(L, -1);
 	lua_pop(L, 1);
@@ -187,12 +187,12 @@ static int pllua_freeactivation(lua_State *L)
 	 */
 	act->argtypes = NULL;
 	act->tupdesc = NULL;
-	
+
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	lua_pushnil(L);
 	lua_rawsetp(L, -2, act);
 	lua_pop(L, 1);
-	
+
 	return 0;
 }
 
@@ -200,7 +200,7 @@ static void pllua_freeactivation_cb(void *arg)
 {
 	pllua_func_activation *act = arg;
 	lua_State *L = act->L;
-	
+
 	/*
 	 * we got here from pg, in a memory context reset. Since we shouldn't ever
 	 * have allowed ourselves far enough into pg for that to happen while in
@@ -234,7 +234,7 @@ static int pllua_resetactivation(lua_State *L)
 	lua_pushnil(L);
 	lua_rawsetp(L, -2, PLLUA_THREAD_MEMBER);
 	lua_settop(L, opos);
-	
+
 	return 0;
 }
 
@@ -243,7 +243,7 @@ static void pllua_resetactivation_cb(Datum arg)
 	pllua_func_activation *act = (void*) DatumGetPointer(arg);
 	lua_State *L = act->L;
 	int rc;
-	
+
 	/*
 	 * we got here from pg, in an expr context reset. Since we shouldn't ever
 	 * have allowed ourselves far enough into pg for that to happen while in
@@ -290,7 +290,7 @@ int pllua_newactivation(lua_State *L)
 
 	/* this can't throw a pg error, thankfully */
 	MemoryContextRegisterResetCallback(mcxt, &act->cb);
-	
+
 	return 1;
 }
 
@@ -309,7 +309,7 @@ int pllua_setactivation(lua_State *L)
 		elog(WARNING, "failed to find an activation: %p", act);
 		return 0;
 	}
-	
+
 	pllua_checkobject(L, -1, PLLUA_ACTIVATION_OBJECT);
 
 	Assert(act->thread == NULL);
@@ -351,7 +351,7 @@ int pllua_get_cur_act(lua_State *L)
 	lua_State *mainthread;
 	FmgrInfo *flinfo;
 	pllua_func_activation *act;
-		
+
 	lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
 	mainthread = lua_tothread(L, -1);
 	lua_pop(L, 1);
@@ -400,8 +400,8 @@ static int pllua_dump_activation(lua_State *L)
 	}
 	else if (!act->dead)
 		luaL_addstring(&b, " (null)");
-	
-   	luaL_pushresult(&b);
+
+	luaL_pushresult(&b);
 	return 1;
 }
 
@@ -415,7 +415,7 @@ lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext)
 	pllua_func_activation *act = pllua_toobject(L, nd, PLLUA_ACTIVATION_OBJECT);
 	MemoryContext oldmcxt = CurrentMemoryContext;
 	lua_State *newthread = NULL;
-	
+
 	ASSERT_LUA_CONTEXT;
 
 	Assert(act->thread == NULL);
@@ -440,7 +440,7 @@ lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext)
 	act->thread = newthread;
 	lua_rawsetp(L, -2, PLLUA_THREAD_MEMBER);
 	lua_pop(L, 1);
-	
+
 	return newthread;
 }
 
@@ -452,7 +452,7 @@ void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprConte
 {
 	MemoryContext oldmcxt = CurrentMemoryContext;
 	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
-	
+
 	Assert(act->thread != NULL);
 
 	PG_TRY();
