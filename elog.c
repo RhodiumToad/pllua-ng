@@ -11,10 +11,7 @@ static void pllua_elog(lua_State *L, int elevel, int e_code,
 					   const char *e_table,
 					   const char *e_schema)
 {
-	MemoryContext oldmcxt = CurrentMemoryContext;
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
-
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		ereport(elevel,
 				(e_code ? errcode(e_code) : 0,
@@ -32,13 +29,7 @@ static void pllua_elog(lua_State *L, int elevel, int e_code,
 				 (e_schema != NULL) ?
 				 err_generic_string(PG_DIAG_SCHEMA_NAME, e_schema) : 0));
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(oldctx);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(oldctx);
+	PLLUA_CATCH_RETHROW();
 }
 
 

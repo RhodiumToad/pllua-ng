@@ -290,19 +290,11 @@ static int pllua_errobject_gc(lua_State *L)
 	*p = NULL;
 	if (obj)
 	{
-		MemoryContext oldmcxt = CurrentMemoryContext;
-		pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
-		PG_TRY();
+		PLLUA_TRY();
 		{
 			FreeErrorData(obj);
 		}
-		PG_CATCH();
-		{
-			pllua_setcontext(oldctx);
-			pllua_rethrow_from_pg(L, oldmcxt);
-		}
-		PG_END_TRY();
-		pllua_setcontext(oldctx);
+		PLLUA_CATCH_RETHROW();
 	}
 	return 0;
 }

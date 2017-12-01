@@ -421,27 +421,19 @@ static int pllua_dump_activation(lua_State *L)
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext)
 {
 	pllua_func_activation *act = pllua_toobject(L, nd, PLLUA_ACTIVATION_OBJECT);
-	MemoryContext oldmcxt = CurrentMemoryContext;
 	lua_State *newthread = NULL;
 
 	ASSERT_LUA_CONTEXT;
 
 	Assert(act->thread == NULL);
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		RegisterExprContextCallback(econtext,
 									pllua_resetactivation_cb,
 									PointerGetDatum(act));
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	lua_getuservalue(L, nd);
 	newthread = lua_newthread(L);
@@ -458,24 +450,15 @@ lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext)
  */
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext)
 {
-	MemoryContext oldmcxt = CurrentMemoryContext;
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
-
 	Assert(act->thread != NULL);
 
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		UnregisterExprContextCallback(econtext,
 									  pllua_resetactivation_cb,
 									  PointerGetDatum(act));
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(oldctx);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(oldctx);
+	PLLUA_CATCH_RETHROW();
 
 	lua_pushlightuserdata(L, act);
 	pllua_resetactivation(L);
@@ -488,9 +471,7 @@ void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprConte
  */
 static void pllua_destroy_funcinfo(lua_State *L, pllua_function_info *obj)
 {
-	MemoryContext oldmcxt = CurrentMemoryContext;
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		/*
 		 * funcinfo is allocated in its own memory context (since we expect it
@@ -498,13 +479,7 @@ static void pllua_destroy_funcinfo(lua_State *L, pllua_function_info *obj)
 		 */
 		MemoryContextDelete(obj->mcxt);
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(oldctx);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(oldctx);
+	PLLUA_CATCH_RETHROW();
 }
 
 static int pllua_funcobject_gc(lua_State *L)

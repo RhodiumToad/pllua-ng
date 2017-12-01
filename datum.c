@@ -73,26 +73,17 @@ static void pllua_verify_encoding(lua_State *L, const char *str)
  */
 static Datum pllua_detoast_light(lua_State *L, Datum d)
 {
-	MemoryContext oldmcxt = CurrentMemoryContext;
-	pllua_context_type oldcxt;
 	volatile Datum nd;
 
 	if (!VARATT_IS_EXTENDED(d)
 		|| (VARATT_IS_SHORT(d) && !VARATT_IS_EXTERNAL(d)))
 		return d;
 
-	oldcxt = pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		nd = PointerGetDatum(PG_DETOAST_DATUM_COPY(d));
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(oldcxt);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(oldcxt);
+	PLLUA_CATCH_RETHROW();
 
 	return nd;
 }
@@ -201,18 +192,12 @@ static int pllua_datum_gc(lua_State *L)
 	 */
 	p->need_gc = false;
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		pfree(DatumGetPointer(p->value));
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, CurrentMemoryContext);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
+
 	return 0;
 }
 
@@ -288,13 +273,11 @@ static int pllua_datum_tostring(lua_State *L)
 	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(1));
 	void **p = pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
-	MemoryContext oldcxt = CurrentMemoryContext;
 	char *volatile str = NULL;
 
 	ASSERT_LUA_CONTEXT;
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		if ((OidIsValid(t->outfuncid) && OidIsValid(t->outfunc.fn_oid))
 			|| pllua_typeinfo_iofunc(L, t, IOFunc_output))
@@ -304,13 +287,7 @@ static int pllua_datum_tostring(lua_State *L)
 		else
 			elog(ERROR, "failed to find output function for type %u", t->typeoid);
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	if (str)
 		lua_pushstring(L, str);
@@ -332,14 +309,12 @@ static int pllua_datum_tobinary(lua_State *L)
 	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(1));
 	void **p = pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
-	MemoryContext oldcxt = CurrentMemoryContext;
 	bytea *volatile res = NULL;
 	volatile bool done = false;
 
 	ASSERT_LUA_CONTEXT;
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		if ((OidIsValid(t->sendfuncid) && OidIsValid(t->sendfunc.fn_oid))
 			|| pllua_typeinfo_iofunc(L, t, IOFunc_send))
@@ -348,13 +323,7 @@ static int pllua_datum_tobinary(lua_State *L)
 			done = true;
 		}
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	if (!done)
 		luaL_error(L, "failed to find send function for type");
@@ -608,7 +577,6 @@ static int pllua_newtypeinfo(lua_State *L)
 {
 	Oid oid = luaL_checkinteger(L, 1);
 	lua_Integer typmod = luaL_optinteger(L, 2, -1);
-	MemoryContext oldcontext = CurrentMemoryContext;
 	void **p = pllua_newrefobject(L, PLLUA_TYPEINFO_OBJECT, NULL, true);
 	pllua_typeinfo *volatile t;
 
@@ -619,15 +587,14 @@ static int pllua_newtypeinfo(lua_State *L)
 
 	ASSERT_LUA_CONTEXT;
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		TupleDesc tupdesc = NULL;
 		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
 												   "pllua type object",
 												   ALLOCSET_SMALL_SIZES);
+		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
 
-		MemoryContextSwitchTo(mcxt);
 		t = palloc0(sizeof(pllua_typeinfo));
 		t->mcxt = mcxt;
 
@@ -670,13 +637,7 @@ static int pllua_newtypeinfo(lua_State *L)
 		MemoryContextSwitchTo(oldcontext);
 		MemoryContextSetParent(mcxt, pllua_get_memory_cxt(L));
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcontext);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	*p = t;
 
@@ -858,15 +819,14 @@ static int pllua_typeinfo_gc(lua_State *L)
 {
 	void **p = pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *obj = *p;
-	MemoryContext oldmcxt = CurrentMemoryContext;
 
 	*p = NULL;
 	if (!obj)
 		return 0;
 
 	ASSERT_LUA_CONTEXT;
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+
+	PLLUA_TRY();
 	{
 		/*
 		 * typeinfo is allocated in its own memory context (since we expect it
@@ -874,13 +834,8 @@ static int pllua_typeinfo_gc(lua_State *L)
 		 */
 		MemoryContextDelete(obj->mcxt);
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
+
 	return 0;
 }
 
@@ -924,13 +879,12 @@ static int pllua_dump_typeinfo(lua_State *L)
 static int pllua_typeinfo_parsetype(lua_State *L)
 {
 	const char *str = lua_tostring(L, 1);
-	MemoryContext oldcxt = CurrentMemoryContext;
 	volatile Oid ret_oid = InvalidOid;
 	volatile int32 ret_typmod = -1;
 
 	ASSERT_LUA_CONTEXT;
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+
+	PLLUA_TRY();
 	{
 		Oid oid = InvalidOid;
 		int32 typmod = -1;
@@ -944,13 +898,7 @@ static int pllua_typeinfo_parsetype(lua_State *L)
 		ret_oid = oid;
 		ret_typmod = typmod;
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	lua_pushcfunction(L, pllua_typeinfo_lookup);
 	lua_pushinteger(L, (lua_Integer) ret_oid);
@@ -1071,12 +1019,11 @@ static int pllua_typeinfo_name(lua_State *L)
 	lua_Integer typmod = luaL_optinteger(L, 2, -1);
 	bool typmod_given = !lua_isnoneornil(L, 2);
 	pllua_typeinfo *obj = *p;
-	MemoryContext oldcxt = CurrentMemoryContext;
 	const char *volatile name = NULL;
 
 	ASSERT_LUA_CONTEXT;
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+
+	PLLUA_TRY();
 	{
 		if (SearchSysCacheExists1(TYPEOID, ObjectIdGetDatum(obj->typeoid)))
 		{
@@ -1086,13 +1033,7 @@ static int pllua_typeinfo_name(lua_State *L)
 				name = format_type_be(obj->typeoid);
 		}
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	if (!name)
 		luaL_error(L, "type not found when generating name");
@@ -1160,7 +1101,6 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 	void **p = pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
 	const char *str = lua_isnil(L, 2) ? NULL : lua_tostring(L, 2);
-	MemoryContext oldcxt = CurrentMemoryContext;
 	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	pllua_datum *d = NULL;
 	volatile bool done = false;
@@ -1182,8 +1122,7 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 	else
 		lua_pushnil(L);
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		Datum nv;
 
@@ -1193,21 +1132,15 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 			nv = InputFunctionCall(&t->infunc, (char *) str, t->typioparam, t->typmod);
 			if (str)
 			{
+				MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
 				d->value = nv;
-				MemoryContextSwitchTo(mcxt);
 				pllua_savedatum(L, d, t);
-				MemoryContextSwitchTo(oldcxt);
+				MemoryContextSwitchTo(oldcontext);
 			}
 			done = true;
 		}
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	if (!done)
 		luaL_error(L, "could not find input function for type");
@@ -1229,7 +1162,6 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 	pllua_typeinfo *t = *p;
 	size_t len = 0;
 	const char *str = lua_isnil(L, 2) ? NULL : lua_tolstring(L, 2, &len);
-	MemoryContext oldcxt = CurrentMemoryContext;
 	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	pllua_datum *d = NULL;
 	volatile bool done = false;
@@ -1245,8 +1177,7 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 	else
 		lua_pushnil(L);
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		Datum nv;
 		StringInfoData buf;
@@ -1260,22 +1191,16 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 			nv = ReceiveFunctionCall(&t->infunc, str ? &buf : NULL, t->typioparam, t->typmod);
 			if (str)
 			{
+				MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
 				d->value = nv;
-				MemoryContextSwitchTo(mcxt);
 				pllua_savedatum(L, d, t);
-				MemoryContextSwitchTo(oldcxt);
+				MemoryContextSwitchTo(oldcontext);
 			}
 			done = true;
 		}
 		pfree(buf.data);
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 
 	if (!done)
 		luaL_error(L, "could not find receive function for type");

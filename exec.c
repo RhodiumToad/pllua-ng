@@ -56,23 +56,20 @@ static Datum pllua_return_result(lua_State *L, int nret,
 
 static void pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, int32 *argtypmod)
 {
-	/* this may detoast, so we need a catch block */
-	MemoryContext oldmcxt = CurrentMemoryContext;
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	/*
+	 * this may detoast, so we need a catch block
+	 *
+	 * we detoast in the current memory context, assumed to be transient,
+	 * because we're going to datumCopy the result after anyway
+	 */
+	PLLUA_TRY();
 	{
 		HeapTupleHeader arg = DatumGetHeapTupleHeader(*value);
 		*value = PointerGetDatum(arg);
 		*argtype = HeapTupleHeaderGetTypeId(arg);
 		*argtypmod = HeapTupleHeaderGetTypMod(arg);
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(oldctx);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(oldctx);
+	PLLUA_CATCH_RETHROW();
 }
 
 
@@ -82,20 +79,16 @@ static void pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, i
  */
 static void pllua_save_args(lua_State *L, int nargs, pllua_typeinfo **argtypes)
 {
-	MemoryContext oldmcxt = CurrentMemoryContext;
-
 	ASSERT_LUA_CONTEXT;
 
 	if (nargs == 0)
 		return;
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		int i;
 		int arg0 = lua_absindex(L, -nargs);
-
-		MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
 
 		for (i = 0; i < nargs; ++i)
 		{
@@ -107,15 +100,9 @@ static void pllua_save_args(lua_State *L, int nargs, pllua_typeinfo **argtypes)
 			}
 		}
 
-		MemoryContextSwitchTo(oldmcxt);
+		MemoryContextSwitchTo(oldcontext);
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldmcxt);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
 }
 
 static int pllua_push_args(lua_State *L,

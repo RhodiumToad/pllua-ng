@@ -186,15 +186,14 @@ pllua_validate_and_push(lua_State *L,
 						  ?	(ReturnSetInfo *)(fcinfo->resultinfo)
 						  : NULL);
 
-	Assert(pllua_context == PLLUA_CONTEXT_LUA);
+	ASSERT_LUA_CONTEXT;
 
 	/*
 	 * We need the pg_proc row etc. every time, but we have to avoid throwing
 	 * pg errors through lua.
 	 */
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
-	PG_TRY();
+	PLLUA_TRY();
 	{
 		pllua_func_activation *act = flinfo->fn_extra;
 		Oid			fn_oid = flinfo->fn_oid;
@@ -469,13 +468,9 @@ pllua_validate_and_push(lua_State *L,
 
 		retval = act;
 	}
-	PG_CATCH();
-	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_rethrow_from_pg(L, oldcontext);
-	}
-	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	PLLUA_CATCH_RETHROW();
+
 	MemoryContextSwitchTo(oldcontext);
+
 	return retval;
 }

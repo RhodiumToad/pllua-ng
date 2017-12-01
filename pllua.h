@@ -49,8 +49,22 @@ pllua_setcontext(pllua_context_type newctx)
 	return oldctx;
 }
 
-#define pllua_debug(L_, ...)												\
-	do { if (pllua_context==PLLUA_CONTEXT_PG) elog(DEBUG1, __VA_ARGS__); else pllua_debug_lua(L_, __VA_ARGS__); } while(0)
+/*
+ * Abbreviate the most common form of catch block.
+ */
+#define PLLUA_TRY() do {												\
+	pllua_context_type _pllua_oldctx = pllua_setcontext(PLLUA_CONTEXT_PG); \
+	MemoryContext _pllua_oldmcxt = CurrentMemoryContext;				\
+	PG_TRY()
+
+#define PLLUA_CATCH_RETHROW()											\
+	PG_CATCH();															\
+	{ pllua_setcontext(_pllua_oldctx); pllua_rethrow_from_pg(L, _pllua_oldmcxt); } \
+	PG_END_TRY(); pllua_setcontext(_pllua_oldctx); } while(0)
+
+#define pllua_debug(L_, ...)											\
+	do { if (pllua_context==PLLUA_CONTEXT_PG) elog(DEBUG1, __VA_ARGS__); \
+		else pllua_debug_lua(L_, __VA_ARGS__); } while(0)
 
 /*
  * We don't put this in the body of a lua userdata for error handling reasons;
