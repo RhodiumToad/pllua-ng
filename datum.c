@@ -431,7 +431,7 @@ static pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 	return NULL;
 }
 
-static pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
+pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 {
 	pllua_datum *p = pllua_toanydatum(L, nd, ti);
 	if (!p)

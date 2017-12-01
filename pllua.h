@@ -283,6 +283,7 @@ pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fc
 
 /* datum.c */
 
+pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 void pllua_init_datum_objects(lua_State *L);
 int pllua_typeinfo_invalidate(lua_State *L);
 struct pllua_datum;

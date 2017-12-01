@@ -3,6 +3,7 @@
 
 #include "access/htup_details.h"
 #include "catalog/pg_type.h"
+#include "utils/datum.h"
 
 
 static void pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
@@ -16,6 +17,9 @@ static Datum pllua_return_result(lua_State *L, int nret,
 								 pllua_func_activation *act,
 								 bool *isnull)
 {
+	pllua_typeinfo *ti;
+	pllua_datum *d;
+
 	/* XXX much work needed here. */
 
 	/*
@@ -43,15 +47,31 @@ static Datum pllua_return_result(lua_State *L, int nret,
 	 *
 	 */
 
-	if (nret > 0)
+	if (nret == 0)
 	{
-		lua_Integer r = lua_tointeger(L, -1);
-		*isnull = false;
-		return Int32GetDatum(r);
+		*isnull = true;
+		return (Datum)0;
 	}
 
-	*isnull = true;
-	return (Datum)0;
+	lua_pushcfunction(L, pllua_typeinfo_lookup);
+	if (!act->tupdesc)
+	{
+		lua_pushinteger(L, (lua_Integer)(act->rettype));
+		lua_call(L, 1, 1);
+	}
+	else
+	{
+		lua_pushinteger(L, (lua_Integer)(act->tupdesc->tdtypeid));
+		lua_pushinteger(L, (lua_Integer)(act->tupdesc->tdtypmod));
+		lua_call(L, 2, 1);
+	}
+	lua_insert(L, -(nret+1));
+	lua_call(L, nret, 1);
+
+	d = pllua_checkanydatum(L, -1, &ti);
+
+	*isnull = false;
+	return datumCopy(d->value, ti->typbyval, ti->typlen);
 }
 
 static void pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, int32 *argtypmod)
