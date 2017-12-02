@@ -157,7 +157,7 @@ static int pllua_push_args(lua_State *L,
 			/* arg is ANYOID, so resolve what type the caller thinks it is. */
 			/* we rely on this not throwing! */
 			argtype = get_fn_expr_argtype(fcinfo->flinfo, i);
-			if (argtype == InvalidOid)
+			if (!OidIsValid(argtype))
 				luaL_error(L, "cannot determine type of argument %d", i);
 		}
 

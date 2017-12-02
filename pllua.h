@@ -265,6 +265,7 @@ extern char PLLUA_ERROR_OBJECT[];
 extern char PLLUA_ACTIVATION_OBJECT[];
 extern char PLLUA_TYPEINFO_OBJECT[];
 extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
+extern char PLLUA_TUPCONV_OBJECT[];
 extern char PLLUA_LAST_ERROR[];
 extern char PLLUA_RECURSIVE_ERROR[];
 extern char PLLUA_FUNCTION_MEMBER[];

@@ -54,6 +54,7 @@
 static bool pllua_typeinfo_iofunc(lua_State *L,
 								  pllua_typeinfo *t,
 								  IOFuncSelector whichfunc);
+static int pllua_tupconv_lookup(lua_State *L);
 
 /*
  * IMPORTANT!!!
@@ -306,6 +307,13 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 						else
 							elog(ERROR, "bigint out of range");
 						return true;
+
+					case NUMERICOID:
+						if (isint)
+							*result = DirectFunctionCall1(int8_numeric, Int64GetDatum(intval));
+						else
+							*result = DirectFunctionCall1(float8_numeric, Float8GetDatum(floatval));
+						return true;
 				}
 			}
 			return false;
@@ -400,6 +408,7 @@ static pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td)
  */
 static pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 {
+	pllua_typeinfo *t = NULL;
 	void *p = lua_touserdata(L,nd);
 	nd = lua_absindex(L,nd);
 	if (p)
@@ -411,8 +420,8 @@ static pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 				lua_pop(L, 2);
 				return NULL;
 			}
-			*ti = *pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
-			if (!*ti)
+			t = *pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+			if (!t)
 			{
 				lua_pop(L, 2);
 				return NULL;
@@ -425,6 +434,8 @@ static pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 				return NULL;
 			}
 			lua_pop(L, 2);
+			if (ti)
+				*ti = t;
 			return p;
 		}
 	}
@@ -769,6 +780,9 @@ static int pllua_datum_pairs(lua_State *L)
 	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 
+	if (t->natts < 0)
+		luaL_error(L, "pairs(): datum is not a rowtype");
+
 	lua_pushvalue(L, lua_upvalueindex(1));
 	lua_pushvalue(L, 1);
 	lua_pushinteger(L, 0);
@@ -780,8 +794,23 @@ static int pllua_datum_pairs(lua_State *L)
 	return 3;
 }
 
+static int pllua_datum_len(lua_State *L)
+{
+	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+
+	pllua_checkdatum(L, 1, lua_upvalueindex(1));
+
+	if (t->natts < 0)
+		luaL_error(L, "attempt to get length of a non-rowtype datum");
+
+	/* length is the arity, not natts, because we skip dropped columns */
+	lua_pushinteger(L, t->arity);
+	return 1;
+}
+
 static struct luaL_Reg datumobj_mt[] = {
 	/* __gc entry is handled separately */
+	{ "__len", pllua_datum_len },
 	{ "__index", pllua_datum_index },
 	{ "__pairs", pllua_datum_pairs },
 	{ "__tostring", pllua_datum_tostring },
@@ -885,6 +914,24 @@ static int pllua_newtypeinfo(lua_State *L)
 	lua_setfield(L, -2, "__gc");
 	lua_pushvalue(L, -2);
 	lua_setfield(L, -2, "typeinfo");
+	/* stack: self uservalue */
+	if (t->tupdesc)
+	{
+		lua_newtable(L);
+
+		lua_newtable(L);
+		lua_pushstring(L, "kv");
+		lua_setfield(L, -2, "__weak");
+		lua_pushstring(L, "tupconv table metatable");
+		lua_setfield(L, -2, "__name");
+		/* stack: ... self uservalue tupconv tupconv_mt */
+		lua_pushvalue(L, -4);
+		lua_pushcclosure(L, pllua_tupconv_lookup, 1);
+		lua_setfield(L, -2, "__index");
+
+		lua_setmetatable(L, -2);
+		lua_setfield(L, -2, "tupconv");
+	}
 	lua_pushvalue(L, -2);
 	luaL_setfuncs(L, datumobj_mt, 1);
 	lua_pop(L, 1);
@@ -939,10 +986,10 @@ int pllua_typeinfo_lookup(lua_State *L)
 	void **np = NULL;
 	pllua_typeinfo *nobj;
 
-	if (lua_type(L, 2) == LUA_TNONE)
+	if (lua_isnone(L, 2))
 		lua_pushinteger(L, -1);
 
-	if (oid == InvalidOid)
+	if (!OidIsValid(oid))
 	{
 		/* safety check so we never intern an entry for InvalidOid */
 		lua_pushnil(L);
@@ -1187,13 +1234,9 @@ static int pllua_typeinfo_attrs(lua_State *L)
  */
 static int pllua_typeinfo_package_call(lua_State *L)
 {
-	if (lua_isuserdata(L, 2)
-		&& lua_getmetatable(L, 2))
-	{
-		if (lua_getfield(L, -1, "_typeinfo") == LUA_TUSERDATA)
-			return 1;
-		lua_pop(L,2);
-	}
+	pllua_datum *d = pllua_toanydatum(L, 2, NULL);
+	if (d)
+		return 1;
 	if (lua_isnoneornil(L, 3))
 		return 0;
 	if (lua_isinteger(L, 3))
@@ -1444,6 +1487,215 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 	return 1;
 }
 
+
+/*
+ * tupconv objects cache the conversion data for tuple types.
+ */
+
+typedef struct pllua_tupconv {
+	TupleConversionMap *conv;  /* may be null! */
+	TupleDesc indesc;
+	TupleDesc outdesc;
+	MemoryContext mcxt;
+} pllua_tupconv;
+
+static int pllua_tupconv_gc(lua_State *L)
+{
+	void **p = pllua_checkrefobject(L, 1, PLLUA_TUPCONV_OBJECT);
+	pllua_tupconv *obj = *p;
+
+	*p = NULL;
+	if (!obj)
+		return 0;
+
+	ASSERT_LUA_CONTEXT;
+
+	PLLUA_TRY();
+	{
+		/*
+		 * tupconv is allocated in its own memory context since it has palloc'd
+		 * workspace attached.
+		 */
+		MemoryContextDelete(obj->mcxt);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	return 0;
+}
+
+/*
+ * tupconv_new(fromtype,totype)
+ *
+ */
+static int pllua_tupconv_new(lua_State *L)
+{
+	pllua_typeinfo *from_t = *pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *to_t = *pllua_checkrefobject(L, 2, PLLUA_TYPEINFO_OBJECT);
+	void **p = pllua_newrefobject(L, PLLUA_TUPCONV_OBJECT, NULL, false);
+	pllua_tupconv *volatile obj = NULL;
+
+	if (!from_t->tupdesc || !to_t->tupdesc)
+		luaL_error(L, "pllua_tupconv: type is not a row type");
+
+	/* uservalue of a tupconv is its destination typeinfo */
+	lua_pushvalue(L, 2);
+	lua_setuservalue(L, -2);
+
+	PLLUA_TRY();
+	{
+		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
+												   "pllua tupconv object",
+												   ALLOCSET_SMALL_SIZES);
+		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+		TupleDesc fromdesc,	todesc;
+		obj = palloc(sizeof(pllua_tupconv));
+		obj->mcxt = mcxt;
+		obj->conv = NULL;
+		/* convert_tuples_by_position doesn't copy the tupdescs so we have to */
+		obj->indesc = fromdesc = CreateTupleDescCopy(from_t->tupdesc);
+		obj->outdesc = todesc = CreateTupleDescCopy(to_t->tupdesc);
+		obj->conv = convert_tuples_by_position(fromdesc, todesc,
+											   "pllua_tupconv: incompatible row types");
+		MemoryContextSwitchTo(oldcontext);
+		MemoryContextSetParent(mcxt, pllua_get_memory_cxt(L));
+	}
+	PLLUA_CATCH_RETHROW();
+
+	*p = obj;
+	return 1;
+}
+
+/*
+ * tupconv(val)  returns a new tuple after conversion
+ *
+ */
+static int pllua_tupconv_call(lua_State *L)
+{
+	pllua_tupconv *obj = *pllua_checkrefobject(L, 1, PLLUA_TUPCONV_OBJECT);
+	pllua_typeinfo *totype;
+	pllua_typeinfo *dt;
+	pllua_datum *d = pllua_checkanydatum(L, 2, &dt);
+	pllua_datum *newd;
+
+	/* sanity - source datum's type must match conversion source type */
+	if (!dt->tupdesc
+		|| dt->tupdesc->tdtypeid != obj->indesc->tdtypeid
+		|| dt->tupdesc->tdtypmod != obj->indesc->tdtypmod)
+		luaL_error(L, "pllua_tupconv: unexpected source type");
+
+	lua_getuservalue(L, 1);
+	totype = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+
+	/* sanity - dest type must match conversion result type */
+	if (!totype->tupdesc
+		|| totype->tupdesc->tdtypeid != obj->outdesc->tdtypeid
+		|| totype->tupdesc->tdtypmod != obj->outdesc->tdtypmod)
+		luaL_error(L, "pllua_tupconv: unexpected result type");
+
+	newd = pllua_newdatum(L);
+
+	PLLUA_TRY();
+	{
+		MemoryContext oldcontext;
+		HeapTupleHeader src = (HeapTupleHeader) DatumGetPointer(d->value);
+		HeapTupleData srctup;
+		HeapTuple dsttup;
+
+		/* Build a temporary HeapTuple control structure */
+		srctup.t_len = HeapTupleHeaderGetDatumLength(src);
+		ItemPointerSetInvalid(&(srctup.t_self));
+		srctup.t_tableOid = InvalidOid;
+		srctup.t_data = src;
+
+		if (obj->conv)
+			dsttup = do_convert_tuple(&srctup, obj->conv);
+		else
+			dsttup = &srctup;
+
+		oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+		newd->value = heap_copy_tuple_as_datum(dsttup, totype->tupdesc);
+		newd->need_gc = true;
+		MemoryContextSwitchTo(oldcontext);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	return 1;
+}
+
+static struct luaL_Reg tupconv_mt[] = {
+	{ "__call", pllua_tupconv_call },
+	{ "__gc", pllua_tupconv_gc },
+	{ NULL, NULL }
+};
+
+/*
+ * __index(tab,key)   key is dest typeinfo, src typeinfo is upvalue 1
+ */
+static int pllua_tupconv_lookup(lua_State *L)
+{
+	lua_pushcfunction(L, pllua_tupconv_new);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushvalue(L, 2);
+	lua_call(L, 2, 1);
+	/* stack: tab key tupconv */
+	lua_pushvalue(L, -2);
+	lua_pushvalue(L, -2);
+	lua_rawset(L, -5);
+	return 1;
+}
+
+/*
+ * f(fromdatum,fromtype,totype)
+ *
+ */
+static int pllua_typeinfo_convert_tuple(lua_State *L)
+{
+	pllua_checkanydatum(L, 1, NULL);
+	lua_pop(L,1);
+	pllua_checkrefobject(L, 2, PLLUA_TYPEINFO_OBJECT);
+	pllua_checkrefobject(L, 3, PLLUA_TYPEINFO_OBJECT);
+
+	lua_getuservalue(L, 2);
+	lua_getfield(L, -1, "tupconv");
+	lua_pushvalue(L, 3);
+	lua_gettable(L, -2);
+
+	/* stack: ... uservalue tupconv_table tupconv */
+
+	lua_pushvalue(L, 1);
+	lua_call(L, 1, 1);
+	return 1;
+}
+
+
+/*
+ * "nd" indexes a table (or table-like object)
+ * t = target typeinfo
+ *
+ * Number of values pushed should always equal the target type's arity, we push
+ * nils for anything missing
+ */
+static int pllua_typeinfo_push_from_table(lua_State *L, int nd, pllua_typeinfo *t)
+{
+	int attno;
+	int natts = t->natts;
+	int nret = 0;
+
+	nd = lua_absindex(L, nd);
+
+	luaL_checkstack(L, 10 + t->arity, NULL);
+
+	for (attno = 0; attno < natts; ++attno)
+	{
+		if (TupleDescAttr(t->tupdesc, attno)->attisdropped)
+			continue;
+		lua_getfield(L, nd, NameStr(TupleDescAttr(t->tupdesc, attno)->attname));
+		++nret;
+	}
+
+	return nret;
+}
+
 /*
  * "call" for a typeinfo is to invoke it as a value constructor:
  *
@@ -1453,12 +1705,21 @@ static int pllua_typeinfo_frombinary(lua_State *L)
  * be acceptable simple input for the field type, or a datum of the correct
  * type - probably this needs extending to allow casts.
  *
+ * t(table)
+ *
+ * Constructs a rowtype value from fields in a table.
+ *
+ * t(val)
+ *
+ * Constructs a (deep) copy of the passed-in value of the same type.
+ *
  */
 static int pllua_typeinfo_call(lua_State *L)
 {
 	pllua_typeinfo *t = *pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
 	pllua_datum *newd;
 	int nargs = lua_gettop(L) - 1;
+	int argbase = 1;
 	Datum values[MaxTupleAttributeNumber + 1];
 	bool isnull[MaxTupleAttributeNumber + 1];
 	int i;
@@ -1467,11 +1728,69 @@ static int pllua_typeinfo_call(lua_State *L)
 	TupleDesc tupdesc = (natts >= 0) ? t->tupdesc : NULL;
 	int nmax = (natts < 0) ? 1 : natts;
 
-	if (nargs != t->arity)
+	if (nargs == 1)
+	{
+		pllua_typeinfo *dt = NULL;
+		pllua_datum *d = pllua_toanydatum(L, 2, &dt);
+
+		/* is it a datum? */
+		if (d)
+		{
+			/*
+			 * We might be looking at a value of the same type oid, but a
+			 * different tupdesc, for example if a composite type has been
+			 * altered since the original value was formed. We might also be
+			 * looking at a RECORD type that has a compatible structure to the
+			 * desired row, for example the result of "select * from foo" ought
+			 * to be acceptable input for foo (but currently is always an
+			 * anonymous record type).
+			 *
+			 * We handle this by using do_convert_tuple, with conversion maps
+			 * cached in the destination type's typeinfo. The conversion
+			 * infrastructure checks that the types match.
+			 */
+			if (t->natts >= 0 && dt->natts >= 0)
+			{
+				lua_pushcfunction(L, pllua_typeinfo_convert_tuple);
+				lua_pushvalue(L, 2);
+				lua_pushvalue(L, -3);
+				lua_pushvalue(L, 1);
+				lua_call(L, 3, 1);
+				return 1;
+			}
+			else if (t->natts == -1 && dt->natts == -1)  /* both scalars */
+			{
+				if (t->typeoid != dt->typeoid)
+					luaL_error(L, "incorrect argument type for type constructor");
+				values[0] = d->value;
+				isnull[0] = false;
+			}
+			else
+				luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
+						   t->arity, nargs);
+		}
+		else if (t->natts >= 0
+				 && (lua_type(L, 2) == LUA_TTABLE
+					 || lua_type(L, 2) == LUA_TUSERDATA))
+		{
+			/*
+			 * If it's not a datum, but it is a table or object, we assume it's
+			 * something we can index by field name. (If the caller wants
+			 * matching by number, they can do t(table.unpack(val)) instead.)
+			 *
+			 * We push the source values on the stack in the correct order and
+			 * fall out to handle it below.
+			 */
+			argbase = lua_gettop(L);
+			nargs = pllua_typeinfo_push_from_table(L, 2, t);
+		}
+	}
+
+	if (nargs != 1 && nargs != t->arity)
 		luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
 				   t->arity, nargs);
 
-	for (argno = 0, i = 0; i < nmax; ++i)
+	for (argno = argbase, i = 0; i < nmax; ++i)
 	{
 		Oid coltype = tupdesc ? TupleDescAttr(t->tupdesc, i)->atttypid : t->typeoid;
 
@@ -1484,10 +1803,10 @@ static int pllua_typeinfo_call(lua_State *L)
 
 		++argno;
 
-		if (lua_type(L, 2+argno) == LUA_TUSERDATA)
+		if (lua_type(L, argno) == LUA_TUSERDATA)
 		{
 			pllua_typeinfo *dt;
-			pllua_datum *d = pllua_checkanydatum(L, 1+argno, &dt);
+			pllua_datum *d = pllua_checkanydatum(L, argno, &dt);
 			if (dt->typeoid != coltype)
 				luaL_error(L, "incorrect argtype");
 			values[i] = d->value;
@@ -1498,7 +1817,7 @@ static int pllua_typeinfo_call(lua_State *L)
 
 	PLLUA_TRY();
 	{
-		for (argno = 0, i = 0; i < nmax; ++i)
+		for (argno = argbase, i = 0; i < nmax; ++i)
 		{
 			Oid coltype = tupdesc ? TupleDescAttr(t->tupdesc, i)->atttypid : t->typeoid;
 
@@ -1507,9 +1826,9 @@ static int pllua_typeinfo_call(lua_State *L)
 
 			++argno;
 
-			if (lua_type(L, 1+argno) != LUA_TUSERDATA)
+			if (lua_type(L, argno) != LUA_TUSERDATA)
 			{
-				if (!pllua_datum_from_value(L, 1+argno, coltype, &values[i], &isnull[i]))
+				if (!pllua_datum_from_value(L, argno, coltype, &values[i], &isnull[i]))
 					elog(ERROR, "incompatible value type");
 			}
 		}
@@ -1580,6 +1899,9 @@ static struct luaL_Reg typeinfo_package_mt[] = {
 
 void pllua_init_datum_objects(lua_State *L)
 {
+	pllua_newmetatable(L, PLLUA_TUPCONV_OBJECT, tupconv_mt);
+	lua_pop(L, 1);
+
 	pllua_newmetatable(L, PLLUA_TYPEINFO_OBJECT, typeinfo_mt);
 	lua_newtable(L);
 	luaL_setfuncs(L, typeinfo_methods, 0);
