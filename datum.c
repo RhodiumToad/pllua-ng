@@ -67,7 +67,7 @@ static int pllua_tupconv_lookup(lua_State *L);
  * It is _our_ responsibility to verify encoding correctness when passing any
  * string data from untrusted sources (i.e. the Lua code) into PG server apis.
  */
-static void pllua_verify_encoding(lua_State *L, const char *str)
+void pllua_verify_encoding(lua_State *L, const char *str)
 {
 	/* XXX improve error message */
 	if (str && !pg_verifymbstr(str, strlen(str), true))
@@ -377,6 +377,7 @@ static int pllua_datum_gc(lua_State *L)
 
 	PLLUA_TRY();
 	{
+		pllua_debug(L, "pllua_datum_gc: %p", DatumGetPointer(p->value));
 		pfree(DatumGetPointer(p->value));
 	}
 	PLLUA_CATCH_RETHROW();
@@ -417,7 +418,7 @@ static pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td)
  * check that the item at "nd" is a datum, and also (if it is) push its
  * typeinfo and return it (else push nothing)
  */
-static pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
+pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 {
 	pllua_typeinfo *t = NULL;
 	void *p = lua_touserdata(L,nd);
@@ -497,10 +498,30 @@ void pllua_savedatum(lua_State *L,
 		return;
 	}
 
-	/* Varlena type, which may need detoast. */
+	/*
+	 * Varlena type, which may need detoast. For record types, we may need to
+	 * detoast internal fields.
+	 */
 
-	nv = PointerGetDatum(PG_DETOAST_DATUM_COPY(d->value));
-	d->value = nv;
+	if (t->natts >= 0)
+	{
+		HeapTupleHeader htup = (HeapTupleHeader) DatumGetPointer(d->value);
+		HeapTupleData tuple;
+
+		/* Build a temporary HeapTuple control structure */
+		tuple.t_len = HeapTupleHeaderGetDatumLength(htup);
+		ItemPointerSetInvalid(&(tuple.t_self));
+		tuple.t_tableOid = InvalidOid;
+		tuple.t_data = htup;
+
+		nv = heap_copy_tuple_as_datum(&tuple, t->tupdesc);
+		d->value = nv;
+	}
+	else
+	{
+		nv = PointerGetDatum(PG_DETOAST_DATUM_COPY(d->value));
+		d->value = nv;
+	}
 	d->need_gc = true;
 	return;
 }
@@ -834,16 +855,16 @@ static struct luaL_Reg datumobj_mt[] = {
 /*
  * This entry point allows constructing a typeinfo for an anonymous tupdesc.
  */
-static int pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc *tupdesc)
+pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc)
 {
 	void **p = pllua_newrefobject(L, PLLUA_TYPEINFO_OBJECT, NULL, true);
-	pllua_typeinfo *volatile t;
+	pllua_typeinfo *t = NULL;
+	pllua_typeinfo *volatile nt;
 
 	ASSERT_LUA_CONTEXT;
 
 	PLLUA_TRY();
 	{
-		TupleDesc tupdesc = NULL;
 		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
 												   "pllua type object",
 												   ALLOCSET_SMALL_SIZES);
@@ -929,10 +950,12 @@ static int pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc 
 
 		MemoryContextSwitchTo(oldcontext);
 		MemoryContextSetParent(mcxt, pllua_get_memory_cxt(L));
+
+		nt = t;
 	}
 	PLLUA_CATCH_RETHROW();
 
-	*p = t;
+	*p = t = nt;
 
 	/*
 	 * the table we created for our uservalue is going to be the metatable for
@@ -967,7 +990,7 @@ static int pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc 
 	luaL_setfuncs(L, datumobj_mt, 1);
 	lua_pop(L, 1);
 
-	return 1;
+	return t;
 }
 
 /*
@@ -985,7 +1008,8 @@ static int pllua_newtypeinfo(lua_State *L)
 	if (oid == RECORDOID && typmod == -1)
 		luaL_error(L, "must specify typmod for RECORD typeinfo");
 
-	return pllua_newtypeinfo_raw(L, oid, typmod, NULL);
+	pllua_newtypeinfo_raw(L, oid, typmod, NULL);
+	return 1;
 }
 
 
@@ -1167,6 +1191,7 @@ static int pllua_typeinfo_gc(lua_State *L)
 		 * typeinfo is allocated in its own memory context (since we expect it
 		 * to have stuff dangling off), so free it by destroying that.
 		 */
+		pllua_debug(L, "pllua_typeinfo_gc: %p", obj->mcxt);
 		MemoryContextDelete(obj->mcxt);
 	}
 	PLLUA_CATCH_RETHROW();

@@ -299,6 +299,7 @@ pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fc
 
 /* datum.c */
 
+void pllua_verify_encoding(lua_State *L, const char *str);
 pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 void pllua_init_datum_objects(lua_State *L);
 int pllua_typeinfo_invalidate(lua_State *L);
@@ -319,6 +320,8 @@ void pllua_savedatum(lua_State *L,
 					 pllua_datum *d,
 					 pllua_typeinfo *t);
 int pllua_typeinfo_lookup(lua_State *L);
+pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc);
+pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 
 /* elog.c */
 
@@ -370,11 +373,15 @@ void pllua_getactivation(lua_State *L, pllua_func_activation *act);
 int pllua_activation_getfunc(lua_State *L);
 int pllua_get_cur_act(lua_State *L);
 FmgrInfo *pllua_get_cur_flinfo(lua_State *L);
+bool pllua_get_cur_act_readonly(lua_State *L);
 
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
 
 void pllua_init_objects(lua_State *L, bool trusted);
 void pllua_init_functions(lua_State *L, bool trusted);
+
+/* spi.c */
+void pllua_init_spi(lua_State *L);
 
 #endif

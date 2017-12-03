@@ -292,6 +292,7 @@ static int pllua_init_state(lua_State *L)
 	pllua_init_objects(L, trusted);
 	pllua_init_error(L);
 	pllua_init_functions(L, trusted);
+	pllua_init_spi(L);
 
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);

@@ -370,6 +370,24 @@ int pllua_get_cur_act(lua_State *L)
 	return 1;
 }
 
+/*
+ * This one doesn't throw; if we're in DO-block context, we're not readonly.
+ */
+bool pllua_get_cur_act_readonly(lua_State *L)
+{
+	FmgrInfo *flinfo = pllua_get_cur_flinfo(L);
+	pllua_func_activation *act;
+
+	act = (flinfo) ? flinfo->fn_extra : NULL;
+	if (!act)
+		return false;
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
+	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
+		luaL_error(L, "activation not found: %p", act);
+	lua_pop(L, 2);
+	return act->readonly;
+}
+
 static int pllua_dump_activation(lua_State *L)
 {
 	pllua_func_activation *act = pllua_checkobject(L, 1, PLLUA_ACTIVATION_OBJECT);
