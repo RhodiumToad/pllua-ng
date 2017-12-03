@@ -44,7 +44,8 @@ static void pllua_validate_proctup(lua_State *L, Oid fn_oid,
  * an object for it. However, we don't actually store the func_info into the
  * object; caller does that, after reparenting the memory context.
  *
- * Note that "compiling" a function in the current setup may execute some code.
+ * Note that "compiling" a function in the current setup may execute some user
+ * code.
  *
  * Returns the object on the stack.
  */
@@ -56,10 +57,7 @@ static int pllua_compile(lua_State *L)
 	const char *src;
 	luaL_Buffer b;
 
-	/*
-	 * caller fills in pointer value, but it's our job to put in the lua
-	 * function object
-	 */
+	/* caller fills in pointer */
 	pllua_newrefobject(L, PLLUA_FUNCTION_OBJECT, NULL, true);
 
 	luaL_buffinit(L, &b);
@@ -159,6 +157,80 @@ static int pllua_intern_function(lua_State *L)
 }
 
 /*
+ * Call this to resolve an activation before use
+ *
+ * The act->func_info must have been set up as far as the pg state goes, but
+ * the actual lua function may not have been compiled yet (since we want to
+ * ensure that this is fully valid before running any user-supplied code).
+ * This handles polymorphism and so on.
+ *
+ * Note that act->func_info may not have been filled in yet, and we don't do
+ * that. In error cases we ensure the activation is de-resolved, which should
+ * prevent anything accessing any dangling fields.
+ */
+static void pllua_resolve_activation(lua_State *L,
+									 pllua_func_activation *act,
+									 pllua_function_info *func_info,
+									 FunctionCallInfo fcinfo)
+{
+	MemoryContext oldcontext;
+	FmgrInfo *flinfo = fcinfo->flinfo;
+	Oid rettype = func_info->rettype;
+
+	if (act->resolved)
+		return;
+
+	ASSERT_PG_CONTEXT;
+
+	oldcontext = MemoryContextSwitchTo(flinfo->fn_mcxt);
+
+	if (IsPolymorphicType(rettype)
+		|| type_is_rowtype(rettype))
+	{
+		act->typefuncclass = get_call_result_type(fcinfo,
+												  &act->rettype,
+												  &act->tupdesc);
+		if (act->tupdesc && act->tupdesc->tdrefcount != -1)
+		{
+			/*
+			 * This is a ref-counted tupdesc, but we can't pin it
+			 * because any such pin would belong to a resource owner,
+			 * and we can't guarantee that our required data lifetimes
+			 * nest properly with the resource owners. So make a copy
+			 * instead. (If it's not refcounted, then it'll already be
+			 * in fn_mcxt.)
+			 */
+			act->tupdesc = CreateTupleDescCopy(act->tupdesc);
+		}
+	}
+	else
+	{
+		act->rettype = rettype;
+		act->typefuncclass = TYPEFUNC_SCALAR;
+	}
+
+	act->polymorphic = func_info->polymorphic;
+	act->variadic_call = get_fn_expr_variadic(fcinfo->flinfo);
+	act->nargs = func_info->nargs;
+	act->retset = func_info->retset;
+	act->readonly = func_info->readonly;
+
+	if (act->polymorphic)
+	{
+		act->argtypes = palloc(act->nargs * sizeof(Oid));
+		memcpy(act->argtypes, func_info->argtypes, act->nargs * sizeof(Oid));
+		if (!resolve_polymorphic_argtypes(act->nargs, act->argtypes,
+										  NULL, flinfo->fn_expr))
+			elog(ERROR,"failed to resolve polymorphic argtypes");
+	}
+	else
+		act->argtypes = func_info->argtypes;
+
+	MemoryContextSwitchTo(oldcontext);
+	act->resolved = true;
+}
+
+/*
  * Return true if func_info is an up to date compile of procTup.
  */
 static bool pllua_function_valid(pllua_function_info *func_info,
@@ -209,6 +281,27 @@ pllua_validate_and_push(lua_State *L,
 		int i;
 
 		/*
+		 * If we don't have an activation yet, make one (it'll initially be
+		 * invalid). We have to ensure that it's safe to leave a
+		 * not-yet-filled-in activation attached to flinfo.
+		 *
+		 * If we do have one already, find its lua object.
+		 *
+		 * The activation is left on the lua stack.
+		 */
+		if (!act)
+		{
+			pllua_pushcfunction(L, pllua_newactivation);
+			lua_pushlightuserdata(L, flinfo->fn_mcxt);
+			pllua_pcall(L, 1, 1, 0);
+			act = lua_touserdata(L, -1);
+			if (flinfo && flinfo->fn_extra == NULL)
+				flinfo->fn_extra = act;
+		}
+		else
+			pllua_getactivation(L, act);
+
+		/*
 		 * This part may have to be repeated in some rare recursion scenarios.
 		 */
 		for (;;)
@@ -222,7 +315,6 @@ pllua_validate_and_push(lua_State *L,
 			if (act && pllua_function_valid(act->func_info, procTup))
 			{
 				/* fastpath out when data is already valid. */
-				pllua_getactivation(L, act);
 				ReleaseSysCache(procTup);
 				break;
 			}
@@ -239,32 +331,16 @@ pllua_validate_and_push(lua_State *L,
 				/* might be out of date. */
 				if (pllua_function_valid(func_info, procTup))
 				{
-					if (act)
-					{
-						/*
-						 * The activation is out of date, but the existing
-						 * compiled function is not. Just update the activation.
-						 */
-						pllua_pushcfunction(L, pllua_setactivation);
-						lua_pushlightuserdata(L, act);
-						lua_pushvalue(L, -3);
-						pllua_pcall(L, 2, 1, 0);
-					}
-					else
-					{
-						/*
-						 * The activation doesn't exist yet, but the existing
-						 * compiled function is up to date.
-						 */
-						pllua_pushcfunction(L, pllua_newactivation);
-						lua_pushvalue(L, -2);
-						lua_pushlightuserdata(L, flinfo->fn_mcxt);
-						pllua_pcall(L, 2, 1, 0);
-						act = lua_touserdata(L, -1);
-						if (flinfo && flinfo->fn_extra == NULL)
-							flinfo->fn_extra = act;
-					}
-					lua_insert(L, -3);
+					/*
+					 * The activation is out of date, but the existing
+					 * compiled function is not. Just update the activation.
+					 */
+					/* stack: activation funcs_table funcobject */
+					pllua_pushcfunction(L, pllua_setactivation);
+					lua_pushlightuserdata(L, act);
+					lua_pushvalue(L, -3);
+					pllua_pcall(L, 2, 0, 0);
+					/* stack: activation funcs_table funcobject */
 					lua_pop(L, 2);
 					ReleaseSysCache(procTup);
 					break;
@@ -281,7 +357,11 @@ pllua_validate_and_push(lua_State *L,
 				lua_pushinteger(L, (lua_Integer) fn_oid);
 				pllua_pcall(L, 2, 0, 0);
 			}
+			/* stack: activation funcs_table funcobject */
 			lua_pop(L, 2);
+
+			act->resolved = false;
+			act->func_info = NULL;
 
 			/*
 			 * If we get this far, we need to compile up the function from
@@ -318,6 +398,7 @@ pllua_validate_and_push(lua_State *L,
 			func_info->variadic = procStruct->provariadic != InvalidOid;
 			func_info->variadic_any = procStruct->provariadic == ANYOID;
 			func_info->polymorphic = false;
+			func_info->readonly = (procStruct->provolatile != PROVOLATILE_VOLATILE);
 
 			Assert(func_info->nargs == procStruct->proargtypes.dim1);
 			func_info->argtypes = (Oid *) palloc(func_info->nargs * sizeof(Oid));
@@ -359,12 +440,16 @@ pllua_validate_and_push(lua_State *L,
 			comp_info->variadic = procStruct->provariadic;
 
 			/*
-			 *
+			 * Resolve the activation before compiling in case the user code
+			 * tries to access it.
+			 */
+			pllua_resolve_activation(L, act, func_info, fcinfo);
+
+			/*
 			 * Beware, compiling can invoke user-supplied code, which might
 			 * in turn recurse here. We trust that stack depth checks will
 			 * break any such loop.
 			 */
-
 			pllua_pushcfunction(L, pllua_compile);
 			lua_pushlightuserdata(L, comp_info);
 			rc = pllua_pcall_nothrow(L, 1, 1, 0);
@@ -374,6 +459,7 @@ pllua_validate_and_push(lua_State *L,
 
 			if (rc)
 			{
+				act->resolved = false;
 				MemoryContextDelete(fcxt);
 				pllua_rethrow_from_lua(L, rc);
 			}
@@ -417,54 +503,7 @@ pllua_validate_and_push(lua_State *L,
 		}
 
 		if (!act->resolved)
-		{
-			MemoryContext oldcontext = MemoryContextSwitchTo(flinfo->fn_mcxt);
-			Oid rettype = act->func_info->rettype;
-
-			if (IsPolymorphicType(rettype)
-				|| type_is_rowtype(rettype))
-			{
-				act->typefuncclass = get_call_result_type(fcinfo,
-														  &act->rettype,
-														  &act->tupdesc);
-				if (act->tupdesc && act->tupdesc->tdrefcount != -1)
-				{
-					/*
-					 * This is a ref-counted tupdesc, but we can't pin it
-					 * because any such pin would belong to a resource owner,
-					 * and we can't guarantee that our required data lifetimes
-					 * nest properly with the resource owners. So make a copy
-					 * instead. (If it's not refcounted, then it'll already be
-					 * in fn_mcxt.)
-					 */
-					act->tupdesc = CreateTupleDescCopy(act->tupdesc);
-				}
-			}
-			else
-			{
-				act->rettype = rettype;
-				act->typefuncclass = TYPEFUNC_SCALAR;
-			}
-
-			act->polymorphic = act->func_info->polymorphic;
-			act->variadic_call = get_fn_expr_variadic(fcinfo->flinfo);
-			act->nargs = act->func_info->nargs;
-			act->retset = act->func_info->retset;
-
-			if (act->polymorphic)
-			{
-				act->argtypes = palloc(act->nargs * sizeof(Oid));
-				memcpy(act->argtypes, act->func_info->argtypes, act->nargs * sizeof(Oid));
-				if (!resolve_polymorphic_argtypes(act->nargs, act->argtypes,
-												  NULL, flinfo->fn_expr))
-					elog(ERROR,"failed to resolve polymorphic argtypes");
-			}
-			else
-				act->argtypes = act->func_info->argtypes;
-
-			MemoryContextSwitchTo(oldcontext);
-			act->resolved = true;
-		}
+			pllua_resolve_activation(L, act, act->func_info, fcinfo);
 
 		retval = act;
 	}

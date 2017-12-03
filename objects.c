@@ -257,17 +257,17 @@ static void pllua_resetactivation_cb(Datum arg)
 }
 
 /*
- * Create a new activation object with the specified function and memory
- * context.
+ * Create a new activation object with the specified memory context. The
+ * function is not filled in; a later setactivation must do that. The
+ * activation is interned as valid.
  */
 int pllua_newactivation(lua_State *L)
 {
-	void **p = pllua_checkrefobject(L, 1, PLLUA_FUNCTION_OBJECT);
-	MemoryContext mcxt = lua_touserdata(L, 2);
+	MemoryContext mcxt = lua_touserdata(L, 1);
 	pllua_func_activation *act = pllua_newobject(L, PLLUA_ACTIVATION_OBJECT,
 												 sizeof(pllua_func_activation), true);
 
-	act->func_info = (*p);
+	act->func_info = NULL;
 	act->thread = NULL;
 	act->resolved = false;
 	act->rettype = InvalidOid;
@@ -277,11 +277,6 @@ int pllua_newactivation(lua_State *L)
 	act->cb.func = pllua_freeactivation_cb;
 	act->cb.arg = act;
 	act->dead = false;
-
-	lua_getuservalue(L, -1);
-	lua_pushvalue(L, 1);
-	lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
-	lua_pop(L, 1);
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	lua_pushvalue(L, -2);
@@ -296,7 +291,7 @@ int pllua_newactivation(lua_State *L)
 
 /*
  * Update the activation to point to a new function (e.g. after a recompile).
- * Returns the object on the stack.
+ * Returns nothing.
  */
 int pllua_setactivation(lua_State *L)
 {
@@ -319,9 +314,8 @@ int pllua_setactivation(lua_State *L)
 	lua_getuservalue(L, -1);
 	lua_pushvalue(L, 2);
 	lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
-	lua_pop(L, 1);
 
-	return 1;
+	return 0;
 }
 
 /*

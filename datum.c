@@ -832,21 +832,12 @@ static struct luaL_Reg datumobj_mt[] = {
 
 
 /*
- * newtypeinfo(oid,typmod)
- *
- * does not intern the new object.
+ * This entry point allows constructing a typeinfo for an anonymous tupdesc.
  */
-static int pllua_newtypeinfo(lua_State *L)
+static int pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc *tupdesc)
 {
-	Oid oid = luaL_checkinteger(L, 1);
-	lua_Integer typmod = luaL_optinteger(L, 2, -1);
 	void **p = pllua_newrefobject(L, PLLUA_TYPEINFO_OBJECT, NULL, true);
 	pllua_typeinfo *volatile t;
-
-	if (typmod != -1 && oid != RECORDOID)
-		luaL_error(L, "cannot specify typmod for non-RECORD typeinfo");
-	if (oid == RECORDOID && typmod == -1)
-		luaL_error(L, "must specify typmod for RECORD typeinfo");
 
 	ASSERT_LUA_CONTEXT;
 
@@ -887,10 +878,17 @@ static int pllua_newtypeinfo(lua_State *L)
 				break;
 		}
 
-		if (oid == RECORDOID)
+		if (oid == RECORDOID && typmod >= 0)
 		{
 			tupdesc = lookup_rowtype_tupdesc_copy(oid, typmod);
 			t->tupdesc = tupdesc;
+			t->natts = tupdesc->natts;
+			t->hasoid = tupdesc->tdhasoid;
+		}
+		else if (oid == RECORDOID && typmod == -1 && tupdesc)
+		{
+			/* input tupdesc is of uncertain lifetime, so we'd better copy it */
+			t->tupdesc = CreateTupleDescCopy(tupdesc);
 			t->natts = tupdesc->natts;
 			t->hasoid = tupdesc->tdhasoid;
 		}
@@ -972,6 +970,25 @@ static int pllua_newtypeinfo(lua_State *L)
 	return 1;
 }
 
+/*
+ * newtypeinfo(oid,typmod)
+ *
+ * does not intern the new object.
+ */
+static int pllua_newtypeinfo(lua_State *L)
+{
+	Oid oid = luaL_checkinteger(L, 1);
+	lua_Integer typmod = luaL_optinteger(L, 2, -1);
+
+	if (typmod != -1 && oid != RECORDOID)
+		luaL_error(L, "cannot specify typmod for non-RECORD typeinfo");
+	if (oid == RECORDOID && typmod == -1)
+		luaL_error(L, "must specify typmod for RECORD typeinfo");
+
+	return pllua_newtypeinfo_raw(L, oid, typmod, NULL);
+}
+
+
 static int pllua_typeinfo_eq(lua_State *L)
 {
 	void **p1 = pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
@@ -1023,9 +1040,9 @@ int pllua_typeinfo_lookup(lua_State *L)
 	if (lua_isnone(L, 2))
 		lua_pushinteger(L, -1);
 
-	if (!OidIsValid(oid))
+	if (!OidIsValid(oid) || (oid == RECORDOID && typmod == -1))
 	{
-		/* safety check so we never intern an entry for InvalidOid */
+		/* safety check so we never intern an entry for InvalidOid or unblessed record */
 		lua_pushnil(L);
 		return 1;
 	}

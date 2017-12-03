@@ -87,6 +87,7 @@ typedef struct pllua_function_info
 
 	Oid rettype;
 	bool retset;
+	bool readonly;
 
 	int nargs;
 	bool variadic;
@@ -137,6 +138,7 @@ typedef struct pllua_func_activation
 	bool polymorphic;
 	bool variadic_call;
 	bool retset;
+	bool readonly;
 
 	Oid rettype;
 	TupleDesc tupdesc;
