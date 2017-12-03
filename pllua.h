@@ -122,6 +122,8 @@ typedef struct pllua_function_compile_info
 	char *argmodes;
 	char **argnames;
 
+	bool validate_only;
+
 } pllua_function_compile_info;
 
 
@@ -296,6 +298,8 @@ lua_State *pllua_getstate(bool trusted);
 /* compile.c */
 
 pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fcinfo, bool trusted);
+
+void pllua_validate_function(lua_State *L, Oid fn_oid, bool trusted);
 
 /* datum.c */
 

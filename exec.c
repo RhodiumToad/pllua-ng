@@ -397,9 +397,11 @@ int pllua_call_inline(lua_State *L)
 int pllua_validate(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
-	FunctionCallInfo fcinfo = act->fcinfo;
+	Oid func_oid = act->validate_func;
 
-	pllua_common_lua_init(L, fcinfo);
+	pllua_common_lua_init(L, NULL);
+
+	pllua_validate_function(L, func_oid, act->trusted);
 
 	return 0;
 }
