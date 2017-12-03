@@ -6,6 +6,7 @@
 #include "access/sysattr.h"
 #include "catalog/pg_type.h"
 #include "mb/pg_wchar.h"
+#include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
@@ -19,6 +20,7 @@
  * A Datum object has this directly in its body:
  *
  *   Datum value;
+ *   int32 typmod;
  *   bool  need_gc;
  *
  * We create the object initially with just the value, and need_gc false.
@@ -31,6 +33,9 @@
  * An exception is made for datums extracted from a row or array which is
  * itself already a datum. For this case we leave need_gc false, and put a
  * reference to the parent value in the uservalue slot.
+ *
+ * Typmod is -1 unless we took this datum from a column in which case it's the
+ * column atttypmod.
  *
  * Information about the object type is contained in a typeinfo object. We keep
  * a cache of type info (by oid) and tupdesc info (by typmod for RECORD
@@ -108,7 +113,15 @@ int pllua_value_from_datum(lua_State *L,
 
 	switch (typeid)
 	{
+		/*
+		 * Everything has a text representation, but we use this only for those
+		 * types where there isn't really anything _other_ than text.
+		 */
 		case TEXTOID:
+		case VARCHAROID:
+		case BPCHAROID:
+		case XMLOID:
+		case JSONOID:
 		case BYTEAOID:
 			{
 				Datum v = pllua_detoast_light(L, value);
@@ -201,6 +214,11 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 				size_t len;
 				const char *str = lua_tolstring(L, nd, &len);
 
+				/*
+				 * Only handle the common cases here, we punt everything else
+				 * to the input functions. (The only one that really matters here
+				 * is bytea, where the semantics are different.)
+				 */
 				switch (typeid)
 				{
 					case TEXTOID:
@@ -219,19 +237,6 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 							memcpy(VARDATA(b), str, len);
 							SET_VARSIZE(b, len + VARHDRSZ);
 							*result = PointerGetDatum(b);
-						}
-						return true;
-
-					case NAMEOID:
-						{
-							Name v;
-							/* Truncate oversize input */
-							if (len >= NAMEDATALEN)
-								len = pg_mbcliplen(str, len, NAMEDATALEN - 1);
-							/* We use palloc0 here to ensure result is zero-padded */
-							v = (Name) palloc0(NAMEDATALEN);
-							memcpy(NameStr(*v), str, len);
-							*result = NameGetDatum(v);
 						}
 						return true;
 
@@ -270,12 +275,12 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 						return true;
 
 					case FLOAT8OID:
-						*result = Float8GetDatum((float4) floatval);
+						*result = Float8GetDatum((float8) floatval);
 						return true;
 
 					case BOOLOID:
-						if (isint && (intval == 0 || intval == 1))
-							*result = BoolGetDatum( (intval == 1) );
+						if (isint)
+							*result = BoolGetDatum( (intval != 0) );
 						else
 							elog(ERROR, "invalid input for bool");
 						return true;
@@ -326,6 +331,7 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 /*
  * This one always makes a datum object, even for types we don't normally do
  * that for. It also doesn't do savedatum: caller must do that if need be.
+ * It also saves the specified typmod in the datum for non-record types.
  *
  * Value is left on top of the stack.
  */
@@ -333,7 +339,10 @@ static void pllua_make_datum(lua_State *L, Datum value, Oid typeid, int32 typmod
 {
 	lua_pushcfunction(L, pllua_typeinfo_lookup);
 	lua_pushinteger(L, (lua_Integer) typeid);
-	lua_pushinteger(L, (lua_Integer) typmod);
+	if (typeid == RECORDOID)
+		lua_pushinteger(L, (lua_Integer) typmod);
+	else
+		lua_pushnil(L);
 	lua_call(L, 2, 1);
 
 	if (lua_isnil(L, -1))
@@ -344,6 +353,8 @@ static void pllua_make_datum(lua_State *L, Datum value, Oid typeid, int32 typmod
 		pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 		d = pllua_newdatum(L);
 		d->value = value;
+		if (typeid != RECORDOID)
+			d->typmod = typmod;
 		d->need_gc = false;
 		lua_remove(L, -2);
 	}
@@ -456,6 +467,7 @@ pllua_datum *pllua_newdatum(lua_State *L)
 	pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 	d = lua_newuserdata(L, sizeof(pllua_datum));
 	d->value = (Datum)0;
+	d->typmod = -1;
 	d->need_gc = 0;
 
 	lua_getuservalue(L, -2);
@@ -631,8 +643,8 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 		else
 		{
 			pllua_make_datum(L, values[i],
-							 tupdesc->attrs[i].atttypid,
-							 tupdesc->attrs[i].atttypmod);
+							 att->atttypid,
+							 att->atttypmod);
 			lua_pushvalue(L, nd);
 			lua_setuservalue(L, -2);
 		}
@@ -857,6 +869,23 @@ static int pllua_newtypeinfo(lua_State *L)
 		t->hasoid = false;
 		t->revalidate = false;
 		t->reloid = InvalidOid;
+		t->basetype = getBaseType(oid);
+		t->coerce_typmod = false;
+		t->coerce_typmod_element = false;
+		t->typmod_funcid = InvalidOid;
+
+		switch (find_typmod_coercion_function(oid, &t->typmod_funcid))
+		{
+			default:
+			case COERCION_PATH_NONE:
+				break;
+			case COERCION_PATH_ARRAYCOERCE:
+				t->coerce_typmod_element = true;
+				/*FALLTHROUGH*/
+			case COERCION_PATH_FUNC:
+				t->coerce_typmod = true;
+				break;
+		}
 
 		if (oid == RECORDOID)
 		{
@@ -865,7 +894,7 @@ static int pllua_newtypeinfo(lua_State *L)
 			t->natts = tupdesc->natts;
 			t->hasoid = tupdesc->tdhasoid;
 		}
-		else if ((tupdesc = lookup_rowtype_tupdesc_noerror(getBaseType(oid), typmod, true)))
+		else if ((tupdesc = lookup_rowtype_tupdesc_noerror(t->basetype, typmod, true)))
 		{
 			t->natts = tupdesc->natts;
 			t->hasoid = tupdesc->tdhasoid;
@@ -884,6 +913,10 @@ static int pllua_newtypeinfo(lua_State *L)
 			t->arity = arity;
 		}
 
+		/*
+		 * We intentionally don't look through domains here, so we get
+		 * domain_in etc. for a domain type.
+		 */
 		get_type_io_data(oid, IOFunc_output,
 						 &t->typlen, &t->typbyval, &t->typalign,
 						 &t->typdelim, &t->typioparam, &t->outfuncid);
@@ -963,6 +996,7 @@ static int pllua_typeinfo_eq(lua_State *L)
 		|| (obj1->tupdesc && obj2->tupdesc
 			&& !equalTupleDescs(obj1->tupdesc, obj2->tupdesc))
 		|| obj1->reloid != obj2->reloid
+		|| obj1->basetype != obj2->basetype
 		|| obj1->typlen != obj2->typlen
 		|| obj1->typbyval != obj2->typbyval
 		|| obj1->typalign != obj2->typalign
@@ -1370,6 +1404,34 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 	return true;
 }
 
+static bool pllua_typeinfo_raw_input(lua_State *L, Datum *res, pllua_typeinfo *t,
+									 const char *str, int32 typmod)
+{
+	if ((OidIsValid(t->infuncid) && OidIsValid(t->infunc.fn_oid))
+		|| pllua_typeinfo_iofunc(L, t, IOFunc_input))
+	{
+		*res = InputFunctionCall(&t->infunc, (char *) str, t->typioparam, typmod);
+		return true;
+	}
+
+	return false;
+}
+
+static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
+									  pllua_typeinfo *t, int32 typmod)
+{
+	if (!t->coerce_typmod)
+		return;
+	if (t->coerce_typmod_element && typmod >= 0)
+		elog(ERROR, "pllua: element typmod coercion not implemented yet");
+	Assert(OidIsValid(t->typmod_funcid));
+	if (!OidIsValid(t->typmod_func.fn_oid))
+		fmgr_info_cxt(t->typmod_funcid, &t->typmod_func, t->mcxt);
+	/* we currently assume typmod coercions are irrelevant for nulls */
+	if (!*isnull)
+		*val = FunctionCall3(&t->typmod_func, *val, Int32GetDatum(typmod), BoolGetDatum(false));
+}
+
 /*
  * t:fromstring('str')  returns a datum object.
  *
@@ -1406,10 +1468,8 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 	{
 		Datum nv;
 
-		if ((OidIsValid(t->infuncid) && OidIsValid(t->infunc.fn_oid))
-			|| pllua_typeinfo_iofunc(L, t, IOFunc_input))
+		if (pllua_typeinfo_raw_input(L, &nv, t, str, t->typmod))
 		{
-			nv = InputFunctionCall(&t->infunc, (char *) str, t->typioparam, t->typmod);
 			if (str)
 			{
 				MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
@@ -1551,6 +1611,11 @@ static int pllua_tupconv_new(lua_State *L)
 		obj = palloc(sizeof(pllua_tupconv));
 		obj->mcxt = mcxt;
 		obj->conv = NULL;
+		/*
+		 * XXX the tupconvert functions are much too strict for us; we need a
+		 * version that applies typmod coercions, domain checks and maybe
+		 * assignment casts. TODO
+		 */
 		/* convert_tuples_by_position doesn't copy the tupdescs so we have to */
 		obj->indesc = fromdesc = CreateTupleDescCopy(from_t->tupdesc);
 		obj->outdesc = todesc = CreateTupleDescCopy(to_t->tupdesc);
@@ -1687,9 +1752,10 @@ static int pllua_typeinfo_push_from_table(lua_State *L, int nd, pllua_typeinfo *
 
 	for (attno = 0; attno < natts; ++attno)
 	{
-		if (TupleDescAttr(t->tupdesc, attno)->attisdropped)
+		Form_pg_attribute att = TupleDescAttr(t->tupdesc, attno);
+		if (att->attisdropped)
 			continue;
-		lua_getfield(L, nd, NameStr(TupleDescAttr(t->tupdesc, attno)->attname));
+		lua_getfield(L, nd, NameStr(att->attname));
 		++nret;
 	}
 
@@ -1702,8 +1768,8 @@ static int pllua_typeinfo_push_from_table(lua_State *L, int nd, pllua_typeinfo *
  * t(val,val,val,...)
  *
  * The number of args must match the arity of the type. Each value must either
- * be acceptable simple input for the field type, or a datum of the correct
- * type - probably this needs extending to allow casts.
+ * be acceptable simple input for the field type, or a string, or a datum of
+ * the correct type - probably this needs extending to allow casts.
  *
  * t(table)
  *
@@ -1720,8 +1786,14 @@ static int pllua_typeinfo_call(lua_State *L)
 	pllua_datum *newd;
 	int nargs = lua_gettop(L) - 1;
 	int argbase = 1;
+	/*
+	 * this is about 30kbytes of stack space on 64bit, but it's still much
+	 * cleaner than messing with dynamic allocations.
+	 */
 	Datum values[MaxTupleAttributeNumber + 1];
 	bool isnull[MaxTupleAttributeNumber + 1];
+	bool need_coerce[MaxTupleAttributeNumber + 1];
+	pllua_typeinfo *argt[MaxTupleAttributeNumber + 1];
 	int i;
 	int argno = 0;
 	int natts = t->natts;
@@ -1745,9 +1817,9 @@ static int pllua_typeinfo_call(lua_State *L)
 			 * to be acceptable input for foo (but currently is always an
 			 * anonymous record type).
 			 *
-			 * We handle this by using do_convert_tuple, with conversion maps
-			 * cached in the destination type's typeinfo. The conversion
-			 * infrastructure checks that the types match.
+			 * We handle this by using a prebuilt tuple conversion object, with
+			 * conversion maps cached in the source type's typeinfo. The
+			 * conversion infrastructure checks that the types match.
 			 */
 			if (t->natts >= 0 && dt->natts >= 0)
 			{
@@ -1779,7 +1851,8 @@ static int pllua_typeinfo_call(lua_State *L)
 			 * matching by number, they can do t(table.unpack(val)) instead.)
 			 *
 			 * We push the source values on the stack in the correct order and
-			 * fall out to handle it below.
+			 * fall out to handle it below. typeinfo_push_from_table checks the
+			 * stack depth.
 			 */
 			argbase = lua_gettop(L);
 			nargs = pllua_typeinfo_push_from_table(L, 2, t);
@@ -1790,9 +1863,16 @@ static int pllua_typeinfo_call(lua_State *L)
 		luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
 				   t->arity, nargs);
 
+	/* this potentially pushes a lot of typeinfos onto the stack */
+	luaL_checkstack(L, 10 + nmax, NULL);
+
 	for (argno = argbase, i = 0; i < nmax; ++i)
 	{
-		Oid coltype = tupdesc ? TupleDescAttr(t->tupdesc, i)->atttypid : t->typeoid;
+		Form_pg_attribute att = tupdesc ? TupleDescAttr(tupdesc, i) : NULL;
+		Oid coltype = tupdesc ? att->atttypid : t->typeoid;
+		int32 coltypmod = tupdesc ? att->atttypmod : -1;
+
+		need_coerce[i] = false;
 
 		if (tupdesc && TupleDescAttr(t->tupdesc, i)->attisdropped)
 		{
@@ -1809,9 +1889,33 @@ static int pllua_typeinfo_call(lua_State *L)
 			pllua_datum *d = pllua_checkanydatum(L, argno, &dt);
 			if (dt->typeoid != coltype)
 				luaL_error(L, "incorrect argtype");
-			values[i] = d->value;
-			isnull[i] = false;
-			lua_pop(L,1);
+			if (coltypmod >= 0 && coltypmod != d->typmod)
+			{
+				argt[i] = dt;
+				need_coerce[i] = true;
+				/* leave the typeinfo on stack */
+			}
+			else
+			{
+				values[i] = d->value;
+				isnull[i] = false;
+				lua_pop(L,1);
+			}
+		}
+		else if (lua_type(L, argno) == LUA_TSTRING)
+		{
+			/* look up the element typeinfo in case we need it below */
+			lua_pushcfunction(L, pllua_typeinfo_lookup);
+			lua_pushinteger(L, (lua_Integer) coltype);
+			lua_call(L, 1, 1);
+			argt[i] = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+			if (coltypmod >= 0)
+				need_coerce[i] = true;
+		}
+		else
+		{
+			if (coltypmod >= 0)
+				need_coerce[i] = true;
 		}
 	}
 
@@ -1819,18 +1923,41 @@ static int pllua_typeinfo_call(lua_State *L)
 	{
 		for (argno = argbase, i = 0; i < nmax; ++i)
 		{
-			Oid coltype = tupdesc ? TupleDescAttr(t->tupdesc, i)->atttypid : t->typeoid;
+			Form_pg_attribute att = tupdesc ? TupleDescAttr(tupdesc, i) : NULL;
+			Oid coltype = tupdesc ? att->atttypid : t->typeoid;
+			int32 coltypmod = tupdesc ? att->atttypmod : -1;
 
-			if (tupdesc && TupleDescAttr(t->tupdesc, i)->attisdropped)
+			if (tupdesc && att->attisdropped)
 				continue;
 
 			++argno;
 
 			if (lua_type(L, argno) != LUA_TUSERDATA)
 			{
-				if (!pllua_datum_from_value(L, argno, coltype, &values[i], &isnull[i]))
+				/*
+				 * it's important that we check datum_from_value before trying
+				 * the default string conversion
+				 */
+				if (pllua_datum_from_value(L, argno, coltype, &values[i], &isnull[i]))
+					/* nothing to do except typmod check below */;
+				else if (lua_type(L, argno) == LUA_TSTRING)
+				{
+					const char *str = lua_tostring(L, argno);
+					/* input func is responsible for typmod handling on this path */
+					need_coerce[i] = false;
+					if (!pllua_typeinfo_raw_input(L, &values[i], argt[i], str, coltypmod))
+						elog(ERROR, "failed to find input function for type");
+				}
+				else
 					elog(ERROR, "incompatible value type");
 			}
+
+			/*
+			 * we have a value from a datum, but it might have had a
+			 * different typmod. We assume nulls don't need this.
+			 */
+			if (need_coerce[i] && !isnull[i])
+				pllua_typeinfo_raw_coerce(L, &values[i], &isnull[i], argt[i], coltypmod);
 		}
 	}
 	PLLUA_CATCH_RETHROW();

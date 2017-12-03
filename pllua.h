@@ -173,6 +173,7 @@ typedef struct pllua_activation_record
 
 typedef struct pllua_datum {
 	Datum value;
+	int32 typmod;
 	bool need_gc;
 } pllua_datum;
 
@@ -190,6 +191,7 @@ typedef struct pllua_typeinfo {
 	bool revalidate;
 	TupleDesc tupdesc;
 	Oid reloid;  /* for named composite types */
+	Oid basetype;  /* for domains */
 
 	int16 typlen;
 	bool typbyval;
@@ -207,6 +209,12 @@ typedef struct pllua_typeinfo {
 	FmgrInfo infunc;
 	FmgrInfo sendfunc;
 	FmgrInfo recvfunc;
+
+	/* typmod coercions */
+	bool coerce_typmod;
+	bool coerce_typmod_element;
+	Oid typmod_funcid;
+	FmgrInfo typmod_func;
 
 	/*
 	 * we give this its own context, because we can't control what fmgr will
@@ -241,11 +249,16 @@ extern bool pllua_ending;
  * registries for cached data:
  * reg[PLLUA_FUNCS] = { [integer oid] = funcinfo object }
  * reg[PLLUA_ACTIVATIONS] = { [light(act)] = activation object }
+ * reg[PLLUA_TYPES] = { [integer oid] = typeinfo object }
+ * reg[PLLUA_RECORDS] = { [integer typmod] = typeinfo object }
  *
  * metatables:
  * reg[PLLUA_FUNCTION_OBJECT]
  * reg[PLLUA_ACTIVATION_OBJECT]
  * reg[PLLUA_ERROR_OBJECT]
+ * reg[PLLUA_TYPEINFO_OBJECT]
+ * reg[PLLUA_TYPEINFO_PACKAGE_OBJECT]  (the pgtype() object itself)
+ *  - datum objects and tupconv objects have dynamic metatables
  *
  * reg[PLLUA_]
  *

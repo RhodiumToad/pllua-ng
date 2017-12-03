@@ -228,6 +228,7 @@ int pllua_resume_function(lua_State *L)
 
 	if (rc == LUA_OK)
 	{
+		lua_xmove(thr, L, lua_gettop(thr));
 		pllua_deactivate_thread(L, fact, rsi->econtext);
 		rsi->isDone = ExprEndResult;
 		act->retval = (Datum)0;
