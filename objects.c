@@ -540,19 +540,28 @@ void pllua_init_objects(lua_State *L, bool trusted)
 	pllua_init_datum_objects(L);
 }
 
+static int pllua_open_debugfuncs(lua_State *L)
+{
+	lua_newtable(L);
+	luaL_setfuncs(L, serverdebugfuncs, 0);
+	return 1;
+}
+
+static int pllua_open_serverfuncs(lua_State *L)
+{
+	lua_newtable(L);
+	luaL_setfuncs(L, serverfuncs, 0);
+	return 1;
+}
+
 void pllua_init_functions(lua_State *L, bool trusted)
 {
-	luaL_openlibs(L);
-
 	lua_pushglobaltable(L);
 	luaL_setfuncs(L, globfuncs, 0);
 	lua_pop(L, 1);
 
-	lua_newtable(L);
-	luaL_setfuncs(L, serverfuncs, 0);
-	lua_newtable(L);
-	luaL_setfuncs(L, serverdebugfuncs, 0);
-	lua_setfield(L, -2, "dbg");
-	lua_setglobal(L, "server");
+	luaL_requiref(L, "dbg", pllua_open_debugfuncs, 0);
+	luaL_requiref(L, "server", pllua_open_serverfuncs, 1);
+
 	pllua_init_error_functions(L);
 }

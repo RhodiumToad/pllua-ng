@@ -29,7 +29,8 @@ MODULE_big = pllua_ng
 EXTENSION = pllua_ng
 DATA = pllua_ng--1.0.sql
 
-OBJS = compile.o datum.o elog.o error.o exec.o globals.o init.o objects.o pllua.o spi.o
+OBJS =	compile.o datum.o elog.o error.o exec.o globals.o \
+	init.o objects.o pllua.o spi.o trusted.o
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) #-DPLLUA_DEBUG
 SHLIB_LINK = $(LUALIB)

@@ -124,6 +124,11 @@ static int pllua_compile(lua_State *L)
 
 	if (!comp_info->validate_only)
 	{
+		if (func_info->trusted)
+		{
+			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+			lua_setupvalue(L, -2, 1);
+		}
 		lua_call(L, 0, 1);
 
 		lua_getuservalue(L, -2);

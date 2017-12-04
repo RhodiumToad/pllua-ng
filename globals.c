@@ -30,4 +30,6 @@ char PLLUA_LAST_ERROR[] = "last error object";
 char PLLUA_RECURSIVE_ERROR[] = "recursive error object";
 char PLLUA_FUNCTION_MEMBER[] = "function element";
 char PLLUA_THREAD_MEMBER[] = "thread element";
-
+char PLLUA_TRUSTED_SANDBOX[] = "sandbox";
+char PLLUA_TRUSTED_SANDBOX_LOADED[] = "sandbox loaded modules";
+char PLLUA_TRUSTED_SANDBOX_ALLOW[] = "sandbox allowed modules";

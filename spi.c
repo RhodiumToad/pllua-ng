@@ -216,9 +216,10 @@ static struct luaL_Reg spi_funcs[] = {
 	{ NULL, NULL }
 };
 
-void pllua_init_spi(lua_State *L)
+int pllua_open_spi(lua_State *L)
 {
 	lua_newtable(L);
+	lua_pushvalue(L, -1);
 	luaL_setfuncs(L, spi_funcs, 0);
-	lua_setglobal(L, "spi");
+	return 1;
 }

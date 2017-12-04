@@ -294,8 +294,13 @@ static int pllua_init_state(lua_State *L)
 
 	pllua_init_objects(L, trusted);
 	pllua_init_error(L);
+
+	luaL_openlibs(L);
+
 	pllua_init_functions(L, trusted);
-	pllua_init_spi(L);
+
+	/* Treat SPI as an actual module */
+	luaL_requiref(L, "spi", pllua_open_spi, 1);
 
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
@@ -306,18 +311,14 @@ static int pllua_init_state(lua_State *L)
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
 
-	/* don't run user code yet. */
-	return 0;
-}
+	/*
+	 * If in trusted mode, load the "trusted" module which allows the superuser
+	 * to control (in the init strings) what modules can be exposed to the user.
+	 */
+	if (trusted)
+		luaL_requiref(L, "trusted", pllua_open_trusted, 1);
 
-/*
- * Remove anything installed by pllua_init_state that isn't safe for the user
- * to play with. This is a separate step because we want the
- * (superuser-controlled) init strings to be able to load modules and so on.
- */
-static int pllua_trusted_lockdown(lua_State *L)
-{
-	/* XXX TODO */
+	/* don't run user code yet. */
 	return 0;
 }
 
@@ -422,17 +423,6 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_
 		rc = pllua_cpcall(L, pllua_run_init_strings, NULL);
 		if (rc)
 			pllua_rethrow_from_lua(L, rc);
-
-		if (trusted)
-		{
-			/*
-			 * Anything not nailed down belongs to the user. Anything they can
-			 * pry loose is not nailed down.
-			 */
-			rc = pllua_cpcall(L, pllua_trusted_lockdown, NULL);
-			if (rc)
-				pllua_rethrow_from_lua(L, rc);
-		}
 	}
 	PG_CATCH();
 	{

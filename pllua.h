@@ -264,6 +264,11 @@ extern bool pllua_ending;
  * reg[PLLUA_TYPEINFO_PACKAGE_OBJECT]  (the pgtype() object itself)
  *  - datum objects and tupconv objects have dynamic metatables
  *
+ * sandbox:
+ * reg[PLLUA_TRUSTED_SANDBOX] = value of _ENV for trusted funcs
+ * reg[PLLUA_TRUSTED_SANDBOX_LOADED] = modules loaded in sandbox
+ * reg[PLLUA_TRUSTED_SANDBOX_ALLOW] = modules allowed in sandbox
+ *
  * reg[PLLUA_]
  *
  *
@@ -288,6 +293,9 @@ extern char PLLUA_RECURSIVE_ERROR[];
 extern char PLLUA_FUNCTION_MEMBER[];
 extern char PLLUA_THREAD_MEMBER[];
 extern char PLLUA_TYPEINFO_MEMBER[];
+extern char PLLUA_TRUSTED_SANDBOX[];
+extern char PLLUA_TRUSTED_SANDBOX_LOADED[];
+extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 
 /* functions */
 
@@ -349,6 +357,9 @@ void pllua_initial_protected_call(lua_State *L,
 
 void pllua_init_error(lua_State *L);
 
+int pllua_t_pcall(lua_State *L);
+int pllua_t_xpcall(lua_State *L);
+
 /* exec.c */
 
 int pllua_resume_function(lua_State *L);
@@ -386,6 +397,9 @@ void pllua_init_objects(lua_State *L, bool trusted);
 void pllua_init_functions(lua_State *L, bool trusted);
 
 /* spi.c */
-void pllua_init_spi(lua_State *L);
+int pllua_open_spi(lua_State *L);
+
+/* trusted.c */
+int pllua_open_trusted(lua_State *L);
 
 #endif

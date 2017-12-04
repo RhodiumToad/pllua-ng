@@ -389,6 +389,11 @@ int pllua_call_inline(lua_State *L)
 
 	if (luaL_loadbuffer(L, act->cblock->source_text, strlen(act->cblock->source_text), "DO-block"))
 		pllua_rethrow_from_lua(L, LUA_ERRRUN);
+	if (act->trusted)
+	{
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+		lua_setupvalue(L, -2, 1);
+	}
 	lua_call(L, 0, 0);
 
 	return 0;

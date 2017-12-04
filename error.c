@@ -332,7 +332,7 @@ static int finishpcall (lua_State *L, int status, lua_KContext extra) {
     return lua_gettop(L) - (int)extra;  /* return all results */
 }
 
-static int pllua_t_pcall (lua_State *L) {
+int pllua_t_pcall (lua_State *L) {
   int status;
   luaL_checkany(L, 1);
   lua_pushboolean(L, 1);  /* first result if no errors */
@@ -346,7 +346,7 @@ static int pllua_t_pcall (lua_State *L) {
 ** stack will have <f, err, true, f, [args...]>; so, the function passes
 ** 2 to 'finishpcall' to skip the 2 first values when returning results.
 */
-static int pllua_t_xpcall (lua_State *L) {
+int pllua_t_xpcall (lua_State *L) {
   int status;
   int n = lua_gettop(L);
   luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
