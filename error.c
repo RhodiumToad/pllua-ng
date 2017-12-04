@@ -256,10 +256,10 @@ void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh)
 
 void pllua_initial_protected_call(lua_State *L,
 								  lua_CFunction func,
-								  void *arg)
+								  pllua_activation_record *arg)
 {
 	sigjmp_buf *cur_catch_block PG_USED_FOR_ASSERTS_ONLY = PG_exception_stack;
-	void *save_extra = *(void **)(lua_getextraspace(L));
+	void *save_activation = pllua_getinterpreter(L)->cur_activation;
 	int rc;
 
 	Assert(pllua_context == PLLUA_CONTEXT_PG);
@@ -269,6 +269,8 @@ void pllua_initial_protected_call(lua_State *L,
 		elog(ERROR, "pllua: out of memory error on stack setup");
 #endif
 
+	pllua_getinterpreter(L)->cur_activation = arg;
+
 	rc = pllua_cpcall(L, func, arg);
 
 	/*
@@ -276,7 +278,7 @@ void pllua_initial_protected_call(lua_State *L,
 	 */
 	Assert(cur_catch_block == PG_exception_stack);
 
-	*(void **)(lua_getextraspace(L)) = save_extra;
+	pllua_getinterpreter(L)->cur_activation = save_activation;
 
 	if (rc)
 		pllua_rethrow_from_lua(L, rc);

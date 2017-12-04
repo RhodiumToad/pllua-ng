@@ -66,6 +66,7 @@ pllua_setcontext(pllua_context_type newctx)
 	do { if (pllua_context==PLLUA_CONTEXT_PG) elog(DEBUG1, __VA_ARGS__); \
 		else pllua_debug_lua(L_, __VA_ARGS__); } while(0)
 
+
 /*
  * We don't put this in the body of a lua userdata for error handling reasons;
  * we want to build it from pg data without involving lua too much until we're
@@ -174,6 +175,26 @@ typedef struct pllua_activation_record
 	Oid			validate_func;
 
 } pllua_activation_record;
+
+/*
+ * Top-level data for one interpreter. We keep a hashtable of these per user_id
+ * (for trusted mode isolation). The Lua extraspace field points here, and we
+ * use that to access the current activation fields (which are saved/restored
+ * on recursive entries).
+ */
+typedef struct pllua_interpreter
+{
+	Oid			user_id;		/* Hash key (must be first!) */
+
+	bool		trusted;
+	lua_State  *interp;			/* The interpreter */
+
+	/* state below must be saved/restored for recursive calls */
+	pllua_activation_record *cur_activation;
+
+} pllua_interpreter;
+
+#define pllua_getinterpreter(L_) (*(pllua_interpreter **)lua_getextraspace(L_))
 
 typedef struct pllua_datum {
 	Datum value;
@@ -353,7 +374,7 @@ void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
 
 void pllua_initial_protected_call(lua_State *L,
 								  lua_CFunction func,
-								  void *arg);
+								  pllua_activation_record *arg);
 
 void pllua_init_error(lua_State *L);
 

@@ -9,7 +9,6 @@
 static void pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
 {
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
-	*(void **)(lua_getextraspace(L)) = (fcinfo) ? fcinfo->flinfo : NULL;
 	luaL_checkstack(L, 40, NULL);
 }
 

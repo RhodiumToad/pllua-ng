@@ -22,15 +22,8 @@ static char *pllua_on_trusted_init = NULL;
 static char *pllua_on_untrusted_init = NULL;
 static bool pllua_do_check_for_interrupts = true;
 
-typedef struct pllua_interp_desc
-{
-	Oid			user_id;		/* Hash key (must be first!) */
-	bool		trusted;
-	lua_State  *interp;			/* The interpreter */
-} pllua_interp_desc;
 
-
-static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_desc);
+static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_desc);
 static int pllua_init_state(lua_State *L);
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
@@ -44,7 +37,7 @@ static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
 lua_State *pllua_getstate(bool trusted)
 {
 	Oid			user_id = trusted ? GetUserId() : InvalidOid;
-	pllua_interp_desc *interp_desc;
+	pllua_interpreter *interp_desc;
 	bool found;
 
 	Assert(pllua_context == PLLUA_CONTEXT_PG);
@@ -125,7 +118,7 @@ void _PG_init(void)
 	 */
 	memset(&hash_ctl, 0, sizeof(hash_ctl));
 	hash_ctl.keysize = sizeof(Oid);
-	hash_ctl.entrysize = sizeof(pllua_interp_desc);
+	hash_ctl.entrysize = sizeof(pllua_interpreter);
 	pllua_interp_hash = hash_create("PLLua interpreters",
 									8,
 									&hash_ctl,
@@ -142,7 +135,7 @@ static void
 pllua_fini(int code, Datum arg)
 {
 	HASH_SEQ_STATUS hash_seq;
-	pllua_interp_desc *interp_desc;
+	pllua_interpreter *interp_desc;
 
 	elog(DEBUG3, "pllua_fini");
 
@@ -188,7 +181,7 @@ pllua_fini(int code, Datum arg)
 static void pllua_relcache_callback(Datum arg, Oid relid)
 {
 	HASH_SEQ_STATUS hash_seq;
-	pllua_interp_desc *interp_desc;
+	pllua_interpreter *interp_desc;
 
 	hash_seq_init(&hash_seq, pllua_interp_hash);
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
@@ -212,7 +205,7 @@ static void pllua_relcache_callback(Datum arg, Oid relid)
 static void pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashvalue)
 {
 	HASH_SEQ_STATUS hash_seq;
-	pllua_interp_desc *interp_desc;
+	pllua_interpreter *interp_desc;
 
 	hash_seq_init(&hash_seq, pllua_interp_hash);
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
@@ -376,7 +369,7 @@ static int pllua_run_init_strings(lua_State *L)
 /*
  * PG-environment part of interpreter setup.
  */
-static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_desc)
+static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_desc)
 {
 	static bool first_time = true;
 	MemoryContext mcxt = NULL;
@@ -402,6 +395,8 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interp_desc *interp_
 
 	if (!L)
 		elog(ERROR, "Out of memory creating Lua interpreter");
+
+	pllua_getinterpreter(L) = interp_desc;
 
 	lua_atpanic(L, pllua_panic);  /* can't throw */
 

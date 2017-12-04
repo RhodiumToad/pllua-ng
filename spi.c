@@ -103,6 +103,9 @@ static int pllua_spi_execute(lua_State *L)
 	volatile lua_Integer nrows = -1;
 	int i;
 
+	if (pllua_ending)
+		luaL_error(L, "cannot call SPI during shutdown");
+
 	if (nargs > 99)
 		pllua_spi_alloc_argspace(L, nargs, &values, &isnull, &argtypes);
 

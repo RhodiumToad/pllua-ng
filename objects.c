@@ -343,16 +343,8 @@ int pllua_activation_getfunc(lua_State *L)
 
 FmgrInfo *pllua_get_cur_flinfo(lua_State *L)
 {
-	lua_State *mainthread;
-	FmgrInfo *flinfo;
-
-	lua_rawgeti(L, LUA_REGISTRYINDEX, LUA_RIDX_MAINTHREAD);
-	mainthread = lua_tothread(L, -1);
-	lua_pop(L, 1);
-	if (!mainthread)
-		luaL_error(L, "main thread not found!");
-	flinfo = *(void **)(lua_getextraspace(mainthread));
-	return flinfo;
+	pllua_activation_record *pact = pllua_getinterpreter(L)->cur_activation;
+	return (pact && pact->fcinfo) ? pact->fcinfo->flinfo : NULL;
 }
 
 int pllua_get_cur_act(lua_State *L)
@@ -371,7 +363,8 @@ int pllua_get_cur_act(lua_State *L)
 }
 
 /*
- * This one doesn't throw; if we're in DO-block context, we're not readonly.
+ * This one doesn't throw unless the activation is actually invalid; if we're
+ * in DO-block context, we're not readonly.
  */
 bool pllua_get_cur_act_readonly(lua_State *L)
 {
