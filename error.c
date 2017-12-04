@@ -299,8 +299,75 @@ static int pllua_errobject_gc(lua_State *L)
 	return 0;
 }
 
+
+/*
+ * Replace the user-visible "pcall" and "xpcall" functions with
+ * versions that catch lua errors but not pg errors.
+ *
+ * For now, we don't try and catch lua errors that got promoted to pg errors by
+ * being thrown through a PG_CATCH block, though perhaps we could. Eventually
+ * subtransaction handling will have to go here so leave that for now. (But
+ * even with subxacts, there might be a place for a "light" pcall that doesn't
+ * block yields, whereas the subxact handling obviously must do that.)
+ *
+ * These are lightly tweaked versions of the luaB_ functions.
+ */
+
+/*
+** Continuation function for 'pcall' and 'xpcall'. Both functions
+** already pushed a 'true' before doing the call, so in case of success
+** 'finishpcall' only has to return everything in the stack minus
+** 'extra' values (where 'extra' is exactly the number of items to be
+** ignored).
+*/
+static int finishpcall (lua_State *L, int status, lua_KContext extra) {
+  if (status != LUA_OK && status != LUA_YIELD) {  /* error? */
+    lua_pushboolean(L, 0);  /* first result (false) */
+    lua_pushvalue(L, -2);  /* error message */
+	if (pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
+		pllua_rethrow_from_lua(L, status);
+    return 2;  /* return false, msg */
+  }
+  else
+    return lua_gettop(L) - (int)extra;  /* return all results */
+}
+
+static int pllua_t_pcall (lua_State *L) {
+  int status;
+  luaL_checkany(L, 1);
+  lua_pushboolean(L, 1);  /* first result if no errors */
+  lua_insert(L, 1);  /* put it in place */
+  status = lua_pcallk(L, lua_gettop(L) - 2, LUA_MULTRET, 0, 0, finishpcall);
+  return finishpcall(L, status, 0);
+}
+
+/*
+** Do a protected call with error handling. After 'lua_rotate', the
+** stack will have <f, err, true, f, [args...]>; so, the function passes
+** 2 to 'finishpcall' to skip the 2 first values when returning results.
+*/
+static int pllua_t_xpcall (lua_State *L) {
+  int status;
+  int n = lua_gettop(L);
+  luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
+  lua_pushboolean(L, 1);  /* first result */
+  lua_pushvalue(L, 1);  /* function */
+  lua_rotate(L, 3, 2);  /* move them below function's arguments */
+  status = lua_pcallk(L, n - 2, LUA_MULTRET, 2, 2, finishpcall);
+  return finishpcall(L, status, 2);
+}
+
+/*
+ * module init
+ */
 static struct luaL_Reg errobj_mt[] = {
 	{ "__gc", pllua_errobject_gc },
+	{ NULL, NULL }
+};
+
+static struct luaL_Reg errfuncs[] = {
+	{ "pcall", pllua_t_pcall },
+	{ "xpcall", pllua_t_xpcall },
 	{ NULL, NULL }
 };
 
@@ -311,4 +378,8 @@ void pllua_init_error(lua_State *L)
 	lua_pushlightuserdata(L, NULL);
 	pllua_newerror(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+
+	lua_pushglobaltable(L);
+	luaL_setfuncs(L, errfuncs, 0);
+	lua_pop(L,1);
 }

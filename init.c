@@ -289,6 +289,9 @@ static int pllua_init_state(lua_State *L)
 	lua_pushboolean(L, trusted);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED);
 
+	/* require the base lib early so that we can overwrite bits */
+	luaL_requiref(L, "_G", luaopen_base, 1);
+
 	pllua_init_objects(L, trusted);
 	pllua_init_error(L);
 	pllua_init_functions(L, trusted);
