@@ -20,7 +20,7 @@ static HTAB *pllua_interp_hash = NULL;
 static char *pllua_on_init = NULL;
 static char *pllua_on_trusted_init = NULL;
 static char *pllua_on_untrusted_init = NULL;
-
+static bool pllua_do_check_for_interrupts = true;
 
 typedef struct pllua_interp_desc
 {
@@ -110,6 +110,13 @@ void _PG_init(void)
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
+	DefineCustomBoolVariable("pllua_ng.check_for_interrupts",
+							 gettext_noop("Check for query cancels while running the Lua interpreter."),
+							 NULL,
+							 &pllua_do_check_for_interrupts,
+							 true,
+							 PGC_SUSET, 0,
+							 NULL, NULL, NULL);
 
 	EmitWarningsOnPlaceholders("pllua_ng");
 
@@ -266,6 +273,14 @@ static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize)
 }
 
 
+static void pllua_hook(lua_State *L, lua_Debug *ar)
+{
+	PLLUA_TRY();
+	{
+		CHECK_FOR_INTERRUPTS();
+	}
+	PLLUA_CATCH_RETHROW();
+}
 
 /*
  * Lua-environment part of interpreter setup.
@@ -317,6 +332,10 @@ static int pllua_init_state(lua_State *L)
 	 */
 	if (trusted)
 		luaL_requiref(L, "trusted", pllua_open_trusted, 1);
+
+	/* enable interrupt checks */
+	if (pllua_do_check_for_interrupts)
+		lua_sethook(L, pllua_hook, LUA_MASKCOUNT, 10000000);
 
 	/* don't run user code yet. */
 	return 0;
