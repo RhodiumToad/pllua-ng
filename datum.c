@@ -469,7 +469,8 @@ pllua_datum *pllua_newdatum(lua_State *L)
 	d = lua_newuserdata(L, sizeof(pllua_datum));
 	d->value = (Datum)0;
 	d->typmod = -1;
-	d->need_gc = 0;
+	d->need_gc = false;
+	d->modified = false;
 
 	lua_getuservalue(L, -2);
 	lua_setmetatable(L, -2);
@@ -541,6 +542,15 @@ static int pllua_datum_tostring(lua_State *L)
 
 	ASSERT_LUA_CONTEXT;
 
+	if (d->modified)
+	{
+		/* form a new datum by imploding the arg */
+		lua_pushvalue(L, lua_upvalueindex(1));
+		lua_pushvalue(L, 1);
+		lua_call(L, 1, 1);
+		d = pllua_checkdatum(L, -1, lua_upvalueindex(1));
+	}
+
 	PLLUA_TRY();
 	{
 		if ((OidIsValid(t->outfuncid) && OidIsValid(t->outfunc.fn_oid))
@@ -578,12 +588,21 @@ static int pllua_datum_tobinary(lua_State *L)
 
 	ASSERT_LUA_CONTEXT;
 
+	if (d->modified)
+	{
+		/* form a new datum by imploding the arg */
+		lua_pushvalue(L, lua_upvalueindex(1));
+		lua_pushvalue(L, 1);
+		lua_call(L, 1, 1);
+		d = pllua_checkdatum(L, -1, lua_upvalueindex(1));
+	}
+
 	PLLUA_TRY();
 	{
 		if ((OidIsValid(t->sendfuncid) && OidIsValid(t->sendfunc.fn_oid))
 			|| pllua_typeinfo_iofunc(L, t, IOFunc_send))
 		{
-			res = SendFunctionCall(&t->infunc, d->value);
+			res = SendFunctionCall(&t->sendfunc, d->value);
 			done = true;
 		}
 	}
@@ -667,14 +686,147 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 							 att->atttypid,
 							 att->atttypmod);
 			lua_pushvalue(L, nd);
+			/*
+			 * the uservalue of the new datum points to the old one in order to
+			 * hold a reference
+			 */
 			lua_setuservalue(L, -2);
 		}
 		lua_seti(L, -2, i+1);
 	}
+
+	/* handle oid column specially */
+	if (t->hasoid)
+	{
+		Oid oid = HeapTupleHeaderGetOid(htup);
+		lua_pushinteger(L, (lua_Integer) oid);
+		lua_setfield(L, -2, "oid");
+	}
+
 	lua_pushboolean(L, 1);
 	lua_setfield(L, -2, ".deformed");
 }
 
+/*
+ * Current tuple's deformed table is on top of the stack.
+ */
+static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t);
+
+static void pllua_datum_explode_tuple_recurse(lua_State *L, pllua_datum *d, pllua_typeinfo *t)
+{
+	int i;
+	int natts = t->natts;
+
+	luaL_checkstack(L, 20, NULL);
+	/* need to check pg stack here because we recurse in lua context */
+	PLLUA_CHECK_PG_STACK_DEPTH();
+
+	for (i = 1; i < natts; ++i)
+	{
+		if (lua_rawgeti(L, -1, i) == LUA_TUSERDATA)
+		{
+			pllua_typeinfo *et;
+			pllua_datum *ed = pllua_toanydatum(L, -1, &et);
+
+			/*
+			 * Datums at this level are handled by the caller, our job is to
+			 * handle datums of deeper levels.
+			 *
+			 * XXX remember to handle arrays here
+			 */
+			if (!ed->need_gc && et->natts >= 0)
+			{
+				pllua_datum_explode_tuple(L, -1, ed, et);
+				lua_pop(L, 1);
+			}
+		}
+		lua_pop(L,1);
+	}
+}
+
+/*
+ * Deform (if needed) a datum, and then detach the column values from the
+ * original record, which is then freed. (This is used when we want to modify
+ * the datum.)
+ *
+ * Leaves the result of deform on the stack.
+ */
+static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t)
+{
+	if (d->value == (Datum)0)
+		return;
+
+	nd = lua_absindex(L, nd);
+
+	ASSERT_LUA_CONTEXT;
+
+	pllua_datum_deform_tuple(L, nd, d, t);
+
+	/*
+	 * If a composite value is nested inside another, we might have already
+	 * deformed the inner value, in which case it has its own set of child
+	 * datums that depend on the outer tuple's storage. So recursively explode
+	 * all nested values before modifying anything. (Separate loop here to
+	 * handle the fact that we want to recurse from lua context, not pg
+	 * context.)
+	 *
+	 * (We can't just un-deform the child values, because
+	 * something might be holding references to their values.)
+	 */
+	if (t->nested)
+		pllua_datum_explode_tuple_recurse(L, d, t);
+
+	/*
+	 * If this errors partway through, we may have saved some values but not
+	 * others, so cope.
+	 */
+	PLLUA_TRY();
+	{
+		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+		int natts = t->natts;  /* must include dropped cols */
+		int i;
+
+		for (i = 1; i <= natts; ++i)
+		{
+			if (lua_rawgeti(L, -1, i) == LUA_TUSERDATA)
+			{
+				pllua_typeinfo *et;
+				pllua_datum *ed = pllua_toanydatum(L, -1, &et);
+
+				if (!ed->need_gc)
+				{
+					/*
+					 * nested child datums must have already been handled in
+					 * recursion above.
+					 */
+					pllua_savedatum(L, ed, et);
+					lua_pushnil(L);
+					lua_setuservalue(L, -1);
+				}
+				lua_pop(L, 1);
+			}
+			lua_pop(L, 1);
+		}
+
+		if (d->need_gc)
+		{
+			void *oldval = DatumGetPointer(d->value);
+			d->modified = true;
+			d->need_gc = false;
+			d->value = (Datum)0;
+			pfree(oldval);
+		}
+		else
+		{
+			d->modified = true;
+			d->value = (Datum)0;
+			lua_pushnil(L);
+			lua_setuservalue(L, nd);
+		}
+		MemoryContextSwitchTo(oldcontext);
+	}
+	PLLUA_CATCH_RETHROW();
+}
 
 static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
 {
@@ -737,15 +889,12 @@ static int pllua_datum_index(lua_State *L)
 	void **p = pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
 	lua_Integer attno;
-	HeapTupleHeader tup;
 
 	if (!d)
 		luaL_error(L, "pllua_datum_index: not a datum object");
 
 	if (t->natts < 0)
 		luaL_error(L, "datum is not a row type");
-
-	tup = (HeapTupleHeader) DatumGetPointer(d->value);
 
 	switch (lua_type(L, 2))
 	{
@@ -763,16 +912,77 @@ static int pllua_datum_index(lua_State *L)
 
 		case LUA_TNUMBER:		/* column number */
 			attno = lua_tointeger(L, -1);
-			if (attno == ObjectIdAttributeNumber)
-				lua_pushinteger(L, (lua_Integer) HeapTupleHeaderGetOid(tup));
-			else if (attno < 1 || attno > t->natts)
+			if (((attno != ObjectIdAttributeNumber || !t->hasoid)
+				 && (attno < 1 || attno > t->natts))
+				|| TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
 				luaL_error(L, "datum has no column number %d", attno);
+			pllua_datum_deform_tuple(L, 1, d, t);
+			if (attno == ObjectIdAttributeNumber)
+				lua_getfield(L, -1, "oid");
+			else
+				pllua_datum_column(L, attno, false);
+			return 1;
+	}
+}
+
+/*
+ * __newindex(self,key,val)   self[key] = val
+ */
+static int pllua_datum_newindex(lua_State *L)
+{
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	void **p = pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *t = *p;
+	lua_Integer attno;
+
+	if (!d)
+		luaL_error(L, "pllua_datum_newindex: not a datum object");
+
+	if (t->natts < 0)
+		luaL_error(L, "datum is not a row type");
+
+	switch (lua_type(L, 2))
+	{
+		default:
+			luaL_error(L, "invalid type for key field");
+			return 0;
+
+		case LUA_TSTRING:
+			pllua_datum_getattrs(L, 1, lua_upvalueindex(1));
+			/* stack: attrs{ attname = attno } */
+			lua_pushvalue(L, 2);
+			if (lua_gettable(L, -2) != LUA_TNUMBER)
+				luaL_error(L, "datum has no column \"%s\"", lua_tostring(L, 2));
+			lua_replace(L, 2);
+			/*FALLTHROUGH*/
+
+		case LUA_TNUMBER:		/* column number */
+			attno = lua_tointeger(L, 2);
+			if (((attno != ObjectIdAttributeNumber || !t->hasoid)
+				 && (attno < 1 || attno > t->natts))
+				|| TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
+				luaL_error(L, "datum has no column number %d", attno);
+			pllua_datum_explode_tuple(L, 1, d, t);
+			if (attno == ObjectIdAttributeNumber)
+			{
+				int isint = 0;
+				lua_Integer newoid = lua_tointegerx(L, 3, &isint);
+				if (!isint || (newoid != (lua_Integer)(Oid)newoid))
+					luaL_error(L, "invalid oid value");
+				lua_pushinteger(L, newoid);
+				lua_setfield(L, -2, "oid");
+			}
 			else
 			{
-				pllua_datum_deform_tuple(L, 1, d, t);
-				pllua_datum_column(L, attno, false);
+				lua_pushcfunction(L, pllua_typeinfo_lookup);
+				lua_pushinteger(L, TupleDescAttr(t->tupdesc, attno)->atttypid);
+				lua_pushinteger(L, TupleDescAttr(t->tupdesc, attno)->atttypmod);
+				lua_call(L, 2, 1);
+				lua_pushvalue(L, 3);
+				lua_call(L, 1, 1);
+				lua_seti(L, -2, attno);
 			}
-			return 1;
+			return 0;
 	}
 }
 
@@ -845,6 +1055,7 @@ static struct luaL_Reg datumobj_mt[] = {
 	/* __gc entry is handled separately */
 	{ "__len", pllua_datum_len },
 	{ "__index", pllua_datum_index },
+	{ "__newindex", pllua_datum_newindex },
 	{ "__pairs", pllua_datum_pairs },
 	{ "__tostring", pllua_datum_tostring },
 	{ "_tobinary", pllua_datum_tobinary },
@@ -882,6 +1093,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		t->revalidate = false;
 		t->reloid = InvalidOid;
 		t->basetype = getBaseType(oid);
+		t->nested = false;
 		t->coerce_typmod = false;
 		t->coerce_typmod_element = false;
 		t->typmod_funcid = InvalidOid;
@@ -927,8 +1139,21 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 			int arity = 0;
 			int i;
 			for (i = 0; i < t->natts; ++i)
-				if (!TupleDescAttr(tupdesc,i)->attisdropped)
-					++arity;
+			{
+				Oid coltype	= TupleDescAttr(tupdesc,i)->atttypid;
+				if (TupleDescAttr(tupdesc,i)->attisdropped)
+					continue;
+				++arity;
+				/*
+				 * We currently don't count fixed-format arrays
+				 * (e.g. oidvector) or range types as being nested
+				 * substructure. What matters here is that anything we might
+				 * return dependent child datums from must be accounted for.
+				 */
+				if (type_is_rowtype(coltype)
+					|| OidIsValid(get_base_element_type(coltype)))
+					t->nested = true;
+			}
 			t->arity = arity;
 		}
 
@@ -1277,7 +1502,7 @@ static int pllua_typeinfo_attrs(lua_State *L)
 	if (obj->natts < 0)
 		return 0;
 	lua_getuservalue(L, 1);
-	lua_createtable(L, obj->natts, obj->natts);
+	lua_createtable(L, obj->natts + 2, obj->natts + 2);
 
 	/* stack: typeinfo metatable attrtab */
 
@@ -1293,6 +1518,13 @@ static int pllua_typeinfo_attrs(lua_State *L)
 		lua_pushinteger(L, i+1);
 		lua_settable(L, -5);
 		lua_settable(L, -3);
+	}
+	if (obj->hasoid)
+	{
+		lua_pushinteger(L, ObjectIdAttributeNumber);
+		lua_setfield(L, -2, "oid");
+		lua_pushstring(L, "oid");
+		lua_seti(L, -2, ObjectIdAttributeNumber);
 	}
 	lua_setfield(L, -2, "attrs");
 	return 0;
@@ -1841,6 +2073,7 @@ static int pllua_typeinfo_call(lua_State *L)
 	int natts = t->natts;
 	TupleDesc tupdesc = (natts >= 0) ? t->tupdesc : NULL;
 	int nmax = (natts < 0) ? 1 : natts;
+	Oid newoid = InvalidOid;
 
 	if (nargs == 1)
 	{
@@ -1856,7 +2089,7 @@ static int pllua_typeinfo_call(lua_State *L)
 			 * altered since the original value was formed. We might also be
 			 * looking at a RECORD type that has a compatible structure to the
 			 * desired row, for example the result of "select * from foo" ought
-			 * to be acceptable input for foo (but currently is always an
+			 * to be acceptable input for foo (but currently may be an
 			 * anonymous record type).
 			 *
 			 * We handle this by using a prebuilt tuple conversion object, with
@@ -1865,12 +2098,63 @@ static int pllua_typeinfo_call(lua_State *L)
 			 */
 			if (t->natts >= 0 && dt->natts >= 0)
 			{
-				lua_pushcfunction(L, pllua_typeinfo_convert_tuple);
-				lua_pushvalue(L, 2);
-				lua_pushvalue(L, -3);
-				lua_pushvalue(L, 1);
-				lua_call(L, 3, 1);
-				return 1;
+				if (t != dt && !equalTupleDescs(t->tupdesc, dt->tupdesc))
+				{
+					lua_pushcfunction(L, pllua_typeinfo_convert_tuple);
+					lua_pushvalue(L, 2);
+					lua_pushvalue(L, -3);
+					lua_pushvalue(L, 1);
+					lua_call(L, 3, 1);
+					return 1;
+				}
+				/*
+				 * record has a compatible structure. If the source row was not
+				 * modified, we can just copy the bytes (even if the source is
+				 * a child datum of some other row). Otherwise, we have to make
+				 * a new imploded copy.
+				 */
+				if (!d->modified)
+				{
+					lua_pushvalue(L, 1);
+					newd = pllua_newdatum(L);
+					lua_remove(L, -2);
+
+					PLLUA_TRY();
+					{
+						MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+						newd->value = d->value;
+						pllua_savedatum(L, newd, t);
+						MemoryContextSwitchTo(oldcontext);
+					}
+					PLLUA_CATCH_RETHROW();
+				}
+
+				/*
+				 * just push all the exploded parts of the source tuple onto
+				 * the stack and let the general-case code handle it.
+				 */
+				{
+					int nd;
+					int i;
+					luaL_checkstack(L, 10 + dt->natts, NULL);
+					lua_getuservalue(L, 2);
+					nd = lua_absindex(L, -1);
+					if (dt->hasoid)
+					{
+						lua_getfield(L, nd, "oid");
+						newoid = (Oid) lua_tointeger(L, -1);
+						lua_pop(L, 1);
+					}
+					argbase = lua_gettop(L);
+					nargs = 0;
+					for (i = 0; i < dt->natts; ++i)
+					{
+						if (TupleDescAttr(dt->tupdesc, i)->attisdropped)
+							continue;
+						lua_geti(L, nd, i+1);
+						++nargs;
+					}
+				}
 			}
 			else if (t->natts == -1 && dt->natts == -1)  /* both scalars */
 			{
@@ -2029,6 +2313,8 @@ static int pllua_typeinfo_call(lua_State *L)
 		{
 			HeapTuple htup = heap_form_tuple(t->tupdesc, values, isnull);
 			MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+			if (t->hasoid)
+				HeapTupleSetOid(htup, newoid);
 			newd->value = heap_copy_tuple_as_datum(htup, t->tupdesc);
 			newd->need_gc = true;
 			MemoryContextSwitchTo(oldcontext);
@@ -2066,7 +2352,7 @@ static struct luaL_Reg typeinfo_package_mt[] = {
 	{ NULL, NULL }
 };
 
-void pllua_init_datum_objects(lua_State *L)
+int pllua_open_pgtype(lua_State *L)
 {
 	pllua_newmetatable(L, PLLUA_TUPCONV_OBJECT, tupconv_mt);
 	lua_pop(L, 1);
@@ -2081,5 +2367,5 @@ void pllua_init_datum_objects(lua_State *L)
 	pllua_newmetatable(L, PLLUA_TYPEINFO_PACKAGE_OBJECT, typeinfo_package_mt);
 	lua_setmetatable(L, -2);
 	luaL_setfuncs(L, typeinfo_funcs, 0);
-	lua_setglobal(L, "pgtype");
+	return 1;
 }

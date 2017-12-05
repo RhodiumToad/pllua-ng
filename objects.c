@@ -530,7 +530,7 @@ void pllua_init_objects(lua_State *L, bool trusted)
 	pllua_newmetatable(L, PLLUA_FUNCTION_OBJECT, funcobj_mt);
 	pllua_newmetatable(L, PLLUA_ACTIVATION_OBJECT, actobj_mt);
 	lua_pop(L, 2);
-	pllua_init_datum_objects(L);
+	luaL_requiref(L, "pgtype", pllua_open_pgtype, 1);
 }
 
 static int pllua_open_debugfuncs(lua_State *L)

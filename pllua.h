@@ -66,6 +66,8 @@ pllua_setcontext(pllua_context_type newctx)
 	do { if (pllua_context==PLLUA_CONTEXT_PG) elog(DEBUG1, __VA_ARGS__); \
 		else pllua_debug_lua(L_, __VA_ARGS__); } while(0)
 
+#define PLLUA_CHECK_PG_STACK_DEPTH()							\
+	do { if (stack_is_too_deep()) luaL_error(L, "stack depth exceeded"); } while (0)
 
 /*
  * We don't put this in the body of a lua userdata for error handling reasons;
@@ -200,6 +202,7 @@ typedef struct pllua_datum {
 	Datum value;
 	int32 typmod;
 	bool need_gc;
+	bool modified;
 } pllua_datum;
 
 typedef struct pllua_typeinfo {
@@ -217,6 +220,7 @@ typedef struct pllua_typeinfo {
 	TupleDesc tupdesc;
 	Oid reloid;  /* for named composite types */
 	Oid basetype;  /* for domains */
+	bool nested;  /* may contain nested composite or array values */
 
 	int16 typlen;
 	bool typbyval;
@@ -334,7 +338,7 @@ void pllua_validate_function(lua_State *L, Oid fn_oid, bool trusted);
 
 void pllua_verify_encoding(lua_State *L, const char *str);
 pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
-void pllua_init_datum_objects(lua_State *L);
+int pllua_open_pgtype(lua_State *L);
 int pllua_typeinfo_invalidate(lua_State *L);
 struct pllua_datum;
 struct pllua_typeinfo;

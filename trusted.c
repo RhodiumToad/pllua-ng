@@ -244,6 +244,7 @@ static struct luaL_Reg sandbox_packages[] = {
 	{ "table", NULL },
 	{ "math", NULL },
 	{ "spi", NULL },
+	{ "pgtype", NULL },
 	{ "server", NULL },
 	{ NULL, NULL }
 };
