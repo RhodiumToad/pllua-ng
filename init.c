@@ -28,6 +28,7 @@ static int pllua_init_state(lua_State *L);
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
 
+
 /*
  * pllua_getstate
  *
@@ -296,6 +297,10 @@ static int pllua_init_state(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_USERID);
 	lua_pushboolean(L, trusted);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED);
+
+	/* install our hack to push C functions without throwing error */
+#define PLLUA_DECL_CFUNC(f_) lua_pushcfunction(L, f_); lua_rawsetp(L, LUA_REGISTRYINDEX, f_);
+#include "pllua_functable.h"
 
 	/* require the base lib early so that we can overwrite bits */
 	luaL_requiref(L, "_G", luaopen_base, 1);

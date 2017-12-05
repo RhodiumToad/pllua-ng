@@ -3,6 +3,7 @@
 
 #include "access/htup_details.h"
 #include "catalog/pg_type.h"
+#include "commands/trigger.h"
 #include "utils/datum.h"
 
 
@@ -310,6 +311,7 @@ int pllua_call_function(lua_State *L)
 		{
 			int nret = lua_gettop(thr);
 
+			luaL_checkstack(L, 10 + nret, NULL);
 			lua_xmove(thr, L, nret);
 
 			pllua_deactivate_thread(L, fcinfo->flinfo->fn_extra, rsi->econtext);
@@ -326,7 +328,9 @@ int pllua_call_function(lua_State *L)
 		}
 		else if (rc == LUA_YIELD)
 		{
-			lua_xmove(thr, L, lua_gettop(thr));
+			int nret = lua_gettop(thr);
+			luaL_checkstack(L, 10 + nret, NULL);
+			lua_xmove(thr, L, nret);
 			/* leave thread active */
 			rsi->isDone = ExprMultipleResult;
 
@@ -342,6 +346,7 @@ int pllua_call_function(lua_State *L)
 	else
 	{
 		lua_call(L, nargs, LUA_MULTRET);
+		luaL_checkstack(L, 10, NULL);
 	}
 
 	/*
@@ -361,11 +366,46 @@ int pllua_call_trigger(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
+	TriggerData *td = (TriggerData *) fcinfo->context;
+	pllua_func_activation *fact;
+	int nstack;
+	int nargs;
 
 	pllua_common_lua_init(L, fcinfo);
 
-	fcinfo->isnull = true;
-	act->retval = (Datum)0;
+	/* push a trigger object on the stack */
+	pllua_trigger_begin(L, td);
+
+	/* pushes the activation on the stack */
+	fact = pllua_validate_and_push(L, fcinfo, act->trusted);
+
+	/* stack mark for result processing */
+	nstack = lua_gettop(L);
+	Assert(nstack == 3);
+
+	/* get the function object from the activation and push that */
+	pllua_activation_getfunc(L);
+
+	/*
+	 * Triggers have three fixed args: the trigger object, old and new tuples
+	 * plus a variable number of string args from tg_args. These don't
+	 * correspond in any way to the arguments declared in the funcinfo (which
+	 * will specify that there are no args).
+	 */
+
+	lua_pushvalue(L, 2);
+	lua_getfield(L, -1, "old");
+	lua_getfield(L, -2, "new");
+	nargs = 3 + pllua_push_trigger_args(L, td);
+
+	lua_call(L, nargs, LUA_MULTRET);
+	luaL_checkstack(L, 10, NULL);
+
+	act->retval = pllua_return_trigger_result(L, lua_gettop(L) - nstack, 2);
+
+	/* mark the trigger object dead */
+	pllua_trigger_end(L, 2);
+
 	return 0;
 }
 

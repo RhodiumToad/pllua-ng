@@ -288,7 +288,7 @@ void pllua_initial_protected_call(lua_State *L,
 static int pllua_errobject_gc(lua_State *L)
 {
 	void **p = pllua_torefobject(L, 1, PLLUA_ERROR_OBJECT);
-	void *obj = *p;
+	void *obj = p ? *p : NULL;
 	*p = NULL;
 	if (obj)
 	{

@@ -365,10 +365,10 @@ static int pllua_datum_gc(lua_State *L)
 {
 	pllua_datum *p = lua_touserdata(L, 1);
 
-	ASSERT_LUA_CONTEXT;
-
-	if (!p->need_gc || !DatumGetPointer(p->value))
+	if (!p || !p->need_gc || !DatumGetPointer(p->value))
 		return 0;
+
+	ASSERT_LUA_CONTEXT;
 
 	/*
 	 * Don't retry if something goes south.
@@ -389,7 +389,7 @@ static int pllua_datum_gc(lua_State *L)
  * check that the item at "nd" is a datum whose typeinfo is "td"
  * (caller must have already checked that it really is a typeinfo)
  */
-static pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
+pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
 {
 	void *p = lua_touserdata(L, nd);
 	if (p != NULL)
@@ -406,7 +406,7 @@ static pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
 	return NULL;
 }
 
-static pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td)
+pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td)
 {
 	pllua_datum *p = pllua_todatum(L, nd, td);
 	if (!p)
@@ -1401,14 +1401,17 @@ int pllua_typeinfo_invalidate(lua_State *L)
 
 static int pllua_typeinfo_gc(lua_State *L)
 {
-	void **p = pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
-	pllua_typeinfo *obj = *p;
+	void **p = pllua_torefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *obj = p ? *p : NULL;
+
+	ASSERT_LUA_CONTEXT;
+
+	if (!p)
+		return 0;
 
 	*p = NULL;
 	if (!obj)
 		return 0;
-
-	ASSERT_LUA_CONTEXT;
 
 	PLLUA_TRY();
 	{
@@ -1835,14 +1838,17 @@ typedef struct pllua_tupconv {
 
 static int pllua_tupconv_gc(lua_State *L)
 {
-	void **p = pllua_checkrefobject(L, 1, PLLUA_TUPCONV_OBJECT);
-	pllua_tupconv *obj = *p;
+	void **p = pllua_torefobject(L, 1, PLLUA_TUPCONV_OBJECT);
+	pllua_tupconv *obj = p ? *p : NULL;
+
+	if (!p)
+		return 0;
+
+	ASSERT_LUA_CONTEXT;
 
 	*p = NULL;
 	if (!obj)
 		return 0;
-
-	ASSERT_LUA_CONTEXT;
 
 	PLLUA_TRY();
 	{
@@ -2075,6 +2081,8 @@ static int pllua_typeinfo_call(lua_State *L)
 	int nmax = (natts < 0) ? 1 : natts;
 	Oid newoid = InvalidOid;
 
+	PLLUA_CHECK_PG_STACK_DEPTH();
+
 	if (nargs == 1)
 	{
 		pllua_typeinfo *dt = NULL;
@@ -2198,16 +2206,36 @@ static int pllua_typeinfo_call(lua_State *L)
 		Oid coltype = tupdesc ? att->atttypid : t->typeoid;
 		int32 coltypmod = tupdesc ? att->atttypmod : -1;
 
+		values[i] = (Datum)-1;
 		need_coerce[i] = false;
 
 		if (tupdesc && TupleDescAttr(t->tupdesc, i)->attisdropped)
 		{
-			values[i] = (Datum)0;
 			isnull[i] = true;
 			continue;
 		}
 
 		++argno;
+
+		/* look up the element typeinfo in case we need it below */
+		lua_pushcfunction(L, pllua_typeinfo_lookup);
+		lua_pushinteger(L, (lua_Integer) coltype);
+		lua_call(L, 1, 1);
+		argt[i] = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+		if (coltypmod >= 0)
+			need_coerce[i] = true;
+
+		if (lua_type(L, argno) == LUA_TTABLE)
+		{
+			if (argt[i]->natts < 0)
+				luaL_error(L, "incorrect argtype");
+			/* recursively construct an element datum from a table */
+			lua_pushvalue(L, -1);
+			lua_pushvalue(L, argno);
+			lua_call(L, 1, 1);
+			/* replace result in stack and proceed */
+			lua_replace(L, argno);
+		}
 
 		if (lua_type(L, argno) == LUA_TUSERDATA)
 		{
@@ -2227,21 +2255,6 @@ static int pllua_typeinfo_call(lua_State *L)
 				isnull[i] = false;
 				lua_pop(L,1);
 			}
-		}
-		else if (lua_type(L, argno) == LUA_TSTRING)
-		{
-			/* look up the element typeinfo in case we need it below */
-			lua_pushcfunction(L, pllua_typeinfo_lookup);
-			lua_pushinteger(L, (lua_Integer) coltype);
-			lua_call(L, 1, 1);
-			argt[i] = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
-			if (coltypmod >= 0)
-				need_coerce[i] = true;
-		}
-		else
-		{
-			if (coltypmod >= 0)
-				need_coerce[i] = true;
 		}
 	}
 

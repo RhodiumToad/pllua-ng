@@ -490,7 +490,10 @@ static void pllua_destroy_funcinfo(lua_State *L, pllua_function_info *obj)
 static int pllua_funcobject_gc(lua_State *L)
 {
 	void **p = pllua_torefobject(L, 1, PLLUA_FUNCTION_OBJECT);
-	void *obj = *p;
+	void *obj = p ? *p : NULL;
+	if (p)
+		return 0;
+	ASSERT_LUA_CONTEXT;
 	*p = NULL;
 	if (obj)
 		pllua_destroy_funcinfo(L, obj);
@@ -555,6 +558,7 @@ void pllua_init_functions(lua_State *L, bool trusted)
 
 	luaL_requiref(L, "dbg", pllua_open_debugfuncs, 0);
 	luaL_requiref(L, "server", pllua_open_serverfuncs, 1);
+	luaL_requiref(L, "trigger", pllua_open_trigger, 0);
 
 	pllua_init_error_functions(L);
 }

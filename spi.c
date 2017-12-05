@@ -32,7 +32,7 @@ static void pllua_spi_exit(lua_State *L)
  * This creates the result but does not copy the data into the proper memory
  * context; see pllua_spi_save_result for that.
  */
-static int pllua_spi_prepare_result(lua_State *L)
+int pllua_spi_prepare_result(lua_State *L)
 {
 	SPITupleTable *tuptab = lua_touserdata(L, 1);
 	lua_Integer nrows = lua_tointeger(L, 2);

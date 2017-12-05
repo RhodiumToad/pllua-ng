@@ -52,7 +52,7 @@ static void pllua_validate_proctup(lua_State *L, Oid fn_oid,
  * Returns the object on the stack (except in validate_only mode, which returns
  * nothing)
  */
-static int pllua_compile(lua_State *L)
+int pllua_compile(lua_State *L)
 {
 	pllua_function_compile_info *comp_info = lua_touserdata(L, 1);
 	pllua_function_info *func_info = comp_info->func_info;
@@ -73,13 +73,19 @@ static int pllua_compile(lua_State *L)
 	 *   local upvalue,f f=function(args) body end return f
 	 * which we then execute and expect it to return the
 	 * function object.
+	 *
+	 * For trigger funcs, the args list is a standardized one.
 	 */
 	luaL_addstring(&b, "local " PLLUA_LOCALVAR ",");
 	luaL_addstring(&b, fname);
 	luaL_addchar(&b, ' ');
 	luaL_addstring(&b, fname);
 	luaL_addstring(&b, "=function(");
-	if (comp_info->nargs > 0)
+	if (func_info->is_trigger)
+	{
+		luaL_addstring(&b, "trigger,old,new,...");
+	}
+	else if (comp_info->nargs > 0)
 	{
 		int n = 0;
 		int i;
@@ -148,7 +154,7 @@ static int pllua_compile(lua_State *L)
  * This will NOT replace an existing entry, unless the function passed in is
  * nil, which signifies uninterning an existing function.
  */
-static int pllua_intern_function(lua_State *L)
+int pllua_intern_function(lua_State *L)
 {
 	lua_Integer oid = luaL_checkinteger(L, 2);
 
@@ -284,6 +290,7 @@ static void pllua_load_from_proctup(lua_State *L, Oid fn_oid,
 	func_info->variadic_any = procStruct->provariadic == ANYOID;
 	func_info->polymorphic = false;
 	func_info->readonly = (procStruct->provolatile != PROVOLATILE_VOLATILE);
+	func_info->is_trigger = (procStruct->prorettype == TRIGGEROID);
 
 	Assert(func_info->nargs == procStruct->proargtypes.dim1);
 	func_info->argtypes = (Oid *) palloc(func_info->nargs * sizeof(Oid));

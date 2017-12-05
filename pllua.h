@@ -23,7 +23,11 @@
 #define PLLUA_LOCALVAR "_U"
 
 
-#define pllua_pushcfunction(L_,f_) lua_pushcfunction((L_),(f_))
+#define pllua_pushcfunction(L_,f_) do { int rc = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_)); Assert(rc==LUA_TFUNCTION); } while(0)
+
+#define PLLUA_DECL_CFUNC(f_) extern int (f_)(lua_State *L);
+#include "pllua_functable.h"
+#undef PLLUA_DECL_CFUNC
 
 /*
  * Track what error handling context we're in, to try and detect any violations
@@ -91,6 +95,7 @@ typedef struct pllua_function_info
 	Oid rettype;
 	bool retset;
 	bool readonly;
+	bool is_trigger;
 
 	int nargs;
 	bool variadic;
@@ -313,6 +318,7 @@ extern char PLLUA_ACTIVATION_OBJECT[];
 extern char PLLUA_TYPEINFO_OBJECT[];
 extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
 extern char PLLUA_TUPCONV_OBJECT[];
+extern char PLLUA_TRIGGER_OBJECT[];
 extern char PLLUA_LAST_ERROR[];
 extern char PLLUA_RECURSIVE_ERROR[];
 extern char PLLUA_FUNCTION_MEMBER[];
@@ -338,6 +344,7 @@ void pllua_validate_function(lua_State *L, Oid fn_oid, bool trusted);
 
 void pllua_verify_encoding(lua_State *L, const char *str);
 pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
+pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td);
 int pllua_open_pgtype(lua_State *L);
 int pllua_typeinfo_invalidate(lua_State *L);
 struct pllua_datum;
@@ -359,6 +366,7 @@ void pllua_savedatum(lua_State *L,
 int pllua_typeinfo_lookup(lua_State *L);
 pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc);
 pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
+pllua_datum *pllua_todatum(lua_State *L, int nd, int td);
 
 /* elog.c */
 
@@ -423,6 +431,14 @@ void pllua_init_functions(lua_State *L, bool trusted);
 
 /* spi.c */
 int pllua_open_spi(lua_State *L);
+
+/* trigger.c */
+struct TriggerData;
+void pllua_trigger_begin(lua_State *L, struct TriggerData *td);
+void pllua_trigger_end(lua_State *L, int nd);
+int pllua_push_trigger_args(lua_State *L, struct TriggerData *td);
+Datum pllua_return_trigger_result(lua_State *L, int nret, int nd);
+int pllua_open_trigger(lua_State *L);
 
 /* trusted.c */
 int pllua_open_trusted(lua_State *L);

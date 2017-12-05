@@ -29,11 +29,21 @@ MODULE_big = pllua_ng
 EXTENSION = pllua_ng
 DATA = pllua_ng--1.0.sql
 
+# not ready for public consumption yet
+#REGRESS = pllua
+
 OBJS =	compile.o datum.o elog.o error.o exec.o globals.o \
-	init.o objects.o pllua.o spi.o trusted.o
+	init.o objects.o pllua.o spi.o trigger.o trusted.o
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) #-DPLLUA_DEBUG
 SHLIB_LINK = $(LUALIB)
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+$(OBJS): pllua.h
+
+init.o: pllua_functable.h
+
+pllua_functable.h: $(OBJS:.o=.c)
+	cat $(OBJS:.o=.c) | perl -lne '/pllua_pushcfunction\(\s*(\w+)\s*,\s*(\w+)\s*\)/ and print "PLLUA_DECL_CFUNC($$2)"' | sort -u >pllua_functable.h
