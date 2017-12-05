@@ -4,6 +4,7 @@
 
 #include "access/htup_details.h"
 #include "access/sysattr.h"
+#include "access/tuptoaster.h"
 #include "catalog/pg_type.h"
 #include "mb/pg_wchar.h"
 #include "parser/parse_coerce.h"
@@ -338,6 +339,27 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 static void pllua_make_datum(lua_State *L, Datum value, Oid typeid, int32 typmod)
 {
 	lua_pushcfunction(L, pllua_typeinfo_lookup);
+
+	/*
+	 * A record result column probably won't have a useful typmod in the
+	 * atttypmod field, but it might well have one in the datum itself.
+	 * (It may even have a non-RECORD type oid.)
+	 *
+	 * This relies on the caller having detoasted the record if it's a short
+	 * varlena!
+	 */
+	if (typeid == RECORDOID && typmod == -1)
+	{
+		HeapTupleHeader htup = (HeapTupleHeader) DatumGetPointer(value);
+		Oid newtype = HeapTupleHeaderGetTypeId(htup);
+		int32 newtypmod = HeapTupleHeaderGetTypMod(htup);
+		if (OidIsValid(newtype) && (newtype != RECORDOID || newtypmod >= 0))
+		{
+			typeid = newtype;
+			typmod = newtypmod;
+		}
+	}
+
 	lua_pushinteger(L, (lua_Integer) typeid);
 	if (typeid == RECORDOID)
 		lua_pushinteger(L, (lua_Integer) typmod);
@@ -626,7 +648,9 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 	HeapTupleHeader htup = (HeapTupleHeader) DatumGetPointer(d->value);
 	Datum values[MaxTupleAttributeNumber + 1];
 	bool nulls[MaxTupleAttributeNumber + 1];
+	bool needsave[MaxTupleAttributeNumber + 1];
 	TupleDesc tupdesc = t->tupdesc;
+	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	int i;
 
 	nd = lua_absindex(L, nd);
@@ -669,6 +693,31 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 
 		/* Break down the tuple into fields */
 		heap_deform_tuple(&tuple, tupdesc, values, nulls);
+
+		/*
+		 * Fields with substructure that we know about, like composites, might
+		 * have been converted to short-varlena format. We need to convert them
+		 * back if so, since otherwise lots of stuff breaks. Such values can't
+		 * be non-copied "child" datums, but at least they must be small.
+		 *
+		 * On the other hand, we might encounter a compressed value, and we
+		 * have to expand that.
+		 */
+		for (i = 0; i < t->natts; ++i)
+		{
+			Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+			if (!nulls[i]
+				&& att->attlen == -1
+				&& type_is_rowtype(att->atttypid)  /* XXX or array */
+				&& VARATT_IS_EXTENDED(DatumGetPointer(values[i])))
+			{
+				struct varlena *vl = (struct varlena *) DatumGetPointer(values[i]);
+				values[i] = PointerGetDatum(heap_tuple_untoast_attr(vl));
+				needsave[i] = true;
+			}
+			else
+				needsave[i] = false;
+		}
 	}
 	PLLUA_CATCH_RETHROW();
 
@@ -685,12 +734,30 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 			pllua_make_datum(L, values[i],
 							 att->atttypid,
 							 att->atttypmod);
-			lua_pushvalue(L, nd);
-			/*
-			 * the uservalue of the new datum points to the old one in order to
-			 * hold a reference
-			 */
-			lua_setuservalue(L, -2);
+			if (!needsave[i])
+			{
+				lua_pushvalue(L, nd);
+				/*
+				 * the uservalue of the new datum points to the old one in order to
+				 * hold a reference
+				 */
+				lua_setuservalue(L, -2);
+			}
+			else
+			{
+				pllua_typeinfo *newt;
+				pllua_datum *newd = pllua_toanydatum(L, -1, &newt);
+				if (!newd)
+					luaL_error(L, "datum is not a datum in deform");
+				PLLUA_TRY();
+				{
+					MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+					pllua_savedatum(L, newd, newt);
+					MemoryContextSwitchTo(oldcontext);
+				}
+				PLLUA_CATCH_RETHROW();
+				lua_pop(L, 1);
+			}
 		}
 		lua_seti(L, -2, i+1);
 	}
@@ -2135,6 +2202,8 @@ static int pllua_typeinfo_call(lua_State *L)
 						MemoryContextSwitchTo(oldcontext);
 					}
 					PLLUA_CATCH_RETHROW();
+
+					return 1;
 				}
 
 				/*

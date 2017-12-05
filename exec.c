@@ -68,10 +68,18 @@ static Datum pllua_return_result(lua_State *L, int nret,
 	lua_insert(L, -(nret+1));
 	lua_call(L, nret, 1);
 
-	d = pllua_checkanydatum(L, -1, &ti);
+	if (lua_type(L, -1) == LUA_TNIL)
+	{
+		*isnull = true;
+		return (Datum)0;
+	}
+	else
+	{
+		d = pllua_checkanydatum(L, -1, &ti);
 
-	*isnull = false;
-	return datumCopy(d->value, ti->typbyval, ti->typlen);
+		*isnull = false;
+		return datumCopy(d->value, ti->typbyval, ti->typlen);
+	}
 }
 
 static void pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, int32 *argtypmod)
