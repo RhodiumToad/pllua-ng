@@ -2173,7 +2173,7 @@ static int pllua_typeinfo_call(lua_State *L)
 			 */
 			if (t->natts >= 0 && dt->natts >= 0)
 			{
-				if (t != dt && !equalTupleDescs(t->tupdesc, dt->tupdesc))
+				if (!d->modified && t != dt && !equalTupleDescs(t->tupdesc, dt->tupdesc))
 				{
 					lua_pushcfunction(L, pllua_typeinfo_convert_tuple);
 					lua_pushvalue(L, 2);
