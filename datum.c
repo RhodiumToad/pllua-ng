@@ -1802,7 +1802,7 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 		if ((OidIsValid(t->recvfuncid) && OidIsValid(t->recvfunc.fn_oid))
 			|| pllua_typeinfo_iofunc(L, t, IOFunc_receive))
 		{
-			nv = ReceiveFunctionCall(&t->infunc, str ? &buf : NULL, t->typioparam, t->typmod);
+			nv = ReceiveFunctionCall(&t->recvfunc, str ? &buf : NULL, t->typioparam, t->typmod);
 			if (str)
 			{
 				MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
