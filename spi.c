@@ -31,7 +31,11 @@ static void pllua_spi_alloc_argspace(lua_State *L,
 static bool pllua_spi_enter(lua_State *L)
 {
 	bool readonly = pllua_get_cur_act_readonly(L);
+	ASSERT_PG_CONTEXT;
 	SPI_connect();
+	pllua_activation_record *pact = pllua_getinterpreter(L)->cur_activation;
+	if (pact && pact->fcinfo && CALLED_AS_TRIGGER(pact->fcinfo))
+		SPI_register_trigger_data((TriggerData *) pact->fcinfo->context);
 	return readonly;
 }
 
