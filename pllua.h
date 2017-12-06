@@ -319,6 +319,7 @@ extern char PLLUA_TYPEINFO_OBJECT[];
 extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
 extern char PLLUA_TUPCONV_OBJECT[];
 extern char PLLUA_TRIGGER_OBJECT[];
+extern char PLLUA_SPI_STMT_OBJECT[];
 extern char PLLUA_LAST_ERROR[];
 extern char PLLUA_RECURSIVE_ERROR[];
 extern char PLLUA_FUNCTION_MEMBER[];
@@ -367,6 +368,7 @@ int pllua_typeinfo_lookup(lua_State *L);
 pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc);
 pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 pllua_datum *pllua_todatum(lua_State *L, int nd, int td);
+int pllua_typeinfo_parsetype(lua_State *L);
 
 /* elog.c */
 

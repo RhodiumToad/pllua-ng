@@ -40,10 +40,8 @@
  *
  * Information about the object type is contained in a typeinfo object. We keep
  * a cache of type info (by oid) and tupdesc info (by typmod for RECORD
- * tupdescs only - for composite types we rely on the typcache instead, in
- * order to avoid dealing with invalidations). Because our cache is decoupled
- * from the syscache and very long-lived, we register for invalidations even
- * though they should be rare.
+ * tupdescs). Because our cache is decoupled from the syscache and very
+ * long-lived, we register for invalidations.
  *
  * The uservalue of the typeinfo contains the metatable to be used for datum
  * objects of this type. In addition we cache stuff there.
@@ -752,7 +750,13 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 				PLLUA_TRY();
 				{
 					MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+					void *oldp = DatumGetPointer(newd->value);
 					pllua_savedatum(L, newd, newt);
+					/*
+					 * We don't normally worry about freeing transient data,
+					 * but here it's likely to be worthwhile.
+					 */
+					pfree(oldp);
 					MemoryContextSwitchTo(oldcontext);
 				}
 				PLLUA_CATCH_RETHROW();
@@ -1531,9 +1535,9 @@ static int pllua_dump_typeinfo(lua_State *L)
 
 /* given a pg type name, return a typeinfo object */
 
-static int pllua_typeinfo_parsetype(lua_State *L)
+int pllua_typeinfo_parsetype(lua_State *L)
 {
-	const char *str = lua_tostring(L, 1);
+	const char *str = luaL_checkstring(L, 1);
 	volatile Oid ret_oid = InvalidOid;
 	volatile int32 ret_typmod = -1;
 
@@ -1669,6 +1673,27 @@ static int pllua_typeinfo_package_call(lua_State *L)
 		return 1;
 	}
 	return luaL_error(L, "invalid argument type");
+}
+
+static int pllua_typeinfo_user_lookup(lua_State *L)
+{
+	if (lua_isinteger(L, 1) && (lua_isnoneornil(L, 2) || lua_isinteger(L, 2)))
+	{
+		lua_settop(L, 2);
+		lua_pushcfunction(L, pllua_typeinfo_lookup);
+		lua_insert(L, 1);
+		lua_call(L, 2, 1);
+		return 1;
+	}
+	else if (lua_isstring(L, 1))
+	{
+		lua_settop(L, 1);
+		lua_pushcfunction(L, pllua_typeinfo_parsetype);
+		lua_call(L, 1, 1);
+		return 1;
+	}
+	else
+		return luaL_error(L, "invalid args for typeinfo lookup");
 }
 
 static int pllua_typeinfo_name(lua_State *L)
@@ -2425,7 +2450,7 @@ static struct luaL_Reg typeinfo_methods[] = {
 };
 
 static struct luaL_Reg typeinfo_funcs[] = {
-	{ "lookup", pllua_typeinfo_lookup },
+	{ "lookup", pllua_typeinfo_user_lookup },
 	{ NULL, NULL }
 };
 

@@ -27,6 +27,7 @@ char PLLUA_TYPEINFO_OBJECT[] = "typeinfo object metatable";
 char PLLUA_TYPEINFO_PACKAGE_OBJECT[] = "typeinfo package object metatable";
 char PLLUA_TUPCONV_OBJECT[] = "tupconv object metatable";
 char PLLUA_TRIGGER_OBJECT[] = "trigger object metatable";
+char PLLUA_SPI_STMT_OBJECT[] = "SPI statement object metatable";
 char PLLUA_LAST_ERROR[] = "last error object";
 char PLLUA_RECURSIVE_ERROR[] = "recursive error object";
 char PLLUA_FUNCTION_MEMBER[] = "function element";
