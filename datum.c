@@ -411,6 +411,7 @@ static int pllua_datum_gc(lua_State *L)
  */
 pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
 {
+	td = lua_absindex(L, td);
 	void *p = lua_touserdata(L, nd);
 	if (p != NULL)
 	{
@@ -1046,8 +1047,8 @@ static int pllua_datum_newindex(lua_State *L)
 			else
 			{
 				lua_pushcfunction(L, pllua_typeinfo_lookup);
-				lua_pushinteger(L, TupleDescAttr(t->tupdesc, attno)->atttypid);
-				lua_pushinteger(L, TupleDescAttr(t->tupdesc, attno)->atttypmod);
+				lua_pushinteger(L, TupleDescAttr(t->tupdesc, attno-1)->atttypid);
+				lua_pushinteger(L, TupleDescAttr(t->tupdesc, attno-1)->atttypmod);
 				lua_call(L, 2, 1);
 				lua_pushvalue(L, 3);
 				lua_call(L, 1, 1);
@@ -2287,7 +2288,7 @@ static int pllua_typeinfo_call(lua_State *L)
 		}
 	}
 
-	if (nargs != 1 && nargs != t->arity)
+	if (nargs != t->arity)
 		luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
 				   t->arity, nargs);
 

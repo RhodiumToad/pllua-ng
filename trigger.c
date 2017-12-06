@@ -251,10 +251,11 @@ static int pllua_trigger_index(lua_State *L)
 		default:
 			return 1;
 	}
+	lua_pop(L, 1);
 
 	if (luaL_getmetafield(L, 1, "_keys") != LUA_TTABLE)
 		luaL_error(L, "missing trigger keys");
-	if (lua_getfield(L, -2, str) == LUA_TFUNCTION)
+	if (lua_getfield(L, -1, str) == LUA_TFUNCTION)
 	{
 		lua_pushvalue(L, 1);
 		lua_call(L, 1, 1);
@@ -355,6 +356,10 @@ Datum pllua_return_trigger_result(lua_State *L, int nret, int nd)
 	if (nret < 0 || nret > 1)
 		luaL_error(L, "invalid number of results from trigger");
 
+	/* trigger returned an explicit nil */
+	if (nret == 1 && lua_isnil(L, retindex))
+		return PointerGetDatum(NULL);
+
 	/* pick the default tuple to return */
 	if (TRIGGER_FIRED_BY_UPDATE(ev))
 		retval = PointerGetDatum(obj->td->tg_newtuple);
@@ -398,7 +403,17 @@ Datum pllua_return_trigger_result(lua_State *L, int nret, int nd)
 		 * But if it's unmodified, we can just copy it out.
 		 */
 		if (!d->modified)
+		{
+			if (!obj->modified)
+			{
+				/*
+				 * If the user didn't replace or modify the tuple, it must be
+				 * the original one, so no need to copy
+				 */
+				return retval;
+			}
 			return pllua_trigger_copytuple(L, d->value, obj->td->tg_relation->rd_id);
+		}
 
 		retindex = lua_gettop(L);
 		nret = 1;

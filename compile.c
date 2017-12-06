@@ -365,11 +365,6 @@ pllua_validate_and_push(lua_State *L,
 	{
 		pllua_func_activation *act = flinfo->fn_extra;
 		Oid			fn_oid = flinfo->fn_oid;
-		HeapTuple	procTup;
-		pllua_function_info *func_info;
-		pllua_function_compile_info *comp_info;
-		MemoryContext fcxt;
-		MemoryContext ccxt;
 		int rc;
 
 		/*
@@ -398,6 +393,12 @@ pllua_validate_and_push(lua_State *L,
 		 */
 		for (;;)
 		{
+			pllua_function_info *func_info;
+			pllua_function_compile_info *comp_info;
+			MemoryContext fcxt;
+			MemoryContext ccxt;
+			HeapTuple	procTup;
+
 			/* We'll need the pg_proc tuple in any case... */
 			procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(fn_oid));
 			if (!HeapTupleIsValid(procTup))
@@ -539,7 +540,7 @@ pllua_validate_and_push(lua_State *L,
 		 * Post-compile per-call validation (mostly here to avoid more catch
 		 * blocks)
 		 */
-		if (func_info->retset)
+		if (act->func_info->retset)
 		{
 			if (!rsi ||
 				!IsA(rsi, ReturnSetInfo) ||
