@@ -9,10 +9,10 @@ missing functionality. However, many of the basics now work.
 
 WARNING: interfaces are not stable and are subject to change.
 
-Currently it probably only builds against a fairly recent 11devel
-checkout of pg; fixing that is forthcoming. It is known that this
-module will never work on pg versions before 9.5 (we rely critically
-on memory context callbacks, which were introduced in that version).
+Currently it should build against pg 9.6 and pg10 (and 11devel). It
+is known that this module will never work on pg versions before 9.5
+(we rely critically on memory context callbacks, which were introduced
+in that version).
 
 Only Lua 5.3 is supported at this time.
 
