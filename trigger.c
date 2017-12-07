@@ -306,9 +306,9 @@ static int pllua_trigger_newindex(lua_State *L)
 	 * we don't put "row" in the cache so update only the real name
 	 */
 	if (TRIGGER_FIRED_BY_DELETE(obj->td->tg_event))
-		lua_setfield(L, 3, "old");
+		lua_setfield(L, 4, "old");
 	else
-		lua_setfield(L, 3, "new");
+		lua_setfield(L, 4, "new");
 	obj->modified = true;
 	return 0;
 }

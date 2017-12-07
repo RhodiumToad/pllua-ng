@@ -19,19 +19,22 @@ enum num_method_id {
 	PLLUA_NUM_SUB,
 	PLLUA_NUM_MUL,
 	PLLUA_NUM_DIV,
+	PLLUA_NUM_DIVT,
 	PLLUA_NUM_MOD,
 	PLLUA_NUM_POW,
 
 	/* optional second numeric arg */
 	PLLUA_NUM_LOG,
-	PLLUA_NUM_LN,
+	PLLUA_NUM_LN,   /* change _LOG to this when arg omitted */
 
 	/* optional second integer arg */
 	PLLUA_NUM_ROUND,
 	PLLUA_NUM_TRUNC,
 
-	/* monadic */
+	/* monadic but must ignore a second arg */
 	PLLUA_NUM_UNM,
+
+	/* monadic */
 	PLLUA_NUM_ABS,
 	PLLUA_NUM_CEIL,
 	PLLUA_NUM_EXP,
@@ -65,6 +68,8 @@ static bool pllua_numeric_guts(lua_State *L, pllua_datum *d, pllua_typeinfo *t,
 				res = DirectFunctionCall2(numeric_mul, val1, val2);	break;
 			case PLLUA_NUM_DIV:
 				res = DirectFunctionCall2(numeric_div, val1, val2);	break;
+			case PLLUA_NUM_DIVT:
+				res = DirectFunctionCall2(numeric_div_trunc, val1, val2);	break;
 			case PLLUA_NUM_MOD:
 				res = DirectFunctionCall2(numeric_mod, val1, val2);	break;
 			case PLLUA_NUM_POW:
@@ -187,6 +192,11 @@ static int pllua_numeric_handler(lua_State *L)
 		luaL_argcheck(L, (lua_isnone(L, 2) || isint2), 2, NULL);
 		free_val2 = false;
 	}
+	else if (op < PLLUA_NUM_ABS)
+	{
+		val1 = pllua_numeric_getarg(L, 1, d1, isint1, i1, isnum1, n1);
+		free_val2 = false;
+	}
 	else
 	{
 		val1 = pllua_numeric_getarg(L, 1, d1, isint1, i1, isnum1, n1);
@@ -306,6 +316,7 @@ static struct { const char *name; enum num_method_id id; } numeric_meta[] = {
 	{ "__sub", PLLUA_NUM_SUB },
 	{ "__mul", PLLUA_NUM_MUL },
 	{ "__div", PLLUA_NUM_DIV },
+	{ "__idiv", PLLUA_NUM_DIVT },
 	{ "__mod", PLLUA_NUM_MOD },
 	{ "__pow", PLLUA_NUM_POW },
 	{ "__unm", PLLUA_NUM_UNM },
@@ -365,7 +376,7 @@ int pllua_open_numeric(lua_State *L)
 		lua_pushcclosure(L, pllua_numeric_handler, 2);
 		lua_setfield(L, 3, numeric_meta[i].name);
 	}
-	/* override normal datum __index entry */
+	/* override normal datum __index entry with our method table */
 	lua_pushvalue(L, 1);
 	lua_setfield(L, 3, "__index");
 
