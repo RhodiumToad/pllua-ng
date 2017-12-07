@@ -2377,6 +2377,7 @@ static int pllua_typeinfo_call(lua_State *L)
 				else if (lua_type(L, argno) == LUA_TSTRING)
 				{
 					const char *str = lua_tostring(L, argno);
+					pllua_verify_encoding(L, str);
 					/* input func is responsible for typmod handling on this path */
 					need_coerce[i] = false;
 					if (!pllua_typeinfo_raw_input(L, &values[i], argt[i], str, coltypmod))

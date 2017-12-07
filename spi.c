@@ -9,6 +9,20 @@
 #include "parser/analyze.h"
 #include "parser/parse_param.h"
 
+typedef struct pllua_spi_statement {
+	SPIPlanPtr plan;
+	bool kept;
+	int nparams;
+	int param_types_len;
+	Oid *param_types;
+	MemoryContext mcxt;
+} pllua_spi_statement;
+
+typedef struct pllua_spi_cursor {
+	Portal portal;  /* or null */
+	bool is_ours;   /* we created (and will close) it? */
+} pllua_spi_cursor;
+
 /*
  * Pushes up to four entries on the stack - beware!
  */
@@ -160,14 +174,6 @@ static int pllua_cursor_options(lua_State *L, int nd)
 static int pllua_spi_prepare_recursion = -1;
 static post_parse_analyze_hook_type pllua_spi_prev_parse_hook = NULL;
 
-typedef struct pllua_spi_statement {
-	SPIPlanPtr plan;
-	bool kept;
-	int nparams;
-	int param_types_len;
-	Oid *param_types;
-	MemoryContext mcxt;
-} pllua_spi_statement;
 
 static void pllua_spi_prepare_checkparam_hook(ParseState *pstate,
 											  Query *query)
@@ -426,6 +432,10 @@ static int pllua_spi_execute(lua_State *L)
 
 	if (nargs > 99)
 		pllua_spi_alloc_argspace(L, nargs, &values, &isnull, &argtypes, NULL);
+
+	/* check encoding of query string */
+	if (str)
+		pllua_verify_encoding(L, str);
 
 	/* we're going to re-push all the args, better have space */
 	luaL_checkstack(L, 40+nargs, NULL);

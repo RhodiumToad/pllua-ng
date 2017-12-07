@@ -7,7 +7,7 @@ CREATE EXTENSION pllua_ng;
 
 -- old-pllua compat shims
 do language pllua_ng $$
-  function fromstring(t,s) return pgtype(nil,t)(s) end
+  function fromstring(t,s) return pgtype(nil,t)::fromstring(s) end
   function setshared(k,v) _ENV[k] = v end
   server.execute = spi.execute
   server.prepare = spi.prepare

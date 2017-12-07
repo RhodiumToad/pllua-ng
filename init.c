@@ -301,6 +301,7 @@ static int pllua_init_state(lua_State *L)
 	/* install our hack to push C functions without throwing error */
 #define PLLUA_DECL_CFUNC(f_) lua_pushcfunction(L, f_); lua_rawsetp(L, LUA_REGISTRYINDEX, f_);
 #include "pllua_functable.h"
+#undef PLLUA_DECL_CFUNC
 
 	/* require the base lib early so that we can overwrite bits */
 	luaL_requiref(L, "_G", luaopen_base, 1);
@@ -393,9 +394,7 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_
 
 	mcxt = AllocSetContextCreate(TopMemoryContext,
 								 "PL/Lua context",
-								 ALLOCSET_DEFAULT_MINSIZE,
-								 ALLOCSET_DEFAULT_INITSIZE,
-								 ALLOCSET_DEFAULT_MAXSIZE);
+								 ALLOCSET_DEFAULT_SIZES);
 
 	emcxt = AllocSetContextCreate(mcxt,
 								  "PL/Lua error context",

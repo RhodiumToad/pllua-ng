@@ -59,10 +59,10 @@ server.error() and friends can take optional args:
       server.error('sqlstate', 'message', 'detail', 'hint')
       server.error({ sqlstate = ?,
                      message = ?,
-  		     detail = ?,
-	 	     hint = ?,
-		     table = ?,
-		     column = ?, ...})
+                     detail = ?,
+                     hint = ?,
+                     table = ?,
+                     column = ?, ...})
 
 (I'd like to deprecate the server.* namespace but I don't have a good
 alternative place to put these functions. Suggestions welcome.)
