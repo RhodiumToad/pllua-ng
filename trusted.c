@@ -25,7 +25,7 @@ static int pllua_open_trusted_os(lua_State *L)
 {
 	const luaL_Reg *p;
 	lua_getglobal(L, "os");
-	luaL_newlib(L, trusted_os_funcs);
+	luaL_newlibtable(L, trusted_os_funcs);
 	for (p = trusted_os_funcs; p->name; ++p)
 	{
 		lua_getfield(L, -2, p->name);
@@ -291,7 +291,7 @@ static int pllua_trusted_require(lua_State *L)
 	lua_getglobal(L, "require");
 	lua_pushvalue(L, 1);
 	lua_call(L, 1, 1);
-	lua_settable(L, -3);
+	lua_rawset(L, -3);
 	return 0;
 }
 
@@ -313,7 +313,7 @@ static int pllua_trusted_allow(lua_State *L)
 	lua_pushvalue(L, 1);
 	lua_call(L, 1, 1);
 	lua_pushcclosure(L, pllua_bind_one_value, 1);
-	lua_settable(L, -3);
+	lua_rawset(L, -3);
 	return 0;
 }
 
@@ -323,15 +323,15 @@ static int pllua_trusted_remove(lua_State *L)
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX_ALLOW);
 	lua_pushvalue(L, 1);
 	lua_pushnil(L);
-	lua_settable(L, -3);
+	lua_rawset(L, -3);
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
 	lua_pushvalue(L, 1);
 	lua_pushnil(L);
-	lua_settable(L, -3);
+	lua_rawset(L, -3);
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX_LOADED);
 	lua_pushvalue(L, 1);
 	lua_pushnil(L);
-	lua_settable(L, -3);
+	lua_rawset(L, -3);
 	return 0;
 }
 
