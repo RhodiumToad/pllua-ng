@@ -1560,10 +1560,10 @@ int pllua_typeinfo_parsetype(lua_State *L)
 	}
 	PLLUA_CATCH_RETHROW();
 
+	/* we intentionally ignore the typmod here */
 	lua_pushcfunction(L, pllua_typeinfo_lookup);
 	lua_pushinteger(L, (lua_Integer) ret_oid);
-	lua_pushinteger(L, (lua_Integer) ret_typmod);
-	lua_call(L, 2, 1);
+	lua_call(L, 1, 1);
 	return 1;
 }
 
@@ -1676,20 +1676,19 @@ static int pllua_typeinfo_package_call(lua_State *L)
 	return luaL_error(L, "invalid argument type");
 }
 
-static int pllua_typeinfo_user_lookup(lua_State *L)
+static int pllua_typeinfo_package_index(lua_State *L)
 {
-	if (lua_isinteger(L, 1) && (lua_isnoneornil(L, 2) || lua_isinteger(L, 2)))
+	if (lua_isinteger(L, 2))
 	{
-		lua_settop(L, 2);
 		lua_pushcfunction(L, pllua_typeinfo_lookup);
-		lua_insert(L, 1);
-		lua_call(L, 2, 1);
+		lua_pushvalue(L, 2);
+		lua_call(L, 1, 1);
 		return 1;
 	}
-	else if (lua_isstring(L, 1))
+	else if (lua_isstring(L, 2))
 	{
-		lua_settop(L, 1);
 		lua_pushcfunction(L, pllua_typeinfo_parsetype);
+		lua_pushvalue(L, 2);
 		lua_call(L, 1, 1);
 		return 1;
 	}
@@ -2451,11 +2450,11 @@ static struct luaL_Reg typeinfo_methods[] = {
 };
 
 static struct luaL_Reg typeinfo_funcs[] = {
-	{ "lookup", pllua_typeinfo_user_lookup },
 	{ NULL, NULL }
 };
 
 static struct luaL_Reg typeinfo_package_mt[] = {
+	{ "__index", pllua_typeinfo_package_index },
 	{ "__call", pllua_typeinfo_package_call },
 	{ NULL, NULL }
 };
