@@ -237,15 +237,20 @@ static struct luaL_Reg sandbox_lua_funcs[] = {
 /*
  * List of packages to expose to the sandbox by default
  */
-static struct luaL_Reg sandbox_packages[] = {
+struct namepair { const char *name; const char *newname; };
+static struct namepair sandbox_packages[] = {
 	{ "coroutine", NULL },
 	{ "string", NULL },
 	{ "utf8", NULL },
 	{ "table", NULL },
 	{ "math", NULL },
-	{ "spi", NULL },
-	{ "pgtype", NULL },
-	{ "server", NULL },
+	{ "pllua.spi", "spi" },
+	{ "pllua.pgtype", "pgtype" },
+	{ "pllua.server", "server" },
+	{ NULL, NULL }
+};
+static struct namepair sandbox_allow_packages[] = {
+	{ "pllua.numeric", NULL },
 	{ NULL, NULL }
 };
 
@@ -340,6 +345,7 @@ static struct luaL_Reg trusted_funcs[] = {
 int pllua_open_trusted(lua_State *L)
 {
 	const luaL_Reg *p;
+	const struct namepair *np;
 	lua_settop(L,0);
 	/* create the package table itself: index 1 */
 	luaL_newlibtable(L, trusted_funcs);
@@ -360,6 +366,8 @@ int pllua_open_trusted(lua_State *L)
 	}
 	lua_getglobal(L, "_VERSION");
 	lua_setfield(L, 2, "_VERSION");
+	lua_getglobal(L, "_PLVERSION");
+	lua_setfield(L, 2, "_PLVERSION");
 	lua_pushvalue(L, 2);
 	lua_setfield(L, 2, "_G");
 	luaL_setfuncs(L, sandbox_funcs, 0);
@@ -369,29 +377,35 @@ int pllua_open_trusted(lua_State *L)
 	lua_setfield(L, 1, "sandbox");
 
 	/* create the infrastructure of the sandbox module system */
-	luaL_requiref(L, "trusted.package", pllua_open_trusted_package, 0);
+	luaL_requiref(L, "pllua.trusted.package", pllua_open_trusted_package, 0);
 	/* the package becomes the "package" global in the sandbox */
 	lua_getfield(L, -1, "require");
 	lua_setfield(L, 2, "require");
 	lua_setfield(L, 2, "package");
 
 	/* require standard modules into the sandbox */
-	for (p = sandbox_packages; p->name; ++p)
+	for (np = sandbox_packages; np->name; ++np)
 	{
 		lua_pushcfunction(L, pllua_trusted_allow);
-		lua_pushstring(L, p->name);
+		lua_pushstring(L, np->name);
 		lua_call(L, 1, 0);
 		lua_getfield(L, -1, "require");
-		lua_pushstring(L, p->name);
+		lua_pushstring(L, np->name);
 		lua_call(L, 1, 1);
-		lua_setfield(L, -2, p->name);
+		lua_setfield(L, -2, np->newname ? np->newname : np->name);
+	}
+	for (np = sandbox_allow_packages; np->name; ++np)
+	{
+		lua_pushcfunction(L, pllua_trusted_allow);
+		lua_pushstring(L, np->name);
+		lua_call(L, 1, 0);
 	}
 
 	/* create and install the minimal trusted "os" library */
-	luaL_requiref(L, "trusted.os", pllua_open_trusted_os, 0);
+	luaL_requiref(L, "pllua.trusted.os", pllua_open_trusted_os, 0);
 	lua_pop(L,1);
 	lua_pushcfunction(L, pllua_trusted_allow);
-	lua_pushstring(L, "trusted.os");
+	lua_pushstring(L, "pllua.trusted.os");
 	lua_pushstring(L, "os");
 	lua_call(L, 2, 0);
 	lua_getfield(L, -1, "require");

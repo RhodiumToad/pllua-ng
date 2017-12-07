@@ -310,11 +310,6 @@ static int pllua_init_state(lua_State *L)
 
 	luaL_openlibs(L);
 
-	pllua_init_functions(L, trusted);
-
-	/* Treat SPI as an actual module */
-	luaL_requiref(L, "spi", pllua_open_spi, 1);
-
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
 	lua_newtable(L);
@@ -324,12 +319,24 @@ static int pllua_init_state(lua_State *L)
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
 
+	pllua_init_functions(L, trusted);
+
+	/* Treat SPI as an actual module */
+	luaL_requiref(L, "pllua.spi", pllua_open_spi, 0);
+	lua_setglobal(L, "spi");
+
+	luaL_requiref(L, "pllua.numeric", pllua_open_numeric, 0);
+	lua_pop(L, 1);
+
 	/*
 	 * If in trusted mode, load the "trusted" module which allows the superuser
 	 * to control (in the init strings) what modules can be exposed to the user.
 	 */
 	if (trusted)
-		luaL_requiref(L, "trusted", pllua_open_trusted, 1);
+	{
+		luaL_requiref(L, "pllua.trusted", pllua_open_trusted, 0);
+		lua_setglobal(L, "trusted");
+	}
 
 	/* enable interrupt checks */
 	if (pllua_do_check_for_interrupts)

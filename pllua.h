@@ -404,6 +404,9 @@ int pllua_call_event_trigger(lua_State *L);
 int pllua_call_inline(lua_State *L);
 int pllua_validate(lua_State *L);
 
+/* numeric.c */
+int pllua_open_numeric(lua_State *L);
+
 /* objects.c */
 
 bool pllua_isobject(lua_State *L, int nd, char *objtype);
