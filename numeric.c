@@ -323,6 +323,7 @@ static struct { const char *name; enum num_method_id id; } numeric_methods[] = {
 	{ "floor", PLLUA_NUM_FLOOR },
 	{ "isnan", PLLUA_NUM_ISNAN },
 	{ "log", PLLUA_NUM_LOG },
+	{ "new", PLLUA_NUM_NOOP },
 	{ "round", PLLUA_NUM_ROUND },
 	{ "sign", PLLUA_NUM_SIGN },
 	{ "sqrt", PLLUA_NUM_SQRT },
@@ -342,7 +343,7 @@ int pllua_open_numeric(lua_State *L)
 	int i;
 
 	StaticAssertStmt(LUA_MAXINTEGER <= PG_INT64_MAX, "lua_Integer type is too big");
-	StaticAssertStmt(sizeof(lua_Number) == sizeof(float8), "lua_Number type is wrong size");
+	StaticAssertStmt(sizeof(lua_Number) <= sizeof(float8), "lua_Number type is too big");
 
 	lua_settop(L, 0);
 	lua_newtable(L);  /* module table at index 1 */
