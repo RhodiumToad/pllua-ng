@@ -213,11 +213,11 @@
 {
 	"numeric_value_out_of_range", ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE
 },
-
+#if PG_VERSION_NUM >= 100000
 {
 	"sequence_generator_limit_exceeded", ERRCODE_SEQUENCE_GENERATOR_LIMIT_EXCEEDED
 },
-
+#endif
 {
 	"string_data_length_mismatch", ERRCODE_STRING_DATA_LENGTH_MISMATCH
 },
@@ -557,11 +557,11 @@
 {
 	"wrong_object_type", ERRCODE_WRONG_OBJECT_TYPE
 },
-
+#if PG_VERSION_NUM >= 100000
 {
 	"generated_always", ERRCODE_GENERATED_ALWAYS
 },
-
+#endif
 {
 	"undefined_column", ERRCODE_UNDEFINED_COLUMN
 },

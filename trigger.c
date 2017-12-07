@@ -4,6 +4,7 @@
 #include "access/htup_details.h"
 #include "commands/trigger.h"
 #include "utils/reltrigger.h"
+#include "utils/rel.h"
 #include "utils/lsyscache.h"
 
 typedef struct pllua_trigger {

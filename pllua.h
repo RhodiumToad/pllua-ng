@@ -20,6 +20,14 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
+/* PG version cruft */
+
+#if PG_VERSION_NUM < 100000
+#define TupleDescAttr(tupdesc, i) ((tupdesc)->attrs[(i)])
+#endif
+
+/* Lua cruft */
+
 #define PLLUA_LOCALVAR "_U"
 
 

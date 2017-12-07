@@ -3,8 +3,8 @@
 #include "pllua.h"
 
 #include "catalog/pg_type.h"
-#include "utils/fmgrprotos.h"
 #include "utils/numeric.h"
+#include "utils/builtins.h"
 
 enum num_method_id {
 	PLLUA_NUM_NONE = 0,

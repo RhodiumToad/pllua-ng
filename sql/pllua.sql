@@ -364,7 +364,15 @@ SELECT hello('PostgreSQL');
 --
 
 create type ctype3 as (fred integer, jim numeric);
-create domain dtype as ctype3 check((VALUE).jim is not null);
+do $$
+  begin
+    if current_setting('server_version_num')::integer >= 110000 then
+      execute 'create domain dtype as ctype3 check((VALUE).jim is not null)';
+    else
+      execute 'create type dtype as (fred integer, jim numeric)';
+    end if;
+  end;
+$$;
 create type ctype2 as (thingy text, wotsit integer);
 create type ctype as (foo text, bar ctype2, baz dtype);
 create table tdata (

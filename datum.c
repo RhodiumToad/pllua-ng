@@ -5,6 +5,7 @@
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "access/tuptoaster.h"
+#include "access/tupconvert.h"
 #include "catalog/pg_type.h"
 #include "mb/pg_wchar.h"
 #include "parser/parse_coerce.h"
