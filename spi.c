@@ -1115,6 +1115,7 @@ static struct luaL_Reg spi_cursor_methods[] = {
 	{ "fetch", pllua_spi_cursor_fetch },
 	{ "move", pllua_spi_cursor_move },
 	{ "own", pllua_cursor_own },
+	{ "isowned", pllua_cursor_isowned },
 	{ "disown", pllua_cursor_disown },
 	{ "close", pllua_cursor_close },
 	{ "isopen", pllua_cursor_isopen },
@@ -1161,7 +1162,7 @@ int pllua_open_spi(lua_State *L)
 	lua_newtable(L);
 	lua_newtable(L);
 	lua_pushstring(L, "v");
-	lua_setfield(L, -2, "__weak");
+	lua_setfield(L, -2, "__mode");
 	lua_setmetatable(L, -2);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_PORTALS);
 
