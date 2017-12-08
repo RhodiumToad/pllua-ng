@@ -293,6 +293,7 @@ extern bool pllua_ending;
  * reg[PLLUA_ACTIVATIONS] = { [light(act)] = activation object }
  * reg[PLLUA_TYPES] = { [integer oid] = typeinfo object }
  * reg[PLLUA_RECORDS] = { [integer typmod] = typeinfo object }
+ * reg[PLLUA_PORTALS] = { [light(Portal)] = cursor object }
  *
  * metatables:
  * reg[PLLUA_FUNCTION_OBJECT]
@@ -320,6 +321,7 @@ extern char PLLUA_FUNCS[];
 extern char PLLUA_TYPES[];
 extern char PLLUA_RECORDS[];
 extern char PLLUA_ACTIVATIONS[];
+extern char PLLUA_PORTALS[];
 extern char PLLUA_FUNCTION_OBJECT[];
 extern char PLLUA_ERROR_OBJECT[];
 extern char PLLUA_ACTIVATION_OBJECT[];
@@ -328,6 +330,7 @@ extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
 extern char PLLUA_TUPCONV_OBJECT[];
 extern char PLLUA_TRIGGER_OBJECT[];
 extern char PLLUA_SPI_STMT_OBJECT[];
+extern char PLLUA_SPI_CURSOR_OBJECT[];
 extern char PLLUA_LAST_ERROR[];
 extern char PLLUA_RECURSIVE_ERROR[];
 extern char PLLUA_FUNCTION_MEMBER[];

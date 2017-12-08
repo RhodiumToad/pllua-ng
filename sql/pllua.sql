@@ -7,7 +7,7 @@ CREATE EXTENSION pllua_ng;
 
 -- old-pllua compat shims
 do language pllua_ng $$
-  function fromstring(t,s) return pgtype(nil,t)::fromstring(s) end
+  function fromstring(t,s) return pgtype(nil,t):fromstring(s) end
   function setshared(k,v) _ENV[k] = v end
   server.execute = spi.execute
   server.prepare = spi.prepare
@@ -156,16 +156,16 @@ SELECT getcounter();
 
 CREATE TABLE sometable ( sid int4, sname text, sdata text);
 INSERT INTO sometable VALUES (1, 'name', 'data');
-/* no cursor yet
+
 CREATE FUNCTION get_rows (i_name text) RETURNS SETOF sometable AS $$
   if _U == nil then -- plan not cached?
     local cmd = "SELECT sid, sname, sdata FROM sometable WHERE sname = $1"
     _U = server.prepare(cmd, {"text"}):save()
   end
-  local c = _U:getcursor({i_name}, true) -- read-only
+  local c = _U:getcursor(i_name)
   while true do
     local r = c:fetch(1)
-    if r == nil then break end
+    if #r < 1 then break end
     r = r[1]
     coroutine.yield{sid=r.sid, sname=r.sname, sdata=r.sdata}
   end
@@ -173,7 +173,7 @@ CREATE FUNCTION get_rows (i_name text) RETURNS SETOF sometable AS $$
 $$ LANGUAGE pllua_ng;
 
 SELECT * FROM get_rows('name');
-*/
+
 
 SET client_min_messages = warning;
 CREATE TABLE tree (id INT PRIMARY KEY, lchild INT, rchild INT);
@@ -199,16 +199,16 @@ CREATE FUNCTION preorder (t text, s int) RETURNS SETOF int AS $$
   end
 $$ LANGUAGE pllua_ng;
 SELECT * from preorder('tree', 1);
-/* no cursor yet
+
 CREATE FUNCTION postorder (t text, s int) RETURNS SETOF int AS $$
   local p = _U[t]
   if p == nil then -- plan not cached?
     p = server.prepare("select * from " .. t .. " where id=$1", {"int4"})
     _U[t] = p:save()
   end
-  local c = p:getcursor({s}, true) -- read-only
+  local c = p:getcursor(s)
   local q = c:fetch(1) -- one row
-  if q ~= nil then
+  if #q > 0 then
     local lchild, rchild = q[1].lchild, q[1].rchild -- store before next query
     c:close()
     if lchild ~= nil then postorder(t, lchild) end
@@ -219,7 +219,7 @@ end
 do _U = {} -- plan cache
 $$ LANGUAGE pllua_ng;
 SELECT * FROM postorder('tree', 1);
-*/
+
 
 -- trigger
 CREATE FUNCTION treetrigger() RETURNS trigger AS $$

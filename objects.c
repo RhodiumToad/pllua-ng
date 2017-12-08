@@ -111,6 +111,7 @@ void **pllua_torefobject(lua_State *L, int nd, char *objtype)
 void *pllua_newobject(lua_State *L, char *objtype, size_t sz, bool uservalue)
 {
 	void *p = lua_newuserdata(L, sz);
+	memset(p, 0, sz);
 	if (objtype)
 	{
 		int t = lua_rawgetp(L, LUA_REGISTRYINDEX, objtype);
