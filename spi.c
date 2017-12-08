@@ -682,6 +682,7 @@ static int pllua_spi_stmt_getcursor(lua_State *L)
 	return 1;
 }
 
+
 /*
  * c:fetch(n [,dir])  -- returns rows
  *
@@ -1100,14 +1101,56 @@ static int pllua_cursor_gc(lua_State *L)
 }
 
 
+/*
+ * rows iterator
+ *
+ * upvalue 1: cursor object
+ */
+static int pllua_spi_stmt_rows_iter(lua_State *L)
+{
+	lua_pushcfunction(L, pllua_spi_cursor_fetch);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_call(L, 1, 1);
+	if (lua_isnil(L,-1) || lua_geti(L, -1, 1) == LUA_TNIL)
+	{
+		lua_pushcfunction(L, pllua_cursor_close);
+		lua_pushvalue(L, lua_upvalueindex(1));
+		lua_call(L, 1, 0);
+		lua_pushnil(L);
+		lua_replace(L, lua_upvalueindex(1));
+		lua_pushnil(L);
+		return 1;
+	}
+	return 1;
+}
+
+/*
+ * s:rows(args)  returns iterator, nil, nil
+ *
+ */
+static int pllua_spi_stmt_rows(lua_State *L)
+{
+	pllua_spi_cursor *curs = pllua_newcursor(L);
+	lua_insert(L, 1);
+	lua_pushcfunction(L, pllua_spi_cursor_open);
+	lua_insert(L, 1);
+	lua_call(L, lua_gettop(L) - 1, 1);
+
+	curs->is_private = 1;
+	lua_pushcclosure(L, pllua_spi_stmt_rows_iter, 1);
+	lua_pushnil(L);
+	lua_pushnil(L);
+	return 3;
+}
+
+
 static struct luaL_Reg spi_funcs[] = {
 	{ "execute", pllua_spi_execute },
 	{ "prepare", pllua_spi_prepare },
 	{ "readonly", pllua_spi_is_readonly },
 	{ "findcursor", pllua_spi_findcursor },
 	{ "newcursor", pllua_spi_newcursor },
-	/* { "rows", pllua_spi_rows },
-	   { "find", pllua_spi_find }, */
+	{ "rows", pllua_spi_stmt_rows },
 	{ NULL, NULL }
 };
 
@@ -1143,7 +1186,7 @@ static struct luaL_Reg spi_stmt_methods[] = {
 	{ "issaved", pllua_spi_noop_true },
 	{ "execute", pllua_spi_execute },
 	{ "getcursor", pllua_spi_stmt_getcursor },
-	/* { "rows", pllua_spi_stmt_rows }, */
+	{ "rows", pllua_spi_stmt_rows },
 	{ NULL, NULL }
 };
 static struct luaL_Reg spi_stmt_mt[] = {

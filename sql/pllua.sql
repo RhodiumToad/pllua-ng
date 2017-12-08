@@ -10,6 +10,7 @@ do language pllua_ng $$
   function fromstring(t,s) return pgtype(nil,t):fromstring(s) end
   function setshared(k,v) _ENV[k] = v end
   server.execute = spi.execute
+  server.rows = spi.rows
   server.prepare = spi.prepare
   shared = _G
 $$;
@@ -303,7 +304,7 @@ SELECT echo_mynum(666.777);
 CREATE TYPE mytype AS (id int2, val mynum, val_list numeric[]);
 CREATE FUNCTION echo_mytype(arg mytype) RETURNS mytype AS $$ return arg $$ LANGUAGE pllua_ng;
 SELECT echo_mytype((1::int2, 666.777, array[1.0, 2.0]) );
-/* no .rows yet
+
 CREATE FUNCTION nested_server_rows () RETURNS SETOF text as
 $$
 for left in server.rows('select generate_series as left from generate_series(3,4) ') do
@@ -315,7 +316,7 @@ end
 $$
 language pllua_ng;
 select nested_server_rows();
-*/
+
 CREATE OR REPLACE FUNCTION pg_temp.srf()
 RETURNS SETOF integer AS $$
   coroutine.yield(1)

@@ -36,8 +36,26 @@ conventions:
 
 Execution now returns a table with no number keys (#t == 0) in the
 event of no matching rows, whereas the old version returned nil. The
-result is also currently a plain table, not an object. Cursor
-functionality doesn't work yet.
+result is also currently a plain table, not an object.
+
+Cursors work:
+
+      spi.findcursor("name")   - find already-open portal by name
+      spi.newcursor(["name"])  - find existing cursor or create new one
+      s:getcursor(args)   - get cursor from statement (can't specify name)
+      c:open(stmt,args)   - open a cursor
+      c:open(query,args)  - open a cursor
+      c:isopen()          - is it open
+      c:name()
+      c:fetch([n, [dir]])  - fetch n rows in dir (default: forward 1)
+      c:move([n, [dir]])
+
+There can only be one cursor object for a given open portal - doing a
+findcursor on an existing cursor will always return the same object.
+If a cursor is closed by external code (or transaction end), then the
+:isopen() state will be automatically updated (this happens when the
+portal is actually dropped). Cursor options are set on the statement
+object.
 
 :save on a statement is now a no-op - all statements seen by lua code
 have been passed through SPI_keepplan and are managed by Lua garbage
