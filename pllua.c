@@ -82,6 +82,8 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 	act.fcinfo = fcinfo;
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
+	act.cblock = NULL;
+	act.validate_func = InvalidOid;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
@@ -99,7 +101,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 	}
 	else
 	{
-		L = pllua_getstate(trusted);
+		L = pllua_getstate(trusted, &act);
 
 		if (CALLED_AS_TRIGGER(fcinfo))
 			pllua_initial_protected_call(L, pllua_call_trigger, &act);
@@ -127,11 +129,12 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
+	act.cblock = NULL;
 	act.validate_func = funcoid;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
-	L = pllua_getstate(trusted);
+	L = pllua_getstate(trusted, &act);
 
 	pllua_initial_protected_call(L, pllua_validate, &act);
 
@@ -149,6 +152,7 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
 	act.cblock = (InlineCodeBlock *) PG_GETARG_POINTER(0);
+	act.validate_func = InvalidOid;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
@@ -156,7 +160,7 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	if (act.cblock->langIsTrusted != act.trusted)
 		elog(ERROR, "trusted state mismatch");
 
-	L = pllua_getstate(trusted);
+	L = pllua_getstate(trusted, &act);
 
 	pllua_initial_protected_call(L, pllua_call_inline, &act);
 

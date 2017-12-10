@@ -33,10 +33,6 @@
 
 #define pllua_pushcfunction(L_,f_) do { int rc = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_)); Assert(rc==LUA_TFUNCTION); } while(0)
 
-#define PLLUA_DECL_CFUNC(f_) extern int (f_)(lua_State *L);
-#include "pllua_functable.h"
-#undef PLLUA_DECL_CFUNC
-
 /*
  * Track what error handling context we're in, to try and detect any violations
  * of error-handling protocol (lua errors thrown through pg catch blocks and
@@ -211,6 +207,17 @@ typedef struct pllua_interpreter
 
 #define pllua_getinterpreter(L_) (*(pllua_interpreter **)lua_getextraspace(L_))
 
+/* We abuse the node system to pass this in fcinfo->context */
+
+#define PLLUA_MAGIC 0x4c554101
+
+typedef struct pllua_node
+{
+	NodeTag type;   /* we put T_Invalid here */
+	uint32 magic;
+	lua_State *interp;
+} pllua_node;
+
 typedef struct pllua_datum {
 	Datum value;
 	int32 typmod;
@@ -231,9 +238,12 @@ typedef struct pllua_typeinfo {
 	bool hasoid;
 	bool revalidate;
 	TupleDesc tupdesc;
+	Oid firstcoltype;  /* for all composite types with arity > 0 */
 	Oid reloid;  /* for named composite types */
 	Oid basetype;  /* for domains */
+	Oid elemtype;  /* for arrays */
 	bool nested;  /* may contain nested composite or array values */
+	bool is_array;
 
 	int16 typlen;
 	bool typbyval;
@@ -257,6 +267,19 @@ typedef struct pllua_typeinfo {
 	bool coerce_typmod_element;
 	Oid typmod_funcid;
 	FmgrInfo typmod_func;
+
+	/* array work */
+	ArrayMetaState array_meta;
+
+	int16 elemtyplen;
+	bool elemtypbyval;
+	char elemtypalign;
+
+	/* transforms */
+	Oid fromsql;   /* fromsql(internal) returns internal */
+	Oid tosql;     /* tosql(internal) returns datum */
+	FmgrInfo fromsql_func;
+	FmgrInfo tosql_func;
 
 	/*
 	 * we give this its own context, because we can't control what fmgr will
@@ -285,6 +308,7 @@ extern bool pllua_ending;
  * reg[PLLUA_ERRORCONTEXT] = light(MemoryContext) - for error handling
  * reg[PLLUA_USERID] = int user_id for trusted, InvalidOid for untrusted
  * reg[PLLUA_TRUSTED] = boolean
+ * reg[PLLUA_LANG_OID] = oid of language
  * reg[PLLUA_LAST_ERROR] = last pg error object to enter error handling
  * reg[PLLUA_RECURSIVE_ERROR] = preallocated error object
  *
@@ -316,6 +340,7 @@ extern bool pllua_ending;
 extern char PLLUA_MEMORYCONTEXT[];
 extern char PLLUA_ERRORCONTEXT[];
 extern char PLLUA_USERID[];
+extern char PLLUA_LANG_OID[];
 extern char PLLUA_TRUSTED[];
 extern char PLLUA_FUNCS[];
 extern char PLLUA_TYPES[];
@@ -324,6 +349,7 @@ extern char PLLUA_ACTIVATIONS[];
 extern char PLLUA_PORTALS[];
 extern char PLLUA_FUNCTION_OBJECT[];
 extern char PLLUA_ERROR_OBJECT[];
+extern char PLLUA_IDXLIST_OBJECT[];
 extern char PLLUA_ACTIVATION_OBJECT[];
 extern char PLLUA_TYPEINFO_OBJECT[];
 extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
@@ -344,17 +370,20 @@ extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 
 /* init.c */
 
-lua_State *pllua_getstate(bool trusted);
+lua_State *pllua_getstate(bool trusted, pllua_activation_record *act);
 
 /* compile.c */
 
 pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fcinfo, bool trusted);
-
+int pllua_compile(lua_State *L);
+int pllua_intern_function(lua_State *L);
 void pllua_validate_function(lua_State *L, Oid fn_oid, bool trusted);
 
 /* datum.c */
 
 void pllua_verify_encoding(lua_State *L, const char *str);
+bool pllua_verify_encoding_noerror(lua_State *L, const char *str);
+void *pllua_palloc(lua_State *L, size_t sz);
 pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td);
 int pllua_open_pgtype(lua_State *L);
@@ -370,7 +399,8 @@ int pllua_value_from_datum(lua_State *L,
 bool pllua_datum_from_value(lua_State *L, int nd,
 							Oid typeid,
 							Datum *result,
-							bool *isnull);
+							bool *isnull,
+							const char **errstr);
 pllua_datum *pllua_newdatum(lua_State *L);
 void pllua_savedatum(lua_State *L,
 					 pllua_datum *d,
@@ -447,6 +477,8 @@ void pllua_init_functions(lua_State *L, bool trusted);
 
 /* spi.c */
 int pllua_open_spi(lua_State *L);
+int pllua_spi_convert_args(lua_State *L);
+int pllua_spi_prepare_result(lua_State *L);
 
 /* trigger.c */
 struct TriggerData;

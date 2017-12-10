@@ -6,6 +6,7 @@ do language pllua_ng $$
   function fromstring(t,s) return pgtype(nil,t):fromstring(s) end
   function setshared(k,v) _ENV[k] = v end
   server.execute = spi.execute
+  server.rows = spi.rows
   server.prepare = spi.prepare
   shared = _G
 $$;
@@ -146,7 +147,6 @@ SELECT makegreeting(('how', 'who'), '%s, %s!');
 (1 row)
 
 -- no worky yet
-/*
 -- array, record output
 CREATE FUNCTION greetingset (how text, who text[])
 RETURNS SETOF greeting AS $$
@@ -156,6 +156,12 @@ RETURNS SETOF greeting AS $$
 $$ LANGUAGE pllua_ng;
 SELECT makegreeting(greetingset, '%s, %s!') FROM
   (SELECT greetingset('Hello', ARRAY['foo', 'bar', 'psql'])) AS q;
+ makegreeting 
+--------------
+ Hello, foo!
+ Hello, bar!
+ Hello, psql!
+(3 rows)
 
 -- more array, upvalue
 CREATE FUNCTION perm (a text[]) RETURNS SETOF text[] AS $$
@@ -175,7 +181,16 @@ do
   end
 $$ LANGUAGE pllua_ng;
 SELECT * FROM perm(array['1', '2', '3']);
-*/
+  perm   
+---------
+ {2,3,1}
+ {3,2,1}
+ {3,1,2}
+ {1,3,2}
+ {2,1,3}
+ {1,2,3}
+(6 rows)
+
 -- shared variables
 CREATE FUNCTION getcounter() RETURNS integer AS $$
   if shared.counter == nil then -- not cached?
@@ -489,7 +504,6 @@ SELECT echo_mytype((1::int2, 666.777, array[1.0, 2.0]) );
  (1,666.777,"{1.0,2.0}")
 (1 row)
 
-/* no .rows yet
 CREATE FUNCTION nested_server_rows () RETURNS SETOF text as
 $$
 for left in server.rows('select generate_series as left from generate_series(3,4) ') do
@@ -501,7 +515,14 @@ end
 $$
 language pllua_ng;
 select nested_server_rows();
-*/
+ nested_server_rows 
+--------------------
+ 3 5
+ 3 6
+ 4 5
+ 4 6
+(4 rows)
+
 CREATE OR REPLACE FUNCTION pg_temp.srf()
 RETURNS SETOF integer AS $$
   coroutine.yield(1)
@@ -622,7 +643,7 @@ INFO:  (1,2)
 do language pllua_ng $$ print(pgtype(nil,'ctype3')({1,2})) $$;
 INFO:  (,)
 do language pllua_ng $$ print(pgtype(nil,'ctype3')(true,true)) $$;
-ERROR:  incompatible value type
+ERROR:  pllua: incompatible value type
 do language pllua_ng $$ print(pgtype(nil,'ctype3')("1","2")) $$;
 INFO:  (1,2)
 do language pllua_ng $$ print(pgtype(nil,'ctype3')("fred","jim")) $$;
@@ -630,7 +651,7 @@ ERROR:  invalid input syntax for integer: "fred"
 do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim=2})) $$;
 INFO:  (1,2)
 do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim={}})) $$;
-ERROR:  pllua: [string "DO-block"]:1: incorrect argtype
+ERROR:  pllua: incompatible value type
 do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim=nil})) $$;
 INFO:  (1,)
 --do language pllua_ng $$ print(pgtype(nil,'dtype')({fred=1,jim=nil})) $$;

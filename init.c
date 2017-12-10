@@ -7,6 +7,8 @@
 
 #include "pllua.h"
 
+#include "access/htup_details.h"
+#include "catalog/pg_proc.h"
 #include "storage/ipc.h"
 #include "utils/inval.h"
 #include "utils/syscache.h"
@@ -23,7 +25,7 @@ static char *pllua_on_untrusted_init = NULL;
 static bool pllua_do_check_for_interrupts = true;
 
 
-static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_desc);
+static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_desc, pllua_activation_record *act);
 static int pllua_init_state(lua_State *L);
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
@@ -35,7 +37,7 @@ static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
  * Returns the Lua interpreter (main thread) to be used for the current call.
  */
 
-lua_State *pllua_getstate(bool trusted)
+lua_State *pllua_getstate(bool trusted, pllua_activation_record *act)
 {
 	Oid			user_id = trusted ? GetUserId() : InvalidOid;
 	pllua_interpreter *interp_desc;
@@ -60,7 +62,7 @@ lua_State *pllua_getstate(bool trusted)
 	 * this can throw a pg error, but is required to ensure the interpreter is
 	 * removed from interp_desc first if it does.
 	 */
-	pllua_newstate(trusted, user_id, interp_desc);
+	pllua_newstate(trusted, user_id, interp_desc, act);
 
 	return interp_desc->interp;
 }
@@ -188,7 +190,9 @@ static void pllua_relcache_callback(Datum arg, Oid relid)
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
 	{
 		lua_State *L = interp_desc->interp;
-		if (L)
+		if (L
+			&& (arg == (Datum)0
+				|| arg == PointerGetDatum(interp_desc)))
 		{
 			int rc;
 			pllua_pushcfunction(L, pllua_typeinfo_invalidate);
@@ -212,7 +216,9 @@ static void pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashv
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
 	{
 		lua_State *L = interp_desc->interp;
-		if (L)
+		if (L
+			&& (arg == (Datum)0
+				|| arg == PointerGetDatum(interp_desc)))
 		{
 			int rc;
 			pllua_pushcfunction(L, pllua_typeinfo_invalidate);
@@ -284,8 +290,9 @@ static int pllua_init_state(lua_State *L)
 {
 	bool trusted = lua_toboolean(L, 1);
 	lua_Integer user_id = lua_tointeger(L, 2);
-	MemoryContext *mcxt = lua_touserdata(L, 3);
-	MemoryContext *emcxt = lua_touserdata(L, 4);
+	lua_Integer lang_oid = lua_tointeger(L, 3);
+	MemoryContext *mcxt = lua_touserdata(L, 4);
+	MemoryContext *emcxt = lua_touserdata(L, 5);
 
 	lua_pushliteral(L, "0.01");
 	lua_setglobal(L, "_PLVERSION");
@@ -295,6 +302,8 @@ static int pllua_init_state(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
 	lua_pushinteger(L, user_id);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_USERID);
+	lua_pushinteger(L, lang_oid);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LANG_OID);
 	lua_pushboolean(L, trusted);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED);
 
@@ -382,15 +391,31 @@ static int pllua_run_init_strings(lua_State *L)
 /*
  * PG-environment part of interpreter setup.
  */
-static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_desc)
+static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_desc, pllua_activation_record *act)
 {
 	static bool first_time = true;
 	MemoryContext mcxt = NULL;
 	MemoryContext emcxt = NULL;
 	MemoryContext oldcontext = CurrentMemoryContext;
 	lua_State *L;
+	Oid langoid;
 
 	Assert(pllua_context == PLLUA_CONTEXT_PG);
+
+	/*
+	 * Get our own language oid; this is somewhat unnecessarily hard.
+	 */
+	if (act->cblock)
+		langoid = act->cblock->langOid;
+	else
+	{
+		Oid procoid = (act->fcinfo) ? act->fcinfo->flinfo->fn_oid : act->validate_func;
+		HeapTuple procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(procoid));
+		if (!HeapTupleIsValid(procTup))
+			elog(ERROR, "cache lookup failed for function %u", procoid);
+		langoid = ((Form_pg_proc) GETSTRUCT(procTup))->prolang;
+		ReleaseSysCache(procTup);
+	}
 
 	mcxt = AllocSetContextCreate(TopMemoryContext,
 								 "PL/Lua context",
@@ -407,8 +432,6 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_
 	if (!L)
 		elog(ERROR, "Out of memory creating Lua interpreter");
 
-	pllua_getinterpreter(L) = interp_desc;
-
 	lua_atpanic(L, pllua_panic);  /* can't throw */
 
 	PG_TRY();
@@ -424,22 +447,36 @@ static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_
 		 * outer interpreter...
 		 */
 
+		pllua_getinterpreter(L) = interp_desc;
+
+		/* note that pllua_pushcfunction is not available yet. */
 		lua_pushcfunction(L, pllua_init_state);
 		lua_pushboolean(L, trusted);
 		lua_pushinteger(L, (lua_Integer) user_id);
+		lua_pushinteger(L, (lua_Integer) langoid);
 		lua_pushlightuserdata(L, mcxt);
 		lua_pushlightuserdata(L, emcxt);
-		pllua_pcall(L, 4, 0, 0);
+		pllua_pcall(L, 5, 0, 0);
 
 		if (first_time)
 		{
 			on_proc_exit(pllua_fini, (Datum)0);
 			CacheRegisterRelcacheCallback(pllua_relcache_callback, (Datum)0);
 			CacheRegisterSyscacheCallback(TYPEOID, pllua_syscache_typeoid_callback, (Datum)0);
+			CacheRegisterSyscacheCallback(TRFTYPELANG, pllua_syscache_typeoid_callback, (Datum)0);
 			first_time = false;
 		}
 
 		interp_desc->interp = L;
+
+		/*
+		 * force invalidation of the caches now anyway, since we might have
+		 * missed something (prior to the assignment above the invalidation
+		 * callbacks will ignore us); but for this interpreter only, no need to
+		 * involve any others.
+		 */
+		pllua_relcache_callback(PointerGetDatum(interp_desc), InvalidOid);
+		pllua_syscache_typeoid_callback(PointerGetDatum(interp_desc), TYPEOID, 0);
 
 		/*
 		 * Now that we have everything set up, it should finally be safe to run

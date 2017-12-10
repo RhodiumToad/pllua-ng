@@ -105,7 +105,7 @@ $$ LANGUAGE pllua_ng;
 SELECT makegreeting(('how', 'who'), '%s, %s!');
 
 -- no worky yet
-/*
+
 -- array, record output
 CREATE FUNCTION greetingset (how text, who text[])
 RETURNS SETOF greeting AS $$
@@ -134,7 +134,7 @@ do
   end
 $$ LANGUAGE pllua_ng;
 SELECT * FROM perm(array['1', '2', '3']);
-*/
+
 -- shared variables
 CREATE FUNCTION getcounter() RETURNS integer AS $$
   if shared.counter == nil then -- not cached?
