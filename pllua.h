@@ -242,8 +242,10 @@ typedef struct pllua_typeinfo {
 	Oid reloid;  /* for named composite types */
 	Oid basetype;  /* for domains */
 	Oid elemtype;  /* for arrays */
+	Oid rangetype;  /* for ranges */
 	bool nested;  /* may contain nested composite or array values */
 	bool is_array;
+	bool is_range;
 
 	int16 typlen;
 	bool typbyval;

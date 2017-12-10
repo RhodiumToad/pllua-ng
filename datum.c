@@ -13,6 +13,7 @@
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
+#include "utils/rangetypes.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 
@@ -1508,6 +1509,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 												   ALLOCSET_SMALL_SIZES);
 		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
 		Oid elemtype = get_base_element_type(oid);
+		char typtype = get_typtype(getBaseType(oid));
 
 		t = palloc0(sizeof(pllua_typeinfo));
 		t->mcxt = mcxt;
@@ -1528,6 +1530,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		t->coerce_typmod_element = false;
 		t->typmod_funcid = InvalidOid;
 		t->elemtype = elemtype;
+		t->rangetype = InvalidOid;
 
 		switch (find_typmod_coercion_function(oid, &t->typmod_funcid))
 		{
@@ -1616,6 +1619,13 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		else
 			t->is_array = false;
 
+		if (typtype == TYPTYPE_RANGE)
+		{
+			TypeCacheEntry *tc = lookup_type_cache(oid, TYPECACHE_RANGE_INFO);
+			t->rangetype = tc->rngelemtype->type_id;
+			t->is_range = true;
+		}
+
 		{
 			List *l = list_make1_oid(oid);
 			t->fromsql = get_transform_fromsql(oid, langoid, l);
@@ -1661,10 +1671,10 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		lua_setfield(L, -2, "tupconv");
 	}
 	/* stack: self uservalue */
-	if (t->is_array)
+	if (t->is_array || t->is_range)
 	{
 		lua_pushcfunction(L, pllua_typeinfo_lookup);
-		lua_pushinteger(L, t->elemtype);
+		lua_pushinteger(L, t->is_range ? t->rangetype : t->elemtype);
 		lua_call(L, 1, 1);
 		lua_pushvalue(L, -1);
 		lua_setfield(L, -3, "elemtypeinfo");
@@ -2718,6 +2728,7 @@ static bool pllua_datum_transform_tosql(lua_State *L, int nargs, int argbase, in
 static int pllua_typeinfo_array_call(lua_State *L);
 static int pllua_typeinfo_row_call(lua_State *L);
 static int pllua_typeinfo_scalar_call(lua_State *L);
+static int pllua_typeinfo_range_call(lua_State *L);
 
 /*
  * scalartype(datum)
@@ -2875,6 +2886,8 @@ static int pllua_typeinfo_call(lua_State *L)
 
 	if (t->is_array)
 		lua_pushcfunction(L, pllua_typeinfo_array_call);
+	else if (t->is_range)
+		lua_pushcfunction(L, pllua_typeinfo_range_call);
 	else if (t->natts >= 0)
 		lua_pushcfunction(L, pllua_typeinfo_row_call);
 	else
@@ -2945,6 +2958,97 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 
 		oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
 		pllua_savedatum(L, newd, t);
+		MemoryContextSwitchTo(oldcontext);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	return 1;
+}
+
+
+/*
+ * rangetype(lo,hi)
+ * rangetype(lo,hi,bounds)
+ * rangetype()  empty range
+ */
+static int pllua_typeinfo_range_call(lua_State *L)
+{
+	pllua_typeinfo *t = *pllua_torefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *et;
+	int nargs = lua_gettop(L) - 1;
+	RangeBound lo;
+	RangeBound hi;
+	pllua_datum *d;
+
+	lua_settop(L, 4);
+
+	lua_getuservalue(L, 1);
+	lua_getfield(L, -1, "elemtypeinfo");
+	lua_remove(L, -2);
+
+	et = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+	Assert(et && et->typeoid == t->rangetype);
+
+	if (nargs == 1 || nargs > 3)
+		luaL_error(L, "incorrect arguments for range constructor");
+	if (nargs == 3 && !lua_isstring(L, 4))
+		luaL_argerror(L, 3, "string");
+
+	lo.infinite = false;
+	lo.inclusive = true;
+	lo.lower = true;
+	hi.infinite = false;
+	hi.inclusive = false;
+	hi.lower = false;
+
+	if (nargs >= 2)
+	{
+		if (lua_isnil(L, 2))
+			lo.infinite = true;
+		else
+		{
+			lua_pushvalue(L, -1);
+			lua_pushvalue(L, 2);
+			lua_call(L, 1, 1);
+			lua_replace(L, 2);
+			d = pllua_checkdatum(L, 2, 5);
+			lo.val = d->value;
+		}
+		if (lua_isnil(L, 3))
+			hi.infinite = true;
+		else
+		{
+			lua_pushvalue(L, -1);
+			lua_pushvalue(L, 3);
+			lua_call(L, 1, 1);
+			lua_replace(L, 3);
+			d = pllua_checkdatum(L, 3, 5);
+			hi.val = d->value;
+		}
+	}
+
+	if (nargs == 3)
+	{
+		const char *str = lua_tostring(L, 4);
+		if (!str
+			|| (str[0] != '[' && str[0] != '(')
+			|| (str[1] != ']' && str[1] != ')')
+			|| str[2])
+			luaL_error(L, "invalid range bounds specifier");
+		lo.inclusive = (str[0] == '[');
+		hi.inclusive = (str[1] == ']');
+	}
+
+	lua_pushvalue(L, 1);
+	d = pllua_newdatum(L);
+
+	PLLUA_TRY();
+	{
+		TypeCacheEntry *tc = lookup_type_cache(t->typeoid, TYPECACHE_RANGE_INFO);
+		Datum val = PointerGetDatum(make_range(tc, &lo, &hi, (nargs == 0)));
+		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+		d->value = val;
+		pllua_savedatum(L, d, t);
 		MemoryContextSwitchTo(oldcontext);
 	}
 	PLLUA_CATCH_RETHROW();
