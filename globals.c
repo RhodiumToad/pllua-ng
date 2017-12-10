@@ -28,6 +28,7 @@ char PLLUA_IDXLIST_OBJECT[] = "idxlist object";
 char PLLUA_ACTIVATION_OBJECT[] = "activation object";
 char PLLUA_TYPEINFO_OBJECT[] = "typeinfo object";
 char PLLUA_TYPEINFO_PACKAGE_OBJECT[] = "typeinfo package object";
+char PLLUA_TYPEINFO_PACKAGE_ARRAY_OBJECT[] = "typeinfo package array object";
 char PLLUA_TUPCONV_OBJECT[] = "tupconv object";
 char PLLUA_TRIGGER_OBJECT[] = "trigger object";
 char PLLUA_SPI_STMT_OBJECT[] = "SPI statement object";

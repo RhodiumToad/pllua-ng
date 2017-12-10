@@ -1202,7 +1202,7 @@ static void	pllua_datum_array_make_idxlist(lua_State *L, int nd, int *idxlist, i
 	nlist[1] = idxlist[1];
 	for (i = 0; i < n; ++i)
 		nlist[2+i] = idxlist[2+i];
-	nlist[i] = newidx;
+	nlist[2+i] = newidx;
 	lua_getuservalue(L, -1);
 	lua_pushvalue(L, nd);
 	lua_setfield(L, -2, "datum");
@@ -1221,6 +1221,7 @@ static int pllua_datum_idxlist_index(lua_State *L)
 
 	if (n + 1 >= idxlist[1])
 		lua_gettable(L, -2);
+
 	return 1;
 }
 
@@ -2100,6 +2101,36 @@ static int pllua_typeinfo_package_index(lua_State *L)
 		return luaL_error(L, "invalid args for typeinfo lookup");
 }
 
+static int pllua_typeinfo_package_array_index(lua_State *L)
+{
+	pllua_typeinfo *et;
+	Oid oid;
+
+	lua_pushcfunction(L, pllua_typeinfo_package_index);
+	lua_insert(L, 1);
+	lua_call(L, lua_gettop(L) - 1, 1);
+	if (lua_isnil(L, -1))
+		return 1;
+
+	et = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+	PLLUA_TRY();
+	{
+		oid = get_array_type(et->typeoid);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	if (!OidIsValid(oid))
+		lua_pushnil(L);
+	else
+	{
+		lua_pushcfunction(L, pllua_typeinfo_lookup);
+		lua_pushinteger(L, (lua_Integer) oid);
+		lua_call(L, 1, 1);
+	}
+
+	return 1;
+}
+
 static int pllua_typeinfo_name(lua_State *L)
 {
 	void **p = pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
@@ -2948,7 +2979,7 @@ static int pllua_typeinfo_array_call(lua_State *L)
 
 	lua_getuservalue(L, 1);
 	lua_getfield(L, -1, "elemtypeinfo");
-	lua_remove(L, -1);
+	lua_remove(L, -2);
 
 	et = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 	Assert(et && !et->is_array && et->typeoid == t->elemtype);
@@ -3048,13 +3079,13 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 			lua_insert(L, -2);
 			lua_call(L, 1, 1);
 			lua_seti(L, ct, i);
-			while (j >= 0 && (++curidx[j]) > dims[j])
+			while (j >= 0 && (++(curidx[j])) > dims[j])
 			{
 				curidx[j] = 1;
 				--j;
 				lua_pop(L, 1);
 			}
-			while (j < ndim - 1)
+			while (j >= 0 && j < ndim - 1)
 			{
 				if (!lua_isnil(L, -1))
 					lua_geti(L, -1, curidx[j]);
@@ -3085,7 +3116,7 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 			for (i = 0; i < nelems; ++i)
 			{
 				pllua_datum *ed;
-				lua_rawgeti(L, -2, i);
+				lua_rawgeti(L, -2, i+1);
 				if (lua_isnil(L, -1))
 					isnull[i] = true;
 				else
@@ -3113,7 +3144,6 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 
 	return 1;
 }
-
 
 
 static int pllua_typeinfo_row_call(lua_State *L)
@@ -3262,6 +3292,11 @@ static struct luaL_Reg typeinfo_package_mt[] = {
 	{ NULL, NULL }
 };
 
+static struct luaL_Reg typeinfo_package_array_mt[] = {
+	{ "__index", pllua_typeinfo_package_array_index },
+	{ NULL, NULL }
+};
+
 int pllua_open_pgtype(lua_State *L)
 {
 	pllua_newmetatable(L, PLLUA_IDXLIST_OBJECT, idxlist_mt);
@@ -3279,6 +3314,12 @@ int pllua_open_pgtype(lua_State *L)
 	lua_newtable(L);
 	pllua_newmetatable(L, PLLUA_TYPEINFO_PACKAGE_OBJECT, typeinfo_package_mt);
 	lua_setmetatable(L, -2);
+
+	lua_newtable(L);
+	pllua_newmetatable(L, PLLUA_TYPEINFO_PACKAGE_ARRAY_OBJECT, typeinfo_package_array_mt);
+	lua_setmetatable(L, -2);
+	lua_setfield(L, -2, "array");
+
 	luaL_setfuncs(L, typeinfo_funcs, 0);
 	return 1;
 }
