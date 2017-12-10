@@ -1218,7 +1218,7 @@ static int pllua_datum_idxlist_index(lua_State *L)
 
 	lua_getuservalue(L, 1);
 	lua_getfield(L, -1, "datum");
-	pllua_datum_array_make_idxlist(L, -1, idxlist, idx);
+	pllua_datum_array_make_idxlist(L, lua_absindex(L, -1), idxlist, idx);
 
 	if (n + 1 >= idxlist[1])
 		lua_gettable(L, -2);
@@ -3140,9 +3140,9 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 		lbs[0] = 1;
 		for (i = 1; i < ndim; ++i)
 		{
-			if (dims[1] > maxelem / tnelems)
+			if (dims[i] > maxelem / tnelems)
 				luaL_error(L, "number of elements in array exceeds limit");
-			tnelems *= dims[1];
+			tnelems *= dims[i];
 			lbs[i] = 1;
 		}
 		if (tnelems > INT_MAX || tnelems > LUA_MAXINTEGER)
