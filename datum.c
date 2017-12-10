@@ -1522,7 +1522,6 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		t->hasoid = false;
 		t->revalidate = false;
 		t->reloid = InvalidOid;
-		t->firstcoltype = InvalidOid;
 		t->basetype = getBaseType(oid);
 		t->nested = false;
 		t->array_meta.element_type = InvalidOid;
@@ -1577,8 +1576,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 				Oid coltype	= TupleDescAttr(tupdesc,i)->atttypid;
 				if (TupleDescAttr(tupdesc,i)->attisdropped)
 					continue;
-				if (++arity == 1)
-					t->firstcoltype = coltype;
+				++arity;
 				/*
 				 * We currently don't count arrays or range types as being
 				 * nested substructure. What matters here is that anything we
@@ -2281,7 +2279,7 @@ static Datum pllua_typeinfo_raw_tosql(lua_State *L, pllua_typeinfo *t, bool *isn
 
 	node.type = T_Invalid;
 	node.magic = PLLUA_MAGIC;
-	node.interp = L;
+	node.L = L;
 
 	InitFunctionCallInfoData(fcinfo, &t->tosql_func, 1, InvalidOid, (struct Node *) &node, NULL);
 

@@ -75,8 +75,8 @@ static bool pllua_spi_enter(lua_State *L)
 	SPI_connect();
 #if PG_VERSION_NUM >= 100000
 	{
-		pllua_activation_record *pact = pllua_getinterpreter(L)->cur_activation;
-		if (pact && pact->fcinfo && CALLED_AS_TRIGGER(pact->fcinfo))
+		pllua_activation_record *pact = &(pllua_getinterpreter(L)->cur_activation);
+		if (pact->fcinfo && CALLED_AS_TRIGGER(pact->fcinfo))
 			SPI_register_trigger_data((TriggerData *) pact->fcinfo->context);
 	}
 #endif
@@ -800,7 +800,7 @@ static int pllua_stmt_gc(lua_State *L)
 	return 0;
 }
 
-static int pllua_cursor_cleanup_portal(lua_State *L)
+int pllua_cursor_cleanup_portal(lua_State *L)
 {
 	Portal portal = lua_touserdata(L, 1);
 

@@ -1,15 +1,26 @@
+/* elog.c */
 
 #include "pllua.h"
 
-static void pllua_elog(lua_State *L, int elevel, int e_code,
-					   const char *e_message,
-					   const char *e_detail,
-					   const char *e_hint,
-					   const char *e_column,
-					   const char *e_constraint,
-					   const char *e_datatype,
-					   const char *e_table,
-					   const char *e_schema)
+/*
+ * pllua_elog
+ *
+ * Calling ereport with dynamic information is ugly. This needs a catch block
+ * even for severity less than ERROR, because it could throw a memory error
+ * while building the error object.
+ */
+static void
+pllua_elog(lua_State *L,
+		   int elevel,
+		   int e_code,
+		   const char *e_message,
+		   const char *e_detail,
+		   const char *e_hint,
+		   const char *e_column,
+		   const char *e_constraint,
+		   const char *e_datatype,
+		   const char *e_table,
+		   const char *e_schema)
 {
 	PLLUA_TRY();
 	{
@@ -32,8 +43,11 @@ static void pllua_elog(lua_State *L, int elevel, int e_code,
 	PLLUA_CATCH_RETHROW();
 }
 
-
-void pllua_debug_lua(lua_State *L, const char *msg, ...)
+/*
+ * Internal support for pllua_debug.
+ */
+void
+pllua_debug_lua(lua_State *L, const char *msg, ...)
 {
 	luaL_Buffer b;
 	char *buf = luaL_buffinitsize(L, &b, 4096);
@@ -49,19 +63,26 @@ void pllua_debug_lua(lua_State *L, const char *msg, ...)
 	lua_pop(L, 1);
 }
 
-int pllua_p_print(lua_State *L)
+/*
+ * User-visible global "print" function.
+ *
+ * This is installed in place of _G.print
+ */
+int
+pllua_p_print(lua_State *L)
 {
-	int i, n = lua_gettop(L); /* nargs */
-	int fidx;
+	int			nargs = lua_gettop(L); /* nargs */
+	int			fidx;
 	const char *s;
 	luaL_Buffer b;
+	int			i;
 
 	lua_getglobal(L, "tostring");
 	fidx = lua_absindex(L, -1);
 
 	luaL_buffinit(L, &b);
 
-	for (i = 1; i <= n; i++)
+	for (i = 1; i <= nargs; i++)
 	{
 		lua_pushvalue(L, fidx); /* tostring */
 		lua_pushvalue(L, i); /* arg */
@@ -79,30 +100,13 @@ int pllua_p_print(lua_State *L)
 	return 0;
 }
 
-/*
- * we accept:
- *
- *   error("message")
- *   error("sqlstate", "message", ["detail", ["hint"]])
- *   error{ sqlstate = ?, message = ?, detail = ?, hint = ?,
- *          column = ?, constraint = ?, datatype = ?,
- *          table = ?, schema = ? }
- *
- *   elog("error", ...)
- *
- * pllua_p_elog exists under multiple closures, with upvalues:
- *
- *  1: elevel integer, or nil for the elog() version
- *  2: table mapping "error", "notice" etc. to elevels
- *  3: table mapping error names to sqlstates (lazy init)
- */
-
 static struct { const char *str; int val; } ecodes[] = {
 #include "plerrcodes.h"
 	{ NULL, 0 }
 };
 
-static int pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
+static int
+pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 {
 	if (strlen(str) == 5
 		&& strspn(str, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == 5)
@@ -119,11 +123,9 @@ static int pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 			if (lua_next(L, tidx)) /* already a nil on the stack */
 			{
 				lua_pop(L,2);
-				return 0;  /* not found, table not empty */
+				return 0;		/* not found, table not empty */
 			}
-
-			/* table is empty so populate it */
-
+			else				/* table is empty so populate it */
 			{
 				int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
 				int i;
@@ -144,11 +146,29 @@ static int pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 	}
 }
 
-static int pllua_p_elog(lua_State *L)
+/*
+ * we accept:
+ *
+ *   error("message")
+ *   error("sqlstate", "message", ["detail", ["hint"]])
+ *   error{ sqlstate = ?, message = ?, detail = ?, hint = ?,
+ *          column = ?, constraint = ?, datatype = ?,
+ *          table = ?, schema = ? }
+ *
+ *   elog("error", ...)
+ *
+ * pllua_p_elog exists under multiple closures, with upvalues:
+ *
+ *  1: elevel integer, or nil for the elog() version
+ *  2: table mapping "error", "notice" etc. to elevels
+ *  3: table mapping error names to sqlstates (lazy init)
+ */
+static int
+pllua_p_elog(lua_State *L)
 {
-	bool is_elog = lua_isnil(L, lua_upvalueindex(1));
-	int elevel;
-	int e_code = 0;
+	bool		is_elog = lua_isnil(L, lua_upvalueindex(1));
+	int			elevel;
+	int			e_code = 0;
 	const char *e_message = NULL;
 	const char *e_detail = NULL;
 	const char *e_hint = NULL;
@@ -238,7 +258,6 @@ static int pllua_p_elog(lua_State *L)
 	 * mismatch). Categories 00, 01 and 02 are not errors, anything else is an
 	 * error.
 	 */
-
 	switch (ERRCODE_TO_CATEGORY(e_code))
 	{
 		case MAKE_SQLSTATE('0','0','0','0','0'):
@@ -269,8 +288,8 @@ static struct { const char *str; int val; } elevels[] = {
 	{ "error", ERROR }
 };
 
-
-void pllua_init_error_functions(lua_State *L)
+void
+pllua_init_error_functions(lua_State *L)
 {
 	int i;
 	int nlevels = sizeof(elevels)/sizeof(elevels[0]);

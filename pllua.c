@@ -73,11 +73,9 @@ Datum plluau_inline_handler(PG_FUNCTION_ARGS)
 
 Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 {
-	lua_State *L;
+	pllua_interpreter *interp;
 	pllua_activation_record act;
 	pllua_func_activation *funcact = (fcinfo->flinfo) ? fcinfo->flinfo->fn_extra : NULL;
-
-	/* XXX luajit may need this to be palloc'd. check later */
 
 	act.fcinfo = fcinfo;
 	act.retval = (Datum) 0;
@@ -89,6 +87,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 
 	if (funcact && funcact->thread)
 	{
+		interp = funcact->interp;
 		/*
 		 * We're resuming a value-per-call SRF, so we bypass almost everything
 		 * since we don't want to, for example, compile a new version of the
@@ -96,19 +95,18 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 		 * non-first-row condition if there's an existing thread in the
 		 * function activation.
 		 */
-
-		pllua_initial_protected_call(funcact->L, pllua_resume_function, &act);
+		pllua_initial_protected_call(interp, pllua_resume_function, &act);
 	}
 	else
 	{
-		L = pllua_getstate(trusted, &act);
+		interp = pllua_getstate(trusted, &act);
 
 		if (CALLED_AS_TRIGGER(fcinfo))
-			pllua_initial_protected_call(L, pllua_call_trigger, &act);
+			pllua_initial_protected_call(interp, pllua_call_trigger, &act);
 		else if (CALLED_AS_EVENT_TRIGGER(fcinfo))
-			pllua_initial_protected_call(L, pllua_call_event_trigger, &act);
+			pllua_initial_protected_call(interp, pllua_call_event_trigger, &act);
 		else
-			pllua_initial_protected_call(L, pllua_call_function, &act);
+			pllua_initial_protected_call(interp, pllua_call_function, &act);
 	}
 
 	return act.retval;
@@ -116,15 +114,13 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 
 Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 {
-	lua_State *L;
+	pllua_interpreter *interp;
 	pllua_activation_record act;
 	Oid funcoid = PG_GETARG_OID(0);
 
 	/* security checks */
 	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
 		PG_RETURN_VOID();
-
-	/* XXX luajit may need this to be palloc'd. check later */
 
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
@@ -134,16 +130,16 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
-	L = pllua_getstate(trusted, &act);
+	interp = pllua_getstate(trusted, &act);
 
-	pllua_initial_protected_call(L, pllua_validate, &act);
+	pllua_initial_protected_call(interp, pllua_validate, &act);
 
 	PG_RETURN_VOID();
 }
 
 Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 {
-	lua_State *L;
+	pllua_interpreter *interp;
 	pllua_activation_record act;
 
 	/* XXX luajit may need this to be palloc'd. check later */
@@ -160,9 +156,9 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	if (act.cblock->langIsTrusted != act.trusted)
 		elog(ERROR, "trusted state mismatch");
 
-	L = pllua_getstate(trusted, &act);
+	interp = pllua_getstate(trusted, &act);
 
-	pllua_initial_protected_call(L, pllua_call_inline, &act);
+	pllua_initial_protected_call(interp, pllua_call_inline, &act);
 
 	PG_RETURN_VOID();
 }

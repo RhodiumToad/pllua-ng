@@ -48,9 +48,10 @@ enum num_method_id {
 };
 
 
-static bool pllua_numeric_guts(lua_State *L, pllua_datum *d, pllua_typeinfo *t,
-							   Datum val1, Datum val2, int op, lua_Integer i2,
-							   bool free_val1, bool free_val2)
+static bool
+pllua_numeric_guts(lua_State *L, pllua_datum *d, pllua_typeinfo *t,
+				   Datum val1, Datum val2, int op, lua_Integer i2,
+				   bool free_val1, bool free_val2)
 {
 	volatile Datum bool_res = (Datum)0;
 
@@ -128,8 +129,9 @@ static bool pllua_numeric_guts(lua_State *L, pllua_datum *d, pllua_typeinfo *t,
 	return DatumGetBool(bool_res);
 }
 
-static Datum pllua_numeric_getarg(lua_State *L, int nd, pllua_datum *d,
-								  int isint, lua_Integer ival, int isnum, lua_Number fval)
+static Datum
+pllua_numeric_getarg(lua_State *L, int nd, pllua_datum *d,
+					 int isint, lua_Integer ival, int isnum, lua_Number fval)
 {
 	if (d)
 		return d->value;
@@ -150,25 +152,26 @@ static Datum pllua_numeric_getarg(lua_State *L, int nd, pllua_datum *d,
 /*
  * upvalue 1 is the numeric typeinfo object, 2 the opcode
  */
-static int pllua_numeric_handler(lua_State *L)
+static int
+pllua_numeric_handler(lua_State *L)
 {
-	int op = lua_tointeger(L, lua_upvalueindex(2));
+	int			op = lua_tointeger(L, lua_upvalueindex(2));
 	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_datum *d;
 	pllua_datum *d1 = pllua_todatum(L, 1, lua_upvalueindex(1));
 	pllua_datum *d2 = pllua_todatum(L, 2, lua_upvalueindex(1));
-	int isint1 = 0;
-	int isint2 = 0;
-	lua_Integer i1 = lua_tointegerx(L, 1, &isint1);
-	lua_Integer i2 = lua_tointegerx(L, 2, &isint2);
-	int isnum1 = 0;
-	int isnum2 = 0;
-	lua_Number n1 = lua_tonumberx(L, 1, &isnum1);
-	lua_Number n2 = lua_tonumberx(L, 2, &isnum2);
-	Datum val1;
-	Datum val2;
-	bool free_val1 = !d1;
-	bool free_val2 = !d2;
+	int			isint1 = 0;
+	int			isint2 = 0;
+	lua_Integer	i1 = lua_tointegerx(L, 1, &isint1);
+	lua_Integer	i2 = lua_tointegerx(L, 2, &isint2);
+	int			isnum1 = 0;
+	int			isnum2 = 0;
+	lua_Number	n1 = lua_tonumberx(L, 1, &isnum1);
+	lua_Number	n2 = lua_tonumberx(L, 2, &isnum2);
+	Datum		val1;
+	Datum		val2;
+	bool		free_val1 = !d1;
+	bool		free_val2 = !d2;
 
 	if (op < PLLUA_NUM_LOG)
 	{
@@ -218,14 +221,16 @@ static int pllua_numeric_handler(lua_State *L)
 }
 
 /*
- * upvalue 1 is the numeric typeinfo object, 2 is mininteger datum, 3 is maxinteger datum
+ * upvalue 1 is the numeric typeinfo object, 2 is mininteger datum, 3 is
+ * maxinteger datum
  */
-static int pllua_numeric_tointeger(lua_State *L)
+static int
+pllua_numeric_tointeger(lua_State *L)
 {
 	pllua_datum *d1 = pllua_todatum(L, 1, lua_upvalueindex(1));
 	pllua_datum *dmin = pllua_todatum(L, lua_upvalueindex(2), lua_upvalueindex(1));
 	pllua_datum *dmax = pllua_todatum(L, lua_upvalueindex(3), lua_upvalueindex(1));
-	int isint1 = 0;
+	int			isint1 = 0;
 
 	lua_tointegerx(L, 1, &isint1);
 	if (isint1)
@@ -267,9 +272,11 @@ static int pllua_numeric_tointeger(lua_State *L)
 }
 
 /*
- * upvalue 1 is the numeric typeinfo object, 2 is mininteger datum, 3 is maxinteger datum
+ * upvalue 1 is the numeric typeinfo object, 2 is mininteger datum, 3 is
+ * maxinteger datum
  */
-static int pllua_numeric_tonumber(lua_State *L)
+static int
+pllua_numeric_tonumber(lua_State *L)
 {
 	pllua_datum *d1 = pllua_todatum(L, 1, lua_upvalueindex(1));
 	pllua_datum *dmin = pllua_todatum(L, lua_upvalueindex(2), lua_upvalueindex(1));

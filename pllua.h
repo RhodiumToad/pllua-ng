@@ -30,8 +30,8 @@
 
 #define PLLUA_LOCALVAR "_U"
 
-
-#define pllua_pushcfunction(L_,f_) do { int rc = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_)); Assert(rc==LUA_TFUNCTION); } while(0)
+#define pllua_pushcfunction(L_,f_) \
+	do { int rc = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_)); Assert(rc==LUA_TFUNCTION); } while(0)
 
 /*
  * Track what error handling context we're in, to try and detect any violations
@@ -77,100 +77,6 @@ pllua_setcontext(pllua_context_type newctx)
 #define PLLUA_CHECK_PG_STACK_DEPTH()							\
 	do { if (stack_is_too_deep()) luaL_error(L, "stack depth exceeded"); } while (0)
 
-/*
- * We don't put this in the body of a lua userdata for error handling reasons;
- * we want to build it from pg data without involving lua too much until we're
- * ready to actually compile the function. Instead, the lua object is a pointer
- * to this with a __gc method, and the object itself is palloc'd. The
- * activation records (corresponding to flinfo) are lua objects that reference
- * the funcinfo, preventing it from being GC'd while in use.
- *
- * The actual lua function object is stored in the uservalue slot, and the
- * funcinfo has a __call method that proxies the call to it, so this object can
- * be treated as the function.
- */
-
-typedef struct pllua_function_info
-{
-	Oid	fn_oid;
-	TransactionId fn_xmin;
-	ItemPointerData fn_tid;
-
-	Oid rettype;
-	bool retset;
-	bool readonly;
-	bool is_trigger;
-
-	int nargs;
-	bool variadic;
-	bool variadic_any;
-	bool polymorphic;
-
-	Oid *argtypes;
-
-	Oid language_oid;
-	bool trusted;
-
-	MemoryContext mcxt;
-
-	const char *name;
-
-} pllua_function_info;
-
-typedef struct pllua_function_compile_info
-{
-	pllua_function_info *func_info;
-
-	MemoryContext mcxt;
-
-	text *prosrc;
-
-	int nargs;
-	int nallargs;
-
-	Oid variadic;
-
-	Oid *allargtypes;
-	char *argmodes;
-	char **argnames;
-
-	bool validate_only;
-
-} pllua_function_compile_info;
-
-
-/* this one ends up in flinfo->fn_extra */
-
-typedef struct pllua_func_activation
-{
-	FmgrInfo *flinfo;
-	pllua_function_info *func_info;
-	lua_State *thread;
-
-	bool resolved;
-
-	bool polymorphic;
-	bool variadic_call;
-	bool retset;
-	bool readonly;
-
-	Oid rettype;
-	TupleDesc tupdesc;
-	TypeFuncClass typefuncclass;
-
-	int nargs;
-	Oid *argtypes;
-
-	/*
-	 * this data is allocated in lua, so we need to arrange to drop it for GC
-	 * when the context containing the pointer to it is reset
-	 */
-	lua_State *L;
-	MemoryContextCallback cb;
-	bool dead;
-
-} pllua_func_activation;
-
 
 /*
  * Describes one call to the top-level handler.
@@ -184,13 +90,12 @@ typedef struct pllua_activation_record
 	/* if fcinfo is null, we're validating or doing inline */
 	InlineCodeBlock *cblock;
 	Oid			validate_func;
-
 } pllua_activation_record;
 
 /*
  * Top-level data for one interpreter. We keep a hashtable of these per user_id
- * (for trusted mode isolation). The Lua extraspace field points here, and we
- * use that to access the current activation fields (which are saved/restored
+ * (for trusted mode isolation). We keep a pointer to this in the Lua registry
+ * and use it to access the current activation fields (which are saved/restored
  * on recursive entries).
  */
 typedef struct pllua_interpreter
@@ -198,14 +103,11 @@ typedef struct pllua_interpreter
 	Oid			user_id;		/* Hash key (must be first!) */
 
 	bool		trusted;
-	lua_State  *interp;			/* The interpreter */
+	lua_State  *L;				/* The interpreter proper */
 
 	/* state below must be saved/restored for recursive calls */
-	pllua_activation_record *cur_activation;
-
+	pllua_activation_record cur_activation;
 } pllua_interpreter;
-
-#define pllua_getinterpreter(L_) (*(pllua_interpreter **)lua_getextraspace(L_))
 
 /* We abuse the node system to pass this in fcinfo->context */
 
@@ -213,82 +115,182 @@ typedef struct pllua_interpreter
 
 typedef struct pllua_node
 {
-	NodeTag type;   /* we put T_Invalid here */
-	uint32 magic;
-	lua_State *interp;
+	NodeTag		type;   /* we put T_Invalid here */
+	uint32		magic;
+	lua_State  *L;
 } pllua_node;
 
-typedef struct pllua_datum {
-	Datum value;
-	int32 typmod;
-	bool need_gc;
-	bool modified;
+/*
+ * We don't put this in the body of a lua userdata for error handling reasons;
+ * we want to build it from pg data without involving lua too much until we're
+ * ready to actually compile the function. Instead, the lua object is a pointer
+ * to this with a __gc method, and the object itself is palloc'd (in its own
+ * memory context). The activation records (corresponding to flinfo) are lua
+ * objects that reference the funcinfo, preventing it from being GC'd while in
+ * use.
+ *
+ * The actual lua function object is stored in the uservalue slot under key
+ * light(PLLUA_FUNCTION_MEMBER).
+ */
+typedef struct pllua_function_info
+{
+	Oid			fn_oid;
+	/* for revalidation checks */
+	TransactionId fn_xmin;
+	ItemPointerData fn_tid;
+
+	Oid			rettype;
+	bool		returns_row;
+	bool		retset;
+	bool		readonly;
+	bool		is_trigger;
+
+	int			nargs;
+	bool		variadic;
+	bool		variadic_any;
+	bool		polymorphic;
+	bool		polymorphic_ret;
+
+	Oid		   *argtypes;
+
+	Oid			language_oid;
+	bool		trusted;
+
+	MemoryContext mcxt;
+
+	const char *name;
+} pllua_function_info;
+
+/*
+ * This is info we need to compile the function but not needed to run it.
+ */
+typedef struct pllua_function_compile_info
+{
+	pllua_function_info *func_info;
+
+	MemoryContext mcxt;
+
+	text	   *prosrc;
+
+	int			nargs;
+	int			nallargs;
+
+	Oid			variadic;
+
+	Oid		   *allargtypes;
+	char	   *argmodes;
+	char	  **argnames;
+
+	bool		validate_only;		/* don't run any code when compiling */
+} pllua_function_compile_info;
+
+
+/* this one ends up in flinfo->fn_extra */
+
+typedef struct pllua_func_activation
+{
+	lua_State  *thread;		/* non-null for a running SRF */
+	pllua_interpreter *interp;		/* direct access for SRF resume */
+
+	pllua_function_info *func_info;
+
+	bool		resolved;
+
+	bool		polymorphic;
+	bool		variadic_call;		/* only if variadic_any */
+	bool		retset;
+	bool		readonly;
+
+	Oid			rettype;
+	TupleDesc	tupdesc;
+	TypeFuncClass typefuncclass;
+
+	int			nargs;
+	Oid		   *argtypes;	/* with polymorphism resolved */
+
+	/*
+	 * this data is allocated and referenced in lua, so we need to arrange to
+	 * drop it for GC when the context containing the pointer to it is reset
+	 */
+	lua_State  *L;
+	bool		dead;
+	MemoryContextCallback cb;
+} pllua_func_activation;
+
+/*
+ * Body of a Datum object. typmod is usually -1 except when we got the value
+ * from a source with a declared typmod (such as a column).
+ */
+typedef struct pllua_datum
+{
+	Datum		value;
+	int32		typmod;
+	bool		need_gc;
+	bool		modified;		/* composite value has been exploded */
 } pllua_datum;
 
-typedef struct pllua_typeinfo {
+/*
+ * Stuff we store about types. Datum values reference this from their
+ * metatables (in fact the metatable of the Datum is the uservalue of
+ * this object, which also contains a reference to the object itself).
+ */
+typedef struct pllua_typeinfo
+{
+	Oid			typeoid;
+	int32 		typmod;			/* only for RECORD */
 
-	Oid typeoid;
-	int32 typmod;  /* only for RECORD */
+	int			arity;	/* 1 for scalars, otherwise no. undropped cols */
+	int			natts;	/* -1 for scalars */
 
-	/* 1 for scalars, otherwise natts - num_dropped_cols */
-	int arity;
+	TupleDesc	tupdesc;
+	Oid			reloid;		/* for named composite types */
+	Oid			basetype;	/* for domains */
+	Oid			elemtype;	/* for arrays */
+	Oid			rangetype;	/* for ranges */
+	bool		hasoid;
+	bool		nested;		/* may contain nested explodable values */
+	bool		is_array;
+	bool		is_range;
 
-	/* -1 for scalars, since composites might have no columns */
-	int natts;
-	bool hasoid;
-	bool revalidate;
-	TupleDesc tupdesc;
-	Oid firstcoltype;  /* for all composite types with arity > 0 */
-	Oid reloid;  /* for named composite types */
-	Oid basetype;  /* for domains */
-	Oid elemtype;  /* for arrays */
-	Oid rangetype;  /* for ranges */
-	bool nested;  /* may contain nested composite or array values */
-	bool is_array;
-	bool is_range;
+	bool		revalidate;
 
-	int16 typlen;
-	bool typbyval;
-	char typalign;
-	char typdelim;
-	Oid typioparam;
-	Oid outfuncid;
+	int16		typlen;
+	bool		typbyval;
+	char		typalign;
+	char		typdelim;
+	Oid			typioparam;
+	Oid			outfuncid;
 
-	/* we don't look these up until we need them */
-	Oid infuncid;
-	Oid sendfuncid;
-	Oid recvfuncid;
+	Oid			infuncid;	/* we don't look these up until we need them */
+	Oid			sendfuncid;
+	Oid			recvfuncid;
 
-	FmgrInfo outfunc;
-	FmgrInfo infunc;
-	FmgrInfo sendfunc;
-	FmgrInfo recvfunc;
+	FmgrInfo	outfunc;
+	FmgrInfo	infunc;
+	FmgrInfo	sendfunc;
+	FmgrInfo	recvfunc;
 
-	/* typmod coercions */
-	bool coerce_typmod;
-	bool coerce_typmod_element;
-	Oid typmod_funcid;
-	FmgrInfo typmod_func;
+	bool		coerce_typmod;		/* typmod coercions needed */
+	bool		coerce_typmod_element;
+	Oid			typmod_funcid;
+	FmgrInfo	typmod_func;
 
-	/* array work */
-	ArrayMetaState array_meta;
+	ArrayMetaState array_meta;		/* array workspace */
 
-	int16 elemtyplen;
-	bool elemtypbyval;
-	char elemtypalign;
+	int16		elemtyplen;			/* for arrays only */
+	bool		elemtypbyval;
+	char		elemtypalign;
 
-	/* transforms */
-	Oid fromsql;   /* fromsql(internal) returns internal */
-	Oid tosql;     /* tosql(internal) returns datum */
-	FmgrInfo fromsql_func;
-	FmgrInfo tosql_func;
+	Oid			fromsql;		/* fromsql(internal) returns internal */
+	Oid			tosql;			/* tosql(internal) returns datum */
+	FmgrInfo	fromsql_func;
+	FmgrInfo	tosql_func;
 
 	/*
 	 * we give this its own context, because we can't control what fmgr will
 	 * dangle off the FmgrInfo structs
      */
 	MemoryContext mcxt;
-
 } pllua_typeinfo;
 
 /*
@@ -313,6 +315,7 @@ extern bool pllua_ending;
  * reg[PLLUA_LANG_OID] = oid of language
  * reg[PLLUA_LAST_ERROR] = last pg error object to enter error handling
  * reg[PLLUA_RECURSIVE_ERROR] = preallocated error object
+ * reg[PLLUA_INTERP] = pllua_interpreter struct
  *
  * registries for cached data:
  * reg[PLLUA_FUNCS] = { [integer oid] = funcinfo object }
@@ -341,6 +344,7 @@ extern bool pllua_ending;
 
 extern char PLLUA_MEMORYCONTEXT[];
 extern char PLLUA_ERRORCONTEXT[];
+extern char PLLUA_INTERP[];
 extern char PLLUA_USERID[];
 extern char PLLUA_LANG_OID[];
 extern char PLLUA_TRUSTED[];
@@ -373,7 +377,9 @@ extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 
 /* init.c */
 
-lua_State *pllua_getstate(bool trusted, pllua_activation_record *act);
+pllua_interpreter *pllua_getstate(bool trusted, pllua_activation_record *act);
+pllua_interpreter *pllua_getinterpreter(lua_State *L);
+int pllua_run_init_strings(lua_State *L);
 
 /* compile.c */
 
@@ -430,7 +436,7 @@ void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt);
 int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg);
 void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
 
-void pllua_initial_protected_call(lua_State *L,
+void pllua_initial_protected_call(pllua_interpreter *interp,
 								  lua_CFunction func,
 								  pllua_activation_record *arg);
 
@@ -471,6 +477,8 @@ int pllua_activation_getfunc(lua_State *L);
 int pllua_get_cur_act(lua_State *L);
 FmgrInfo *pllua_get_cur_flinfo(lua_State *L);
 bool pllua_get_cur_act_readonly(lua_State *L);
+int pllua_freeactivation(lua_State *L);
+int pllua_resetactivation(lua_State *L);
 
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
@@ -482,6 +490,7 @@ void pllua_init_functions(lua_State *L, bool trusted);
 int pllua_open_spi(lua_State *L);
 int pllua_spi_convert_args(lua_State *L);
 int pllua_spi_prepare_result(lua_State *L);
+int pllua_cursor_cleanup_portal(lua_State *L);
 
 /* trigger.c */
 struct TriggerData;

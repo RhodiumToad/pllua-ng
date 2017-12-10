@@ -176,8 +176,7 @@ void *pllua_checkobject(lua_State *L, int nd, char *objtype)
  * Activations can also reference the thread of a set-returning function. In
  * this case, we need to reset things in the event of a rescan of the context.
  */
-
-static int pllua_freeactivation(lua_State *L)
+int pllua_freeactivation(lua_State *L)
 {
 	pllua_func_activation *act = lua_touserdata(L, 1);
 
@@ -216,7 +215,7 @@ static void pllua_freeactivation_cb(void *arg)
 		pllua_poperror(L);
 }
 
-static int pllua_resetactivation(lua_State *L)
+int pllua_resetactivation(lua_State *L)
 {
 	int opos = lua_gettop(L) - 1;
 	pllua_func_activation *act = lua_touserdata(L, -1);
@@ -274,6 +273,7 @@ int pllua_newactivation(lua_State *L)
 	act->rettype = InvalidOid;
 	act->tupdesc = NULL;
 
+	act->interp = pllua_getinterpreter(L);
 	act->L = L;
 	act->cb.func = pllua_freeactivation_cb;
 	act->cb.arg = act;
@@ -344,8 +344,8 @@ int pllua_activation_getfunc(lua_State *L)
 
 FmgrInfo *pllua_get_cur_flinfo(lua_State *L)
 {
-	pllua_activation_record *pact = pllua_getinterpreter(L)->cur_activation;
-	return (pact && pact->fcinfo) ? pact->fcinfo->flinfo : NULL;
+	pllua_activation_record *pact = &(pllua_getinterpreter(L)->cur_activation);
+	return pact->fcinfo ? pact->fcinfo->flinfo : NULL;
 }
 
 int pllua_get_cur_act(lua_State *L)

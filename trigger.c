@@ -1,3 +1,4 @@
+/* trigger.c */
 
 #include "pllua.h"
 
@@ -7,28 +8,31 @@
 #include "utils/rel.h"
 #include "utils/lsyscache.h"
 
-typedef struct pllua_trigger {
-	/* only while trigger is running, NULLed out when it ends */
-	TriggerData *td;
-	bool modified;
+typedef struct pllua_trigger
+{
+	TriggerData *td;		/* NULLed out when trigger ends */
+	bool		modified;
 } pllua_trigger;
 
 /*
  * Push a new trigger object on the stack
  */
-void pllua_trigger_begin(lua_State *L, TriggerData *td)
+void
+pllua_trigger_begin(lua_State *L, TriggerData *td)
 {
 	pllua_trigger *obj = pllua_newobject(L, PLLUA_TRIGGER_OBJECT, sizeof(pllua_trigger), 1);
 	obj->td = td;
 }
 
-void pllua_trigger_end(lua_State *L, int nd)
+void
+pllua_trigger_end(lua_State *L, int nd)
 {
 	pllua_trigger *obj = pllua_checkobject(L, nd, PLLUA_TRIGGER_OBJECT);
 	obj->td = NULL;
 }
 
-static pllua_trigger *pllua_checktrigger(lua_State *L, int nd)
+static pllua_trigger *
+pllua_checktrigger(lua_State *L, int nd)
 {
 	pllua_trigger *obj = pllua_checkobject(L, nd, PLLUA_TRIGGER_OBJECT);
 	if (!obj->td)
@@ -54,7 +58,8 @@ static pllua_trigger *pllua_checktrigger(lua_State *L, int nd)
  *
  */
 
-static void pllua_trigger_get_typeinfo(lua_State *L, pllua_trigger *obj, int cache)
+static void
+pllua_trigger_get_typeinfo(lua_State *L, pllua_trigger *obj, int cache)
 {
 	cache = lua_absindex(L, cache);
 	if (lua_getfield(L, cache, ".typeinfo") != LUA_TUSERDATA)
@@ -70,14 +75,14 @@ static void pllua_trigger_get_typeinfo(lua_State *L, pllua_trigger *obj, int cac
 	}
 }
 
-static int pllua_trigger_getrow(lua_State *L, pllua_trigger *obj, HeapTuple tuple)
+static int
+pllua_trigger_getrow(lua_State *L, pllua_trigger *obj, HeapTuple tuple)
 {
 	pllua_datum *d = pllua_newdatum(L);
 
 	/*
 	 * Bit of a dance to avoid an extra copy step
 	 */
-
 	PLLUA_TRY();
 	{
 		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
@@ -91,10 +96,11 @@ static int pllua_trigger_getrow(lua_State *L, pllua_trigger *obj, HeapTuple tupl
 	return 1;
 }
 
-static int pllua_trigger_get_new(lua_State *L)
+static int
+pllua_trigger_get_new(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
-	HeapTuple tuple = NULL;
+	HeapTuple	tuple = NULL;
 	lua_settop(L, 1);
 	lua_getuservalue(L, 1); /* index 2 */
 	if (!TRIGGER_FIRED_FOR_ROW(obj->td->tg_event))
@@ -109,7 +115,8 @@ static int pllua_trigger_get_new(lua_State *L)
 	return pllua_trigger_getrow(L, obj, tuple);
 }
 
-static int pllua_trigger_get_old(lua_State *L)
+static int
+pllua_trigger_get_old(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
 	lua_settop(L, 1);
@@ -121,14 +128,16 @@ static int pllua_trigger_get_old(lua_State *L)
 	return pllua_trigger_getrow(L, obj, obj->td->tg_trigtuple);
 }
 
-static int pllua_trigger_get_name(lua_State *L)
+static int
+pllua_trigger_get_name(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
 	lua_pushstring(L, obj->td->tg_trigger->tgname);
 	return 1;
 }
 
-static int pllua_trigger_get_when(lua_State *L)
+static int
+pllua_trigger_get_when(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
 	TriggerEvent ev = obj->td->tg_event;
@@ -143,7 +152,8 @@ static int pllua_trigger_get_when(lua_State *L)
 	return 1;
 }
 
-static int pllua_trigger_get_operation(lua_State *L)
+static int
+pllua_trigger_get_operation(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
 	TriggerEvent ev = obj->td->tg_event;
@@ -160,7 +170,8 @@ static int pllua_trigger_get_operation(lua_State *L)
 	return 1;
 }
 
-static int pllua_trigger_get_level(lua_State *L)
+static int
+pllua_trigger_get_level(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
 	TriggerEvent ev = obj->td->tg_event;
@@ -186,14 +197,15 @@ static int pllua_trigger_get_level(lua_State *L)
  *   }
  *
  */
-static int pllua_trigger_get_relation(lua_State *L)
+static int
+pllua_trigger_get_relation(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
-	Relation rel = obj->td->tg_relation;
+	Relation	rel = obj->td->tg_relation;
 	const char *schema = NULL;
-	int i;
-	TupleDesc tupdesc = rel->rd_att;
-	int natts = tupdesc->natts;
+	int			i;
+	TupleDesc	tupdesc = rel->rd_att;
+	int			natts = tupdesc->natts;
 
 	PLLUA_TRY();
 	{
@@ -220,7 +232,8 @@ static int pllua_trigger_get_relation(lua_State *L)
 	return 1;
 }
 
-static int pllua_trigger_index(lua_State *L)
+static int
+pllua_trigger_index(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
 	const char *str = luaL_checkstring(L, 2);
@@ -271,7 +284,8 @@ static int pllua_trigger_index(lua_State *L)
 	return 1;
 }
 
-static int pllua_trigger_newindex(lua_State *L)
+static int
+pllua_trigger_newindex(lua_State *L)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, 1);
 	const char *str = luaL_checkstring(L, 2);
@@ -314,7 +328,8 @@ static int pllua_trigger_newindex(lua_State *L)
 	return 0;
 }
 
-static Datum pllua_trigger_copytuple(lua_State *L, Datum val, Oid tableoid)
+static Datum
+pllua_trigger_copytuple(lua_State *L, Datum val, Oid tableoid)
 {
 	volatile Datum res;
 	PLLUA_TRY();
@@ -340,7 +355,8 @@ static Datum pllua_trigger_copytuple(lua_State *L, Datum val, Oid tableoid)
  * which is the result of heap_copytuple in the caller's memory context.
  * Or we can return PointerGetDatum(NULL) to suppress the operation.
  */
-Datum pllua_return_trigger_result(lua_State *L, int nret, int nd)
+Datum
+pllua_return_trigger_result(lua_State *L, int nret, int nd)
 {
 	pllua_trigger *obj = pllua_checktrigger(L, nd);
 	Datum retval = PointerGetDatum(NULL);
@@ -455,7 +471,8 @@ Datum pllua_return_trigger_result(lua_State *L, int nret, int nd)
 	return pllua_trigger_copytuple(L, d->value, obj->td->tg_relation->rd_id);
 }
 
-int pllua_push_trigger_args(lua_State *L, TriggerData *td)
+int
+pllua_push_trigger_args(lua_State *L, TriggerData *td)
 {
 	char **tgargs = td->tg_trigger->tgargs;
 	int nargs = td->tg_trigger->tgnargs;

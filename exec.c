@@ -1,3 +1,4 @@
+/* exec.c */
 
 #include "pllua.h"
 
@@ -7,45 +8,35 @@
 #include "utils/datum.h"
 
 
-static void pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
+static void
+pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
 {
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 	luaL_checkstack(L, 40, NULL);
 }
 
-static Datum pllua_return_result(lua_State *L, int nret,
-								 pllua_func_activation *act,
-								 bool *isnull)
+/*
+ * Given that the top "nret" items on the stack are the return value, convert
+ * to Datum/isnull.
+ *
+ * Note that this is not used for triggers, which have their own function.
+ *
+ * nret==0 is taken as returning null for non-SRFs; the case of the initial
+ * call of an SRF returning nret==0 without yielding is handled elsewhere.
+ *
+ * Otherwise, we simply pass the whole list of values to the type constructor
+ * for the return type, which does all the work. We then copy the result to the
+ * current memory context (presumed to be the caller's), in order to avoid any
+ * uncertainty regarding garbage collection.
+ */
+static Datum
+pllua_return_result(lua_State *L,
+					int nret,
+					pllua_func_activation *act,
+					bool *isnull)
 {
 	pllua_typeinfo *ti;
 	pllua_datum *d;
-
-	/* XXX much work needed here. */
-
-	/*
-	 * Basic outline of possibilities:
-	 *
-	 * 0 results: if the function is an SRF this is already handled by
-	 * returning 0 rows, so here, we treat it as returning NULL.
-	 *
-	 * 1 result: if the function has a scalar return type, then this is the
-	 * return value. If the function has a composite return type, then this
-	 * must either be a Lua table or a composite datum object (for which we'll
-	 * have to figure out a coercion - or we could punt and use the deformed
-	 * datum as if it were the table case).
-	 *
-	 * >1 result: the function must have a composite return type, and the
-	 * result values are the columns.
-	 *
-	 * On types: in all cases except bytea we should accept a lua string as
-	 * being the text representation and convert accordingly. We MUST do
-	 * encoding validation on all strings for non-bytea types. Lua numbers can
-	 * be accepted for integer, float and numeric types.
-	 *
-	 * If we get a datum object, though, we have the issue of converting it to
-	 * the correct type...
-	 *
-	 */
 
 	if (nret == 0)
 	{
@@ -82,7 +73,12 @@ static Datum pllua_return_result(lua_State *L, int nret,
 	}
 }
 
-static void pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, int32 *argtypmod)
+/*
+ * If an argument is a record type with a non-NULL value, get the actual
+ * typeid/typmod from the record header.
+ */
+static void
+pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, int32 *argtypmod)
 {
 	/*
 	 * this may detoast, so we need a catch block
@@ -100,12 +96,14 @@ static void pllua_get_record_argtype(lua_State *L, Datum *value, Oid *argtype, i
 	PLLUA_CATCH_RETHROW();
 }
 
-
 /*
  * args are on stack at -nargs .. -1
  *
+ * Perform savedatum on the list of args to ensure they are all copied into our
+ * memory context.
  */
-static void pllua_save_args(lua_State *L, int nargs, pllua_typeinfo **argtypes)
+static void
+pllua_save_args(lua_State *L, int nargs, pllua_typeinfo **argtypes)
 {
 	ASSERT_LUA_CONTEXT;
 
@@ -114,8 +112,8 @@ static void pllua_save_args(lua_State *L, int nargs, pllua_typeinfo **argtypes)
 
 	PLLUA_TRY();
 	{
-		int i;
-		int arg0 = lua_absindex(L, -nargs);
+		int			i;
+		int			arg0 = lua_absindex(L, -nargs);
 		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
 
 		for (i = 0; i < nargs; ++i)
@@ -133,12 +131,17 @@ static void pllua_save_args(lua_State *L, int nargs, pllua_typeinfo **argtypes)
 	PLLUA_CATCH_RETHROW();
 }
 
-static int pllua_push_args(lua_State *L,
-						   FunctionCallInfo fcinfo,
-						   pllua_func_activation *act)
+/*
+ * Push all the arguments from fcinfo onto the lua stack with all necessary
+ * conversions.
+ */
+static int
+pllua_push_args(lua_State *L,
+				FunctionCallInfo fcinfo,
+				pllua_func_activation *act)
 {
-	int i;
-	int nargs = PG_NARGS();   /* _actual_ args in call */
+	int			i;
+	int			nargs = PG_NARGS();   /* _actual_ args in call */
 	pllua_typeinfo *argtinfo[FUNC_MAX_ARGS];
 
 	/*
@@ -148,12 +151,14 @@ static int pllua_push_args(lua_State *L,
 	 */
 	if (nargs != act->nargs && !act->func_info->variadic_any)
 		luaL_error(L, "wrong number of args: expected %d got %d", act->nargs, nargs);
+
 	luaL_checkstack(L, 40 + nargs, NULL);
+
 	for (i = 0; i < nargs; ++i)
 	{
-		Datum value = PG_GETARG_DATUM(i);
-		Oid argtype = InvalidOid;
-		int32 argtypmod = -1;
+		Datum	value = PG_GETARG_DATUM(i);
+		Oid		argtype = InvalidOid;
+		int32	argtypmod = -1;
 
 		if (i < act->nargs
 			&& act->argtypes[i] != ANYOID)
@@ -220,14 +225,15 @@ static int pllua_push_args(lua_State *L,
 /*
  * Resume an SRF in value-per-call mode (second and subsequent calls come here)
  */
-int pllua_resume_function(lua_State *L)
+int
+pllua_resume_function(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 	ReturnSetInfo *rsi = (ReturnSetInfo *) fcinfo->resultinfo;
 	pllua_func_activation *fact = fcinfo->flinfo->fn_extra;
-	lua_State *thr = fact->thread;
-	int rc;
+	lua_State  *thr = fact->thread;
+	int			rc;
 
 	Assert(thr != NULL);
 	Assert(lua_gettop(L) == 1);
@@ -261,19 +267,22 @@ int pllua_resume_function(lua_State *L)
 	act->retval = pllua_return_result(L, lua_gettop(L) - 1,
 									  fact,
 									  &fcinfo->isnull);
-
 	return 0;
 }
 
-int pllua_call_function(lua_State *L)
+/*
+ * Main entry point for function calls
+ */
+int
+pllua_call_function(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 	ReturnSetInfo *rsi = (ReturnSetInfo *) fcinfo->resultinfo;
 	pllua_func_activation *fact;
-	int nstack;
-	int nargs;
-	int rc;
+	int			nstack;
+	int			nargs;
+	int			rc;
 
 	pllua_common_lua_init(L, fcinfo);
 
@@ -287,7 +296,7 @@ int pllua_call_function(lua_State *L)
 	/* get the function object from the activation and push that */
 	pllua_activation_getfunc(L);
 
-	/* func should be the only thing on the stack after the arg*/
+	/* func should be the only thing on the stack after the act */
 	Assert(lua_gettop(L) == nstack + 1);
 
 	nargs = pllua_push_args(L, fcinfo, fact);
@@ -362,22 +371,24 @@ int pllua_call_function(lua_State *L)
 	 * result. the func_info is not on the stack any more, but we know it must
 	 * be referenced from the activation
 	 */
-
 	act->retval = pllua_return_result(L, lua_gettop(L) - nstack,
 									  fact,
 									  &fcinfo->isnull);
-
 	return 0;
 }
 
-int pllua_call_trigger(lua_State *L)
+/*
+ * Entry point for trigger invocations
+ */
+int
+pllua_call_trigger(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 	TriggerData *td = (TriggerData *) fcinfo->context;
 	pllua_func_activation *fact;
-	int nstack;
-	int nargs;
+	int			nstack;
+	int			nargs;
 
 	pllua_common_lua_init(L, fcinfo);
 
@@ -400,7 +411,6 @@ int pllua_call_trigger(lua_State *L)
 	 * correspond in any way to the arguments declared in the funcinfo (which
 	 * will specify that there are no args).
 	 */
-
 	lua_pushvalue(L, 2);
 	lua_getfield(L, -1, "old");
 	lua_getfield(L, -2, "new");
@@ -417,7 +427,13 @@ int pllua_call_trigger(lua_State *L)
 	return 0;
 }
 
-int pllua_call_event_trigger(lua_State *L)
+/*
+ * Entry point for event triggers.
+ *
+ * TODO
+ */
+int
+pllua_call_event_trigger(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
@@ -427,7 +443,13 @@ int pllua_call_event_trigger(lua_State *L)
 	return 0;
 }
 
-int pllua_call_inline(lua_State *L)
+/*
+ * Entry point for inline code blocks (DO).
+ *
+ * Very little needs doing here.
+ */
+int
+pllua_call_inline(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
@@ -446,7 +468,13 @@ int pllua_call_inline(lua_State *L)
 	return 0;
 }
 
-int pllua_validate(lua_State *L)
+/*
+ * Entry point for function validator. Guts of this are in compile.c
+ *
+ * No return values; is expected to throw error on failure.
+ */
+int
+pllua_validate(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	Oid func_oid = act->validate_func;

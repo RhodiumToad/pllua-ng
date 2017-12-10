@@ -15,14 +15,16 @@
  * Do fairly minimalist validation on the procTup to ensure that we're not
  * going to do something dangerous or security-violating. More detailed checks
  * can be left to the validator func. Throws a pg error on failure.
+ *
+ * We only do this when compiling a new function.
  */
-
-static void pllua_validate_proctup(lua_State *L, Oid fn_oid,
-								   HeapTuple procTup, bool trusted)
+static void
+pllua_validate_proctup(lua_State *L, Oid fn_oid,
+					   HeapTuple procTup, bool trusted)
 {
-	HeapTuple lanTup;
+	HeapTuple		lanTup;
 	Form_pg_language lanStruct;
-	Form_pg_proc procStruct;
+	Form_pg_proc	procStruct;
 	procStruct = (Form_pg_proc) GETSTRUCT(procTup);
 
 	ASSERT_PG_CONTEXT;
@@ -35,9 +37,11 @@ static void pllua_validate_proctup(lua_State *L, Oid fn_oid,
 	if ((trusted && !lanStruct->lanpltrusted)
 		|| (!trusted && lanStruct->lanpltrusted))
 	{
+		/* this can't happen unless someone is monkeying with catalogs. */
 		elog(ERROR, "trusted state mismatch for function %u in language %u",
 			 fn_oid, procStruct->prolang);
 	}
+
 	ReleaseSysCache(lanTup);
 }
 
@@ -47,17 +51,18 @@ static void pllua_validate_proctup(lua_State *L, Oid fn_oid,
  * object; caller does that, after reparenting the memory context.
  *
  * Note that "compiling" a function in the current setup may execute some user
- * code (except in validate_only mode)
+ * code (except in validate_only mode).
  *
  * Returns the object on the stack (except in validate_only mode, which returns
  * nothing)
  */
-int pllua_compile(lua_State *L)
+int
+pllua_compile(lua_State *L)
 {
 	pllua_function_compile_info *comp_info = lua_touserdata(L, 1);
 	pllua_function_info *func_info = comp_info->func_info;
-	const char *fname = func_info->name;
-	const char *src;
+	const char	   *fname = func_info->name;
+	const char	   *src;
 	luaL_Buffer b;
 
 	if (!comp_info->validate_only)
@@ -89,6 +94,12 @@ int pllua_compile(lua_State *L)
 	{
 		int n = 0;
 		int i;
+
+		/*
+		 * Build up the list from the parameter names, excluding any
+		 * OUT parameters; stop when we find an unnamed arg. Note that
+		 * argmodes can be null if all params are IN.
+		 */
 		if (comp_info->argnames && comp_info->argnames[0])
 		{
 			for(i = 0; i < comp_info->nallargs; ++i)
@@ -107,6 +118,11 @@ int pllua_compile(lua_State *L)
 				}
 			}
 		}
+		/*
+		 * If we didn't get all the args (which includes the VARIADIC "any"
+		 * case since we don't let that have a name), append ... to get
+		 * the rest.
+		 */
 		if (n < comp_info->nargs)
 		{
 			if (n > 0)
@@ -115,37 +131,55 @@ int pllua_compile(lua_State *L)
 		}
 	}
 	luaL_addstring(&b, ") ");
+	/*
+	 * Actual function body.
+	 */
 	luaL_addlstring(&b, VARDATA_ANY(comp_info->prosrc),
 					VARSIZE_ANY_EXHDR(comp_info->prosrc));
+	/*
+	 * Terminate string and convert to lua value
+	 */
 	luaL_addstring(&b, " end return ");
 	luaL_addstring(&b, fname);
 	luaL_pushresult(&b);
 	src = lua_tostring(L, -1);
 
-	pllua_debug(L, "compiling: %s", src);
-
+	/*
+	 * Load the code into lua but run nothing. (Syntax errors show up here.)
+	 */
 	if (luaL_loadbuffer(L, src, strlen(src), fname))
 		pllua_rethrow_from_lua(L, LUA_ERRRUN);
-	lua_remove(L, -2); /* source */
+	lua_remove(L, -2); /* drop source */
 
-	if (!comp_info->validate_only)
+	/*
+	 * Bail out here if validating.
+	 */
+	if (comp_info->validate_only)
+		return 0;
+
+	/*
+	 * In trusted mode, repoint the function environment at the sandbox
+	 * rather than the real global table.
+	 */
+	if (func_info->trusted)
 	{
-		if (func_info->trusted)
-		{
-			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-			lua_setupvalue(L, -2, 1);
-		}
-		lua_call(L, 0, 1);
-
-		lua_getuservalue(L, -2);
-		lua_insert(L, -2);
-		lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
-		lua_pop(L, 1);
-
-		return 1;
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+		lua_setupvalue(L, -2, 1);
 	}
+	/*
+	 * Run the code to obtain the function value as a result.
+	 */
+	lua_call(L, 0, 1);
 
-	return 0;
+	/*
+	 * Store in the function object's uservalue table.
+	 */
+	lua_getuservalue(L, -2);
+	lua_insert(L, -2);
+	lua_rawsetp(L, -2, PLLUA_FUNCTION_MEMBER);
+	lua_pop(L, 1);
+
+	return 1;
 }
 
 /*
@@ -153,8 +187,11 @@ int pllua_compile(lua_State *L)
  *
  * This will NOT replace an existing entry, unless the function passed in is
  * nil, which signifies uninterning an existing function.
+ *
+ * Returns true if something was stored, false if not.
  */
-int pllua_intern_function(lua_State *L)
+int
+pllua_intern_function(lua_State *L)
 {
 	lua_Integer oid = luaL_checkinteger(L, 2);
 
@@ -191,14 +228,15 @@ int pllua_intern_function(lua_State *L)
  * that. In error cases we ensure the activation is de-resolved, which should
  * prevent anything accessing any dangling fields.
  */
-static void pllua_resolve_activation(lua_State *L,
-									 pllua_func_activation *act,
-									 pllua_function_info *func_info,
-									 FunctionCallInfo fcinfo)
+static void
+pllua_resolve_activation(lua_State *L,
+						 pllua_func_activation *act,
+						 pllua_function_info *func_info,
+						 FunctionCallInfo fcinfo)
 {
-	MemoryContext oldcontext;
-	FmgrInfo *flinfo = fcinfo->flinfo;
-	Oid rettype = func_info->rettype;
+	MemoryContext	oldcontext;
+	FmgrInfo	   *flinfo = fcinfo->flinfo;
+	Oid				rettype = func_info->rettype;
 
 	if (act->resolved)
 		return;
@@ -207,8 +245,8 @@ static void pllua_resolve_activation(lua_State *L,
 
 	oldcontext = MemoryContextSwitchTo(flinfo->fn_mcxt);
 
-	if (IsPolymorphicType(rettype)
-		|| type_is_rowtype(rettype))
+	if (func_info->polymorphic_ret ||
+		func_info->returns_row)
 	{
 		act->typefuncclass = get_call_result_type(fcinfo,
 												  &act->rettype,
@@ -216,12 +254,11 @@ static void pllua_resolve_activation(lua_State *L,
 		if (act->tupdesc && act->tupdesc->tdrefcount != -1)
 		{
 			/*
-			 * This is a ref-counted tupdesc, but we can't pin it
-			 * because any such pin would belong to a resource owner,
-			 * and we can't guarantee that our required data lifetimes
-			 * nest properly with the resource owners. So make a copy
-			 * instead. (If it's not refcounted, then it'll already be
-			 * in fn_mcxt.)
+			 * This is a ref-counted tupdesc, but we can't pin it because any
+			 * such pin would belong to a resource owner, and we can't
+			 * guarantee that our required data lifetimes nest properly with
+			 * the resource owners. So make a copy instead. (If it's not
+			 * refcounted, then it'll already be in fn_mcxt.)
 			 */
 			act->tupdesc = CreateTupleDescCopy(act->tupdesc);
 		}
@@ -240,10 +277,18 @@ static void pllua_resolve_activation(lua_State *L,
 
 	if (act->polymorphic)
 	{
+		/*
+		 * Polymorphic arguments. Copy the argtypes list and resolve the actual
+		 * types from the call site.
+		 */
 		act->argtypes = palloc(act->nargs * sizeof(Oid));
-		memcpy(act->argtypes, func_info->argtypes, act->nargs * sizeof(Oid));
-		if (!resolve_polymorphic_argtypes(act->nargs, act->argtypes,
-										  NULL, flinfo->fn_expr))
+		memcpy(act->argtypes,
+			   func_info->argtypes,
+			   act->nargs * sizeof(Oid));
+		if (!resolve_polymorphic_argtypes(act->nargs,
+										  act->argtypes,
+										  NULL,  /* these are IN params only */
+										  flinfo->fn_expr))
 			elog(ERROR,"failed to resolve polymorphic argtypes");
 	}
 	else
@@ -254,54 +299,55 @@ static void pllua_resolve_activation(lua_State *L,
 }
 
 /*
- * Return true if func_info is an up to date compile of procTup.
+ * Load up our func_info and comp_info structures from the function's catalog
+ * entry.
  */
-static bool pllua_function_valid(pllua_function_info *func_info,
-								 HeapTuple procTup)
-{
-	return (func_info &&
-			func_info->fn_xmin == HeapTupleHeaderGetRawXmin(procTup->t_data) &&
-			ItemPointerEquals(&func_info->fn_tid, &procTup->t_self));
-}
-
-
-static void pllua_load_from_proctup(lua_State *L, Oid fn_oid,
-									pllua_function_info *func_info,
-									pllua_function_compile_info *comp_info,
-									HeapTuple procTup,
-									bool trusted)
+static void
+pllua_load_from_proctup(lua_State *L,
+						Oid fn_oid,
+						pllua_function_info *func_info,
+						pllua_function_compile_info *comp_info,
+						HeapTuple procTup,
+						bool trusted)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(func_info->mcxt);
 	Form_pg_proc procStruct = (Form_pg_proc) GETSTRUCT(procTup);
-	bool isnull;
-	Datum psrc;
-	int i;
+	bool		isnull;
+	Datum		psrc;
+	int			i;
 
 	func_info->name = pstrdup(NameStr(procStruct->proname));
 	func_info->fn_oid = fn_oid;
 	func_info->fn_xmin = HeapTupleHeaderGetRawXmin(procTup->t_data);
 	func_info->fn_tid = procTup->t_self;
+
 	func_info->rettype = procStruct->prorettype;
+	func_info->returns_row = type_is_rowtype(func_info->rettype);
 	func_info->retset = procStruct->proretset;
+	func_info->polymorphic_ret = IsPolymorphicType(func_info->rettype);
+
 	func_info->language_oid = procStruct->prolang;
 	func_info->trusted = trusted;
+
 	func_info->nargs = procStruct->pronargs;
 	func_info->variadic = procStruct->provariadic != InvalidOid;
 	func_info->variadic_any = procStruct->provariadic == ANYOID;
-	func_info->polymorphic = false;
 	func_info->readonly = (procStruct->provolatile != PROVOLATILE_VOLATILE);
 	func_info->is_trigger = (procStruct->prorettype == TRIGGEROID);
+	func_info->polymorphic = false;		/* set below */
 
 	Assert(func_info->nargs == procStruct->proargtypes.dim1);
+
 	func_info->argtypes = (Oid *) palloc(func_info->nargs * sizeof(Oid));
 	memcpy(func_info->argtypes,
 		   procStruct->proargtypes.values,
 		   func_info->nargs * sizeof(Oid));
 
+	/* check for polymorphic arg */
 	for (i = 0; i < func_info->nargs; ++i)
 	{
-		if (IsPolymorphicType(func_info->argtypes[i])
-			|| func_info->argtypes[i] == ANYOID)
+		if (IsPolymorphicType(func_info->argtypes[i]) ||
+			func_info->argtypes[i] == ANYOID)
 		{
 			func_info->polymorphic = true;
 			break;
@@ -313,6 +359,9 @@ static void pllua_load_from_proctup(lua_State *L, Oid fn_oid,
 	 */
 	pllua_validate_proctup(L, fn_oid, procTup, trusted);
 
+	/*
+	 * Stuff below is only needed for compiling
+	 */
 	MemoryContextSwitchTo(comp_info->mcxt);
 
 	psrc = SysCacheGetAttr(PROCOID, procTup, Anum_pg_proc_prosrc, &isnull);
@@ -323,10 +372,9 @@ static void pllua_load_from_proctup(lua_State *L, Oid fn_oid,
 	comp_info->validate_only = false;
 
 	/*
-	 * XXX dig out all the needed info about arg and result types
-	 * and stash it in the compile info.
+	 * Compile needs the allargs list (to get names and modes) as well as the
+	 * runtime (IN only) argtypes list set above.
 	 */
-
 	comp_info->nargs = procStruct->pronargs;
 	comp_info->nallargs = get_func_arg_info(procTup,
 											&comp_info->allargtypes,
@@ -335,6 +383,18 @@ static void pllua_load_from_proctup(lua_State *L, Oid fn_oid,
 	comp_info->variadic = procStruct->provariadic;
 
 	MemoryContextSwitchTo(oldcontext);
+}
+
+/*
+ * Return true if func_info is an up to date compile of procTup.
+ */
+static bool
+pllua_function_valid(pllua_function_info *func_info,
+					 HeapTuple procTup)
+{
+	return (func_info &&
+			func_info->fn_xmin == HeapTupleHeaderGetRawXmin(procTup->t_data) &&
+			ItemPointerEquals(&func_info->fn_tid, &procTup->t_self));
 }
 
 /*
@@ -349,7 +409,7 @@ pllua_validate_and_push(lua_State *L,
 {
 	MemoryContext oldcontext = CurrentMemoryContext;
 	pllua_func_activation *volatile retval = NULL;
-	FmgrInfo *flinfo = fcinfo->flinfo;
+	FmgrInfo	*flinfo = fcinfo->flinfo;
 	ReturnSetInfo *rsi = ((fcinfo->resultinfo && IsA(fcinfo->resultinfo, ReturnSetInfo))
 						  ?	(ReturnSetInfo *)(fcinfo->resultinfo)
 						  : NULL);
@@ -360,12 +420,11 @@ pllua_validate_and_push(lua_State *L,
 	 * We need the pg_proc row etc. every time, but we have to avoid throwing
 	 * pg errors through lua.
 	 */
-
 	PLLUA_TRY();
 	{
 		pllua_func_activation *act = flinfo->fn_extra;
-		Oid			fn_oid = flinfo->fn_oid;
-		int rc;
+		Oid		fn_oid = flinfo->fn_oid;
+		int		rc;
 
 		/*
 		 * If we don't have an activation yet, make one (it'll initially be
@@ -382,8 +441,7 @@ pllua_validate_and_push(lua_State *L,
 			lua_pushlightuserdata(L, flinfo->fn_mcxt);
 			pllua_pcall(L, 1, 1, 0);
 			act = lua_touserdata(L, -1);
-			if (flinfo && flinfo->fn_extra == NULL)
-				flinfo->fn_extra = act;
+			flinfo->fn_extra = act;
 		}
 		else
 			pllua_getactivation(L, act);
@@ -399,12 +457,12 @@ pllua_validate_and_push(lua_State *L,
 			MemoryContext ccxt;
 			HeapTuple	procTup;
 
-			/* We'll need the pg_proc tuple in any case... */
+			/* Get the pg_proc tuple. */
 			procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(fn_oid));
 			if (!HeapTupleIsValid(procTup))
 				elog(ERROR, "cache lookup failed for function %u", fn_oid);
 
-			if (act && pllua_function_valid(act->func_info, procTup))
+			if (pllua_function_valid(act->func_info, procTup))
 			{
 				/* fastpath out when data is already valid. */
 				ReleaseSysCache(procTup);
@@ -414,7 +472,6 @@ pllua_validate_and_push(lua_State *L,
 			/*
 			 * Lookup function by oid in our lua table (this can't throw)
 			 */
-
 			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
 			if (lua_rawgeti(L, -1, (lua_Integer) fn_oid) == LUA_TUSERDATA)
 			{
@@ -457,12 +514,13 @@ pllua_validate_and_push(lua_State *L,
 
 			/*
 			 * If we get this far, we need to compile up the function from
-			 * scratch.  Create the func_info, compile_info and
-			 * contexts. Note that the compile context is always transient,
-			 * but the function context is reparented to the long-lived lua
-			 * context on success.
+			 * scratch. Create the func_info, compile_info and contexts. Note
+			 * that the compile context is always transient, but the function
+			 * context is reparented to the long-lived lua context on success.
+			 *
+			 * (CurrentMemoryContext at this point is still the original
+			 * caller's context, assumed transient)
 			 */
-
 			fcxt = AllocSetContextCreate(CurrentMemoryContext,
 										 "pllua function object",
 										 ALLOCSET_SMALL_SIZES);
@@ -470,18 +528,12 @@ pllua_validate_and_push(lua_State *L,
 										 "pllua compile context",
 										 ALLOCSET_SMALL_SIZES);
 
-			MemoryContextSwitchTo(fcxt);
-
-			func_info = palloc(sizeof(pllua_function_info));
+			func_info = MemoryContextAlloc(fcxt, sizeof(pllua_function_info));
 			func_info->mcxt = fcxt;
 
-			MemoryContextSwitchTo(ccxt);
-
-			comp_info = palloc(sizeof(pllua_function_compile_info));
+			comp_info = MemoryContextAlloc(ccxt, sizeof(pllua_function_compile_info));
 			comp_info->mcxt = ccxt;
 			comp_info->func_info = func_info;
-
-			MemoryContextSwitchTo(fcxt);
 
 			pllua_load_from_proctup(L, fn_oid,
 									func_info, comp_info,
@@ -489,14 +541,14 @@ pllua_validate_and_push(lua_State *L,
 
 			/*
 			 * Resolve the activation before compiling in case the user code
-			 * tries to access it.
+			 * tries to do something that needs access to it.
 			 */
 			pllua_resolve_activation(L, act, func_info, fcinfo);
 
 			/*
 			 * Beware, compiling can invoke user-supplied code, which might
 			 * in turn recurse here. We trust that stack depth checks will
-			 * break any such loop.
+			 * break any such loop if need be.
 			 */
 			pllua_pushcfunction(L, pllua_compile);
 			lua_pushlightuserdata(L, comp_info);
@@ -507,27 +559,27 @@ pllua_validate_and_push(lua_State *L,
 
 			if (rc)
 			{
+				/* error. bail out */
 				act->resolved = false;
 				MemoryContextDelete(fcxt);
 				pllua_rethrow_from_lua(L, rc);
 			}
-
-			MemoryContextSetParent(fcxt, pllua_get_memory_cxt(L));
-
+			else
 			{
-				void *p = lua_touserdata(L, -1);
-				*(void **)p = func_info;
+				void **p = lua_touserdata(L, -1);
+				MemoryContextSetParent(fcxt, pllua_get_memory_cxt(L));
+				*p = func_info;
 			}
 
 			/*
 			 * Try and intern the function. Since we uninterned it earlier, we
 			 * expect this to succeed, but a recursive call could have interned
-			 * a new version already (which will be at least as new as
-			 * ours). Worse, if so, that new version could already be out of
-			 * date, meaning that we have to loop back to check the pg_proc row
+			 * a new version already (which will be at least as new as ours).
+			 * Worse, if so, that new version could already be out of date,
+			 * meaning that we have to loop back to check the pg_proc row
 			 * again.
 			 */
-
+			/* stack: activation funcinfo */
 			pllua_pushcfunction(L, pllua_intern_function);
 			lua_insert(L, -2);
 			lua_pushinteger(L, (lua_Integer) fn_oid);
@@ -538,7 +590,7 @@ pllua_validate_and_push(lua_State *L,
 
 		/*
 		 * Post-compile per-call validation (mostly here to avoid more catch
-		 * blocks)
+		 * blocks elsewhere)
 		 */
 		if (act->func_info->retset)
 		{
@@ -563,7 +615,15 @@ pllua_validate_and_push(lua_State *L,
 }
 
 
-static bool pllua_acceptable_pseudotype(lua_State *L, Oid typeid, bool is_result, char argmode)
+/*
+ * Returns true if typeid (a pseudotype) is acceptable for either a result type
+ * (if is_result) or a param of mode "argmode".
+ */
+static bool
+pllua_acceptable_pseudotype(lua_State *L,
+							Oid typeid,
+							bool is_result,
+							char argmode)
 {
 	bool is_input = !is_result;
 	bool is_output = is_result;
@@ -595,25 +655,28 @@ static bool pllua_acceptable_pseudotype(lua_State *L, Oid typeid, bool is_result
 	 */
 	switch (typeid)
 	{
+		/* only as return types */
 		case TRIGGEROID:
 		case EVTTRIGGEROID:
 		case VOIDOID:
 			return !is_input;
 
+		/* only as argument type */
 		case ANYOID:
 			return !is_output;
 
+		/* ok for either argument or result */
 		case RECORDOID:
 		case RECORDARRAYOID:
 		case CSTRINGOID:
 			return true;
 
+		/* core code has the job of validating these are correctly used */
 		case ANYARRAYOID:
 		case ANYNONARRAYOID:
 		case ANYELEMENTOID:
 		case ANYENUMOID:
 		case ANYRANGEOID:
-			/* core code has the job of validating these are correctly used */
 			return true;
 
 		default:
@@ -621,12 +684,58 @@ static bool pllua_acceptable_pseudotype(lua_State *L, Oid typeid, bool is_result
 	}
 }
 
+static bool
+pllua_acceptable_name(lua_State *L, const char *name)
+{
+	unsigned char *p = (unsigned char *) name;
+	unsigned char c;
+	if (!name)
+		return false;
+	c = *p;
+	if (!c || (c >= '0' && c <= '9'))
+		return false;
+	while ((c = *p++))
+		if (!((c >= 'A' && c <= 'Z') ||
+			  (c >= 'a' && c <= 'z') ||
+			  (c >= '0' && c <= '9') ||
+			  (c == '_')))
+			return false;
+	switch (name[0])
+	{
+		case 'a': return strcmp(name,"and") != 0;
+		case 'b': return strcmp(name,"break") != 0;
+		case 'd': return strcmp(name,"do") != 0;
+		case 'e': return ((strcmp(name,"else") != 0) &&
+						  (strcmp(name,"elseif") != 0) &&
+						  (strcmp(name,"end") != 0));
+		case 'f': return ((strcmp(name,"false") != 0) &&
+						  (strcmp(name,"for") != 0) &&
+						  (strcmp(name,"function") != 0));
+		case 'g': return strcmp(name,"goto") != 0;
+		case 'i': return ((strcmp(name,"if") != 0) &&
+						  (strcmp(name,"in") != 0));
+		case 'l': return strcmp(name,"local") != 0;
+		case 'n': return ((strcmp(name,"nil") != 0) &&
+						  (strcmp(name,"not") != 0));
+		case 'o': return strcmp(name,"or") != 0;
+		case 'r': return ((strcmp(name,"repeat") != 0) &&
+						  (strcmp(name,"return") != 0));
+		case 't': return ((strcmp(name,"then") != 0) &&
+						  (strcmp(name,"true") != 0));
+		case 'u': return strcmp(name,"until") != 0;
+		case 'w': return strcmp(name,"while") != 0;
+		default:
+			return true;
+	}
+}
+
 /*
  * This is the guts of the validator function
  */
-void pllua_validate_function(lua_State *L,
-							 Oid fn_oid,
-							 bool trusted)
+void
+pllua_validate_function(lua_State *L,
+						Oid fn_oid,
+						bool trusted)
 {
 	ASSERT_LUA_CONTEXT;
 
@@ -635,14 +744,14 @@ void pllua_validate_function(lua_State *L,
 		HeapTuple	procTup;
 		pllua_function_info *func_info;
 		pllua_function_compile_info *comp_info;
-		int i;
-		bool nameless = false;
+		int			i;
+		bool		nameless = false;
 
 		procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(fn_oid));
 		if (!HeapTupleIsValid(procTup))
 			elog(ERROR, "cache lookup failed for function %u", fn_oid);
 
-		/* don't worry about memory contexts */
+		/* don't worry about memory contexts, it's all transient */
 
 		func_info = palloc(sizeof(pllua_function_info));
 		func_info->mcxt = CurrentMemoryContext;
@@ -655,22 +764,31 @@ void pllua_validate_function(lua_State *L,
 								func_info, comp_info,
 								procTup, trusted);
 
+		/*
+		 * Produce a better error message if the function name itself would
+		 * break the syntax.
+		 */
+		if (!pllua_acceptable_name(L, func_info->name))
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("PL/Lua function name \"%s\" is not a valud Lua identifier", func_info->name)));
+
 		/* nitpick over the argument and result types. */
 		if (get_typtype(func_info->rettype) == TYPTYPE_PSEUDO
 			&& !pllua_acceptable_pseudotype(L, func_info->rettype, true, ' '))
 		{
-				ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								errmsg("PL/Lua functions cannot return type %s",
-									   format_type_be(func_info->rettype))));
+			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+							errmsg("PL/Lua functions cannot return type %s",
+								   format_type_be(func_info->rettype))));
 		}
 
 		/* check OUT as well as IN args */
 		for (i = 0; i < comp_info->nallargs; ++i)
 		{
-			Oid argtype = comp_info->allargtypes[i];
-			char argmode = (comp_info->argmodes
-							? comp_info->argmodes[i]
-							: PROARGMODE_IN);
+			Oid		argtype = comp_info->allargtypes[i];
+			char	argmode = (comp_info->argmodes
+							   ? comp_info->argmodes[i]
+							   : PROARGMODE_IN);
 			const char *argname = (comp_info->argnames
 								   ? comp_info->argnames[i]
 								   : "");
@@ -683,11 +801,13 @@ void pllua_validate_function(lua_State *L,
 						 errmsg("PL/Lua functions cannot accept type %s",
 								format_type_be(argtype))));
 			}
+
 			/*
 			 * IN or INOUT argument with a name should not follow one without a
 			 * name. VARIADIC "any" must not have a name. These restrictions
 			 * don't matter at SQL level, but violating them leads to the
-			 * possibility of non-obvious errors, so best to forbid them.
+			 * possibility of non-obvious errors with variable scopes, so best
+			 * to forbid them.
 			 */
 			switch (argmode)
 			{
@@ -715,6 +835,15 @@ void pllua_validate_function(lua_State *L,
 								 errmsg("PL/Lua function arguments of type VARIADIC \"any\" must not have names")));
 					break;
 			}
+
+			/*
+			 * Produce a better error message if the argument name would break
+			 * the syntax.
+			 */
+			if (argname && !pllua_acceptable_name(L, argname))
+				ereport(ERROR,
+						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						 errmsg("PL/Lua argument name \"%s\" is not a valud Lua identifier", argname)));
 		}
 
 		/*
