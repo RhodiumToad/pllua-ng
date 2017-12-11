@@ -18,3 +18,4 @@ objfiles.txt
 lcov.info
 coverage/
 /results/
+pllua_functable.h
