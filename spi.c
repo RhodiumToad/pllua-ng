@@ -854,7 +854,7 @@ static void pllua_cursor_cb(void *arg)
 		 * have allowed ourselves far enough into pg for that to happen while in
 		 * lua context, assert that fact.
 		 */
-		Assert(pllua_context == PLLUA_CONTEXT_PG);
+		ASSERT_PG_CONTEXT;
 		/*
 		 * we'd better ignore any (unlikely) lua error here, since that's safer
 		 * than raising an error into pg here
@@ -910,7 +910,7 @@ static void pllua_cursor_setportal(lua_State *L, int nd,
 
 		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_PORTALS);
 		lua_pushnil(L);
-		lua_rawsetp(L, -2, portal);
+		lua_rawsetp(L, -2, oldportal);
 		lua_pop(L, 1);
 
 		curs->portal = NULL;
