@@ -29,7 +29,9 @@ MODULE_big = pllua_ng
 EXTENSION = pllua_ng
 DATA = pllua_ng--1.0.sql
 
-REGRESS = pllua pllua_old arrays numerics types
+REGRESS = pllua pllua_old arrays numerics types triggers
+# only on pg10+
+REGRESS_10 = triggers_10
 
 OBJS =	compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	numeric.o objects.o pllua.o spi.o trigger.o trusted.o
@@ -41,6 +43,13 @@ SHLIB_LINK = $(LUALIB)
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
+
+ifeq ($(filter-out 7.% 8.% 9.0 9.1 9.2 9.3 9.4, $(MAJORVERSION)),)
+$(error unsupported PostgreSQL version)
+endif
+ifneq ($(filter-out 9.%, $(MAJORVERSION)),)
+REGRESS += $(REGRESS_10)
+endif
 
 $(OBJS): pllua.h
 

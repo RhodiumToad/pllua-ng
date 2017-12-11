@@ -251,6 +251,8 @@ pllua_trigger_index(lua_State *L)
 			str = "old";
 		else
 			str = "new";
+		lua_pushstring(L, str);
+		lua_replace(L, 2);
 	}
 	/* previously cached result? */
 	lua_pushvalue(L, 2);

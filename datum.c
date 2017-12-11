@@ -2845,10 +2845,10 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt,
 		 * and punt it to the general-case code.
 		 */
 		luaL_checkstack(L, 10 + dt->natts, NULL);
-		lua_pushcfunction(L, pllua_typeinfo_row_call);
-		lua_pushvalue(L, nt);
 		lua_getuservalue(L, nd);
 		nuv = lua_absindex(L, -1);
+		lua_pushcfunction(L, pllua_typeinfo_row_call);
+		lua_pushvalue(L, nt);
 		if (dt->hasoid)
 		{
 			lua_getfield(L, nuv, "oid");
@@ -2864,6 +2864,11 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt,
 			++nargs;
 		}
 		lua_call(L, nargs+1, 1);
+		if (dt->hasoid)
+		{
+			pllua_datum *d = pllua_checkdatum(L, -1, nt);
+			HeapTupleHeaderSetOid((HeapTupleHeader) DatumGetPointer(d->value), newoid);
+		}
 	}
 	return 1;
 }

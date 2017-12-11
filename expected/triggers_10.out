@@ -1,0 +1,102 @@
+--
+\set VERBOSITY terse
+\set QUIET 0
+-- Test pg10+ trigger functionality.
+create table trigtst2 (
+  id integer primary key,
+  name text,
+  flag boolean,
+  qty integer,
+  weight numeric
+);
+CREATE TABLE
+create function ttrig1() returns trigger language pllua_ng
+as $$
+  print(trigger.name,...)
+  print(trigger.when, trigger.level, trigger.operation, trigger.relation.name)
+  for r in spi.rows([[ select * from newtab ]]) do print(r) end
+$$;
+CREATE FUNCTION
+create function ttrig2() returns trigger language pllua_ng
+as $$
+  print(trigger.name,...)
+  print(trigger.when, trigger.level, trigger.operation, trigger.relation.name)
+  for r in spi.rows([[ select 'old', * from oldtab union all select 'new', * from newtab ]]) do print(r) end
+$$;
+CREATE FUNCTION
+create function ttrig3() returns trigger language pllua_ng
+as $$
+  print(trigger.name,...)
+  print(trigger.when, trigger.level, trigger.operation, trigger.relation.name)
+  for r in spi.rows([[ select * from oldtab ]]) do print(r) end
+$$;
+CREATE FUNCTION
+create trigger t1
+  after insert on trigtst2
+  referencing new table as newtab
+  for each statement
+  execute procedure ttrig1('t1 insert');
+CREATE TRIGGER
+create trigger t2
+  after update on trigtst2
+  referencing old table as oldtab
+              new table as newtab
+  for each statement
+  execute procedure ttrig2('t2 update');
+CREATE TRIGGER
+create trigger t3
+  after delete on trigtst2
+  referencing old table as oldtab
+  for each statement
+  execute procedure ttrig3('t3 delete');
+CREATE TRIGGER
+insert into trigtst2
+  values (1, 'fred', true, 23, 1.73),
+  	 (2, 'jim', false, 11, 3.1),
+	 (3, 'sheila', false, 9, 1.3),
+  	 (4, 'dougal', false, 1, 9.3),
+ 	 (5, 'brian', false, 31, 51.5),
+	 (6, 'ermintrude', true, 91, 52.7),
+	 (7, 'dylan', false, 35, 12.1),
+	 (8, 'florence', false, 23, 5.4),
+	 (9, 'zebedee', false, 199, 7.4);
+INFO:  t1	t1 insert
+INFO:  after	statement	insert	trigtst2
+INFO:  (1,fred,t,23,1.73)
+INFO:  (2,jim,f,11,3.1)
+INFO:  (3,sheila,f,9,1.3)
+INFO:  (4,dougal,f,1,9.3)
+INFO:  (5,brian,f,31,51.5)
+INFO:  (6,ermintrude,t,91,52.7)
+INFO:  (7,dylan,f,35,12.1)
+INFO:  (8,florence,f,23,5.4)
+INFO:  (9,zebedee,f,199,7.4)
+INSERT 0 9
+update trigtst2 set qty = qty + 1;
+INFO:  t2	t2 update
+INFO:  after	statement	update	trigtst2
+INFO:  (old,1,fred,t,23,1.73)
+INFO:  (old,2,jim,f,11,3.1)
+INFO:  (old,3,sheila,f,9,1.3)
+INFO:  (old,4,dougal,f,1,9.3)
+INFO:  (old,5,brian,f,31,51.5)
+INFO:  (old,6,ermintrude,t,91,52.7)
+INFO:  (old,7,dylan,f,35,12.1)
+INFO:  (old,8,florence,f,23,5.4)
+INFO:  (old,9,zebedee,f,199,7.4)
+INFO:  (new,1,fred,t,24,1.73)
+INFO:  (new,2,jim,f,12,3.1)
+INFO:  (new,3,sheila,f,10,1.3)
+INFO:  (new,4,dougal,f,2,9.3)
+INFO:  (new,5,brian,f,32,51.5)
+INFO:  (new,6,ermintrude,t,92,52.7)
+INFO:  (new,7,dylan,f,36,12.1)
+INFO:  (new,8,florence,f,24,5.4)
+INFO:  (new,9,zebedee,f,200,7.4)
+UPDATE 9
+delete from trigtst2 where name = 'sheila';
+INFO:  t3	t3 delete
+INFO:  after	statement	delete	trigtst2
+INFO:  (3,sheila,f,10,1.3)
+DELETE 1
+--
