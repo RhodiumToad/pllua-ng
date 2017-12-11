@@ -84,8 +84,13 @@ pllua_t_require(lua_State *L)
 	lua_pushstring(L, name);  /* pass name as argument to module loader */
 	lua_insert(L, -2);  /* name is 1st argument (before search data) */
 	lua_call(L, 2, 1);  /* run loader to load module */
-	if (lua_isnil(L, -1))  /* non-nil return? push true if not */
-		lua_pushboolean(L, 1);
+	/*
+	 * If the module returned nil, see if it stored a non-nil value in the
+	 * loaded table itself (older deprecated protocol). If not, use "true".
+	 */
+	if (lua_isnil(L, -1) &&
+		lua_getfield(L, 2, name) == LUA_TNIL)
+			lua_pushboolean(L, 1);  /* use true as result */
 	lua_pushvalue(L, -1);
 	lua_setfield(L, 2, name);  /* LOADED[name] = returned value */
 	return 1;
