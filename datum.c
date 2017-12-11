@@ -1275,6 +1275,10 @@ static int pllua_datum_array_index(lua_State *L)
 	pllua_typeinfo *et = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
 	int d_idxlist[3];
 	int *idxlist;
+	ExpandedArrayHeader *arr;
+	pllua_datum *nd;
+	bool isnull = false;
+	volatile Datum res;
 
 	if (!t->is_array)
 		luaL_error(L, "datum is not an array type");
@@ -1304,49 +1308,47 @@ static int pllua_datum_array_index(lua_State *L)
 		PLLUA_CATCH_RETHROW();
 	}
 
+	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+
+	if (idxlist[0] < arr->ndims)
 	{
-		ExpandedArrayHeader *arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
-		pllua_datum *nd;
+		if (idxlist[0] > 1)
+			luaL_error(L, "not enough subscripts for array");
+		idxlist[0] = 0;
+		idxlist[1] = arr->ndims;
+		pllua_datum_array_make_idxlist(L, 1, idxlist, idxlist[2]);
+		return 1;
+	}
+	else if (idxlist[0] > arr->ndims && arr->ndims > 0)
+		luaL_error(L, "too many subscripts for array");
 
-		if (idxlist[0] < arr->ndims)
-		{
-			if (idxlist[0] > 1)
-				luaL_error(L, "not enough subscripts for array");
-			idxlist[0] = 0;
-			idxlist[1] = arr->ndims;
-			pllua_datum_array_make_idxlist(L, 1, idxlist, idxlist[2]);
-			return 1;
-		}
-		else if (idxlist[0] > arr->ndims && arr->ndims > 0)
-			luaL_error(L, "too many subscripts for array");
+	PLLUA_TRY();
+	{
+		res = array_get_element(d->value,
+								idxlist[0], &idxlist[2],
+								t->typlen, t->elemtyplen, t->elemtypbyval, t->elemtypalign,
+								&isnull);
+	}
+	PLLUA_CATCH_RETHROW();
 
+	if (isnull)
+		lua_pushnil(L);
+	else if (pllua_value_from_datum(L, res, et->typeoid) == LUA_TNONE)
+	{
 		lua_pushvalue(L, lua_upvalueindex(2));
 		nd = pllua_newdatum(L);
 
 		PLLUA_TRY();
 		{
-			bool isnull = false;
-			Datum res;
-
-			res = array_get_element(d->value,
-									idxlist[0], &idxlist[2],
-									t->typlen, t->elemtyplen, t->elemtypbyval, t->elemtypalign,
-									&isnull);
-
-			if (!isnull)
-			{
-				MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
-				nd->value = res;
-				pllua_savedatum(L, nd, et);
-				MemoryContextSwitchTo(oldcontext);
-			}
-			else
-				lua_pushnil(L);
+			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+			nd->value = res;
+			pllua_savedatum(L, nd, et);
+			MemoryContextSwitchTo(oldcontext);
 		}
 		PLLUA_CATCH_RETHROW();
-
-		return 1;
 	}
+
+	return 1;
 }
 
 /*

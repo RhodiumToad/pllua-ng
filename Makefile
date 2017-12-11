@@ -29,7 +29,7 @@ MODULE_big = pllua_ng
 EXTENSION = pllua_ng
 DATA = pllua_ng--1.0.sql
 
-REGRESS = pllua pllua_old
+REGRESS = pllua pllua_old arrays numerics types
 
 OBJS =	compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	numeric.o objects.o pllua.o spi.o trigger.o trusted.o

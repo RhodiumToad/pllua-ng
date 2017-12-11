@@ -84,13 +84,13 @@ pllua_p_print(lua_State *L)
 
 	for (i = 1; i <= nargs; i++)
 	{
+		if (i > 1) luaL_addchar(&b, '\t');
 		lua_pushvalue(L, fidx); /* tostring */
 		lua_pushvalue(L, i); /* arg */
 		lua_call(L, 1, 1);
 		s = lua_tostring(L, -1);
 		if (s == NULL)
 			return luaL_error(L, "cannot convert to string");
-		if (i > 1) luaL_addchar(&b, '\t');
 		luaL_addvalue(&b);
 	}
 	luaL_pushresult(&b);

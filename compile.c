@@ -840,7 +840,7 @@ pllua_validate_function(lua_State *L,
 			 * Produce a better error message if the argument name would break
 			 * the syntax.
 			 */
-			if (argname && !pllua_acceptable_name(L, argname))
+			if (argname && argname[0] && !pllua_acceptable_name(L, argname))
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("PL/Lua argument name \"%s\" is not a valud Lua identifier", argname)));

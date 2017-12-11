@@ -464,6 +464,28 @@ static int pllua_spi_execute(lua_State *L)
 	if (str)
 		pllua_verify_encoding(L, str);
 
+	/*
+	 * If we don't have a prepared stmt, then extract argtypes where we have
+	 * definite info (i.e. only when the parameter is actually a datum).
+	 */
+	if (!p)
+	{
+		for (i = 0; i < nargs; ++i)
+		{
+			argtypes[i] = 0;
+			if (lua_type(L, argbase+i) == LUA_TUSERDATA)
+			{
+				pllua_typeinfo *dt;
+				pllua_datum *d = pllua_toanydatum(L, argbase+i, &dt);
+				if (d)
+				{
+					argtypes[i] = dt->typeoid;
+					lua_pop(L, 1);
+				}
+			}
+		}
+	}
+
 	/* we're going to re-push all the args, better have space */
 	luaL_checkstack(L, 40+nargs, NULL);
 

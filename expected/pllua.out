@@ -1,213 +1,320 @@
 --
 CREATE EXTENSION pllua_ng;
 \set VERBOSITY terse
---
--- new stuff
---
-create type ctype3 as (fred integer, jim numeric);
-do $$
-  begin
-    if current_setting('server_version_num')::integer >= 110000 then
-      execute 'create domain dtype as ctype3 check((VALUE).jim is not null)';
-    else
-      execute 'create type dtype as (fred integer, jim numeric)';
-    end if;
-  end;
-$$;
-create type ctype2 as (thingy text, wotsit integer);
-create type ctype as (foo text, bar ctype2, baz dtype);
-create table tdata (
-    intcol integer,
-    textcol text,
-    charcol char(32),
-    varcharcol varchar(32),
-    compcol ctype,
-    dcompcol dtype
-);
-insert into tdata
-values (1, 'row 1', 'padded with blanks', 'not padded', ('x',('y',1111),(111,11.1)), (11,1.1)),
-       (2, 'row 2', 'padded with blanks', 'not padded', ('x',('y',2222),(222,22.2)), (22,2.2)),
-       (3, 'row 3', 'padded with blanks', 'not padded', ('x',('y',3333),(333,33.3)), (33,3.3));
-create function tf1() returns setof tdata language pllua_ng as $f$
-  for i = 1,4 do
-    coroutine.yield({ intcol = i,
-                      textcol = "row "..i,
-		      charcol = "padded with blanks",
-		      varcharcol = "not padded",
-		      compcol = { foo = "x",
-		      	      	  bar = { thingy = "y", wotsit = i*1111 },
-				  baz = { fred = i*111, jim = i*11.1 }
-				},
-		      dcompcol = { fred = i*11, jim = i*1.1 }
-		    });
-  end
-$f$;
-select * from tf1();
- intcol | textcol |             charcol              | varcharcol |           compcol           | dcompcol 
---------+---------+----------------------------------+------------+-----------------------------+----------
-      1 | row 1   | padded with blanks               | not padded | (x,"(y,1111)","(111,11.1)") | (11,1.1)
-      2 | row 2   | padded with blanks               | not padded | (x,"(y,2222)","(222,22.2)") | (22,2.2)
-      3 | row 3   | padded with blanks               | not padded | (x,"(y,3333)","(333,33.3)") | (33,3.3)
-      4 | row 4   | padded with blanks               | not padded | (x,"(y,4444)","(444,44.4)") | (44,4.4)
+-- smoke test
+do language pllua_ng $$ print "hello world!" $$;
+INFO:  hello world!
+do language plluau_ng $$ print "hello world!" $$;
+INFO:  hello world!
+create function pg_temp.f1() returns text language pllua_ng as $$ return "hello world" $$;
+select pg_temp.f1();
+     f1      
+-------------
+ hello world
+(1 row)
+
+create function pg_temp.f2() returns text language plluau_ng as $$ return "hello world" $$;
+select pg_temp.f2();
+     f2      
+-------------
+ hello world
+(1 row)
+
+-- Rest of this file concentrates on simple tests of code paths in
+-- compile, exec, and interpreter setup. Tests of other parts of the
+-- module are separate.
+-- validator
+create function pg_temp."bad name"() returns text language pllua_ng as $$ $$;
+ERROR:  PL/Lua function name "bad name" is not a valud Lua identifier
+create function pg_temp.f3("bad arg" integer) returns text language pllua_ng as $$ $$;
+ERROR:  PL/Lua argument name "bad arg" is not a valud Lua identifier
+-- simple params and results (see types.sql for detailed checks)
+create function pg_temp.f4(a integer) returns integer language pllua_ng as $$ return a + 1 $$;
+select pg_temp.f4(1);
+ f4 
+----
+  2
+(1 row)
+
+create function pg_temp.f5(a text) returns text language pllua_ng as $$ return a.."bar" $$;
+select pg_temp.f5('foo');
+   f5   
+--------
+ foobar
+(1 row)
+
+create function pg_temp.f6(a text, b integer) returns text language pllua_ng as $$ return a..b $$;
+select pg_temp.f6('foo',1);
+  f6  
+------
+ foo1
+(1 row)
+
+-- try some polymorphism too
+create function pg_temp.f7(a anyelement) returns anyelement language pllua_ng as $$ return a $$;
+select pg_temp.f7(text 'foo');
+ f7  
+-----
+ foo
+(1 row)
+
+select pg_temp.f7(json '{"foo":1}');
+    f7     
+-----------
+ {"foo":1}
+(1 row)
+
+select pg_temp.f7(xml '<foo>bar</foo>');
+       f7       
+----------------
+ <foo>bar</foo>
+(1 row)
+
+select pg_temp.f7(varchar 'foo');
+ f7  
+-----
+ foo
+(1 row)
+
+select 'x',pg_temp.f7('foo'::char(20)),'x';
+ ?column? |          f7          | ?column? 
+----------+----------------------+----------
+ x        | foo                  | x
+(1 row)
+
+select pg_temp.f7(cstring 'foo');
+ f7  
+-----
+ foo
+(1 row)
+
+select pg_temp.f7(name 'foo');
+ f7  
+-----
+ foo
+(1 row)
+
+select pg_temp.f7(bytea 'foo\000bar');
+        f7        
+------------------
+ \x666f6f00626172
+(1 row)
+
+select pg_temp.f7(smallint '2');
+ f7 
+----
+  2
+(1 row)
+
+select pg_temp.f7(integer '2');
+ f7 
+----
+  2
+(1 row)
+
+select pg_temp.f7(bigint '123456789012345');
+       f7        
+-----------------
+ 123456789012345
+(1 row)
+
+select pg_temp.f7(oid '10');
+ f7 
+----
+ 10
+(1 row)
+
+select pg_temp.f7(oid '4294967295');
+     f7     
+------------
+ 4294967295
+(1 row)
+
+select pg_temp.f7(true);
+ f7 
+----
+ t
+(1 row)
+
+select pg_temp.f7(false);
+ f7 
+----
+ f
+(1 row)
+
+select pg_temp.f7(1.5::float8);
+ f7  
+-----
+ 1.5
+(1 row)
+
+select pg_temp.f7(1.5::float4);
+ f7  
+-----
+ 1.5
+(1 row)
+
+-- variadics
+create function pg_temp.f8(a text, variadic b integer[]) returns void language pllua_ng as $$ print(a,type(b),b) $$;
+select pg_temp.f8('foo', 1, 2, 3);
+INFO:  foo	userdata	{1,2,3}
+ f8 
+----
+ 
+(1 row)
+
+create function pg_temp.f9(a integer, variadic b text[]) returns void language pllua_ng as $$ print(a,type(b),b) $$;
+select pg_temp.f9(1, 'foo', 'bar', 'baz');
+INFO:  1	userdata	{foo,bar,baz}
+ f9 
+----
+ 
+(1 row)
+
+create function pg_temp.f10(a integer, variadic "any") returns void language pllua_ng as $$ print(a,...) $$;
+select pg_temp.f10(1, 'foo', 2, 'baz');
+INFO:  1	foo	2	baz
+ f10 
+-----
+ 
+(1 row)
+
+-- SRF code paths
+create function pg_temp.f11(a integer) returns setof text
+  language pllua_ng as $$ return $$;  -- 0 rows
+select * from pg_temp.f11(1);
+ f11 
+-----
+(0 rows)
+
+create function pg_temp.f11b(a integer) returns setof text
+  language pllua_ng as $$ return 'foo' $$;  -- 1 row
+select * from pg_temp.f11b(1);
+ f11b 
+------
+ foo
+(1 row)
+
+create function pg_temp.f12(a integer) returns setof text
+  language pllua_ng as $$ coroutine.yield() $$;  -- 1 row, null
+select * from pg_temp.f12(1);
+ f12 
+-----
+ 
+(1 row)
+
+create function pg_temp.f13(a integer) returns setof text
+  language pllua_ng as $$ for i = 1,a do coroutine.yield("row "..i) end $$;
+select * from pg_temp.f13(4);
+  f13  
+-------
+ row 1
+ row 2
+ row 3
+ row 4
 (4 rows)
 
---
--- various checks of type handling
---
-do language pllua_ng $$ print(pgtype(nil,'ctype3')(1,2)) $$;
-INFO:  (1,2)
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({1,2})) $$;
-INFO:  (,)
-do language pllua_ng $$ print(pgtype(nil,'ctype3')(true,true)) $$;
-ERROR:  pllua: incompatible value type
-do language pllua_ng $$ print(pgtype(nil,'ctype3')("1","2")) $$;
-INFO:  (1,2)
-do language pllua_ng $$ print(pgtype(nil,'ctype3')("fred","jim")) $$;
-ERROR:  invalid input syntax for integer: "fred"
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim=2})) $$;
-INFO:  (1,2)
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim={}})) $$;
-ERROR:  pllua: incompatible value type
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim=nil})) $$;
-INFO:  (1,)
---do language pllua_ng $$ print(pgtype(nil,'dtype')({fred=1,jim=nil})) $$;
-create function tf2() returns setof tdata language pllua_ng as $f$
-  local t = spi.execute("select * from tdata")
-  for i,v in ipairs(t) do coroutine.yield(v) end
-$f$;
-select * from tf2();
- intcol | textcol |             charcol              | varcharcol |           compcol           | dcompcol 
---------+---------+----------------------------------+------------+-----------------------------+----------
-      1 | row 1   | padded with blanks               | not padded | (x,"(y,1111)","(111,11.1)") | (11,1.1)
-      2 | row 2   | padded with blanks               | not padded | (x,"(y,2222)","(222,22.2)") | (22,2.2)
-      3 | row 3   | padded with blanks               | not padded | (x,"(y,3333)","(333,33.3)") | (33,3.3)
-(3 rows)
+create function pg_temp.f14(a integer, out x text, out y integer) returns setof record
+  language pllua_ng as $$ for i = 1,a do coroutine.yield("row "..i, i) end $$;
+select * from pg_temp.f14(4);
+   x   | y 
+-------+---
+ row 1 | 1
+ row 2 | 2
+ row 3 | 3
+ row 4 | 4
+(4 rows)
 
-do language pllua_ng $$ a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2) print(a) $$;
-INFO:  {{{1,2}},{{3,4}},{{5,6}}}
-do language pllua_ng $$ print(#a,#(a[1]),#(a[1][1])) $$;
-INFO:  3	1	2
-do language pllua_ng $$ print(a[3][1][2],a[1][1][1]) $$;
-INFO:  6	1
-do language pllua_ng $$ print(pgtype.int4range(123,456)) $$;
-INFO:  [123,456)
-do language pllua_ng $$ print(pgtype.int4range()) $$;
-INFO:  empty
-do language pllua_ng $$ print(pgtype.int4range(123,456,'(]')) $$;
-INFO:  [124,457)
-do language pllua_ng $$ print(pgtype.int4range(nil,456,'(]')) $$;
-INFO:  (,457)
-do language pllua_ng $$ print(pgtype.int4range(nil,nil)) $$;
-INFO:  (,)
-do language pllua_ng $$ print(pgtype.int4range(123,nil)) $$;
-INFO:  [123,)
--- test numerics
-create function lua_numexec(code text, n1 numeric, n2 numeric)
-  returns text
-  language pllua_ng
-  as $$
-    local f,e = load("return function(n1,n2) return "..code.." end")
-    assert(f,e)
-    f = f()
-    assert(f)
-    return tostring(f(n1,n2))
-$$;
-create function pg_numexec(code text, n1 numeric, n2 numeric)
-  returns text
-  language plpgsql
-  as $$
-    declare
-      r text;
-    begin
-      execute format('select (%s)::text',
-      	      	     regexp_replace(regexp_replace(code, '\mnum\.', '', 'g'),
-		                    '\mn([0-9])', '$\1', 'g'))
-	 into r using n1,n2;
-      return r;
-    end;
-$$;
-do language pllua_ng $$ num = require "pllua.numeric" $$;
-with
-  t as (select code,
-               lua_numexec(code, 5439.123456, -1.9) as lua,
-               pg_numexec(code, 5439.123456, -1.9) as pg
-          from unnest(array[
-		$$ n1 + n2 $$,		$$ n1 - n2 $$,
-		$$ n1 * n2 $$,		$$ n1 / n2 $$,
-		$$ n1 % n2 $$,		$$ n1 ^ n2 $$,
-		$$ (-n1) + n2 $$,	$$ (-n1) - n2 $$,
-		$$ (-n1) * n2 $$,	$$ (-n1) / n2 $$,
-		$$ (-n1) % n2 $$,	$$ (-n1) ^ 3 $$,
-		$$ (-n1) + (-n2) $$,	$$ (-n1) - (-n2) $$,
-		$$ (-n1) * (-n2) $$,    $$ (-n1) / (-n2) $$,
-		$$ (-n1) % (-n2) $$,	$$ (-n1) ^ (-3) $$,
-		$$ (n1) > (n2) $$,	$$ (n1) < (n2) $$,
-		$$ (n1) >= (n2) $$,	$$ (n1) <= (n2) $$,
-		$$ (n1) > (n2*10000) $$,
-		$$ (n1) < (n2*10000) $$,
-		$$ (n1) >= (n2 * -10000) $$,
-		$$ (n1) <= (n2 * -10000) $$,
-		$$ num.round(n1) $$,    $$ num.round(n2) $$,
-		$$ num.round(n1,4) $$,	$$ num.round(n1,-1) $$,
-		$$ num.trunc(n1) $$,	$$ num.trunc(n2) $$,
-		$$ num.trunc(n1,4) $$,	$$ num.trunc(n1,-1) $$,
-		$$ num.floor(n1) $$,	$$ num.floor(n2) $$,
-		$$ num.ceil(n1) $$,	$$ num.ceil(n2) $$,
-		$$ num.abs(n1) $$,	$$ num.abs(n2) $$,
-		$$ num.sign(n1) $$,	$$ num.sign(n2) $$,
-		$$ num.sqrt(n1) $$,
-		$$ num.exp(12.3) $$,
-		$$ num.exp(n2) $$
-  ]) as u(code))
-select (lua = pg) as ok, * from t;
- ok |          code           |              lua               |               pg               
-----+-------------------------+--------------------------------+--------------------------------
- t  |  n1 + n2                | 5437.223456                    | 5437.223456
- t  |  n1 - n2                | 5441.023456                    | 5441.023456
- t  |  n1 * n2                | -10334.3345664                 | -10334.3345664
- t  |  n1 / n2                | -2862.6965557894736842         | -2862.6965557894736842
- t  |  n1 % n2                | 1.323456                       | 1.323456
- t  |  n1 ^ n2                | 0.00000007989048519637487      | 0.00000007989048519637487
- t  |  (-n1) + n2             | -5441.023456                   | -5441.023456
- t  |  (-n1) - n2             | -5437.223456                   | -5437.223456
- t  |  (-n1) * n2             | 10334.3345664                  | 10334.3345664
- t  |  (-n1) / n2             | 2862.6965557894736842          | 2862.6965557894736842
- t  |  (-n1) % n2             | -1.323456                      | -1.323456
- t  |  (-n1) ^ 3              | -160911376260.9068713240072028 | -160911376260.9068713240072028
- t  |  (-n1) + (-n2)          | -5437.223456                   | -5437.223456
- t  |  (-n1) - (-n2)          | -5441.023456                   | -5441.023456
- t  |  (-n1) * (-n2)          | -10334.3345664                 | -10334.3345664
- t  |  (-n1) / (-n2)          | -2862.6965557894736842         | -2862.6965557894736842
- t  |  (-n1) % (-n2)          | -1.323456                      | -1.323456
- t  |  (-n1) ^ (-3)           | -0.0000000000062146            | -0.0000000000062146
- t  |  (n1) > (n2)            | true                           | true
- t  |  (n1) < (n2)            | false                          | false
- t  |  (n1) >= (n2)           | true                           | true
- t  |  (n1) <= (n2)           | false                          | false
- t  |  (n1) > (n2*10000)      | true                           | true
- t  |  (n1) < (n2*10000)      | false                          | false
- t  |  (n1) >= (n2 * -10000)  | false                          | false
- t  |  (n1) <= (n2 * -10000)  | true                           | true
- t  |  num.round(n1)          | 5439                           | 5439
- t  |  num.round(n2)          | -2                             | -2
- t  |  num.round(n1,4)        | 5439.1235                      | 5439.1235
- t  |  num.round(n1,-1)       | 5440                           | 5440
- t  |  num.trunc(n1)          | 5439                           | 5439
- t  |  num.trunc(n2)          | -1                             | -1
- t  |  num.trunc(n1,4)        | 5439.1234                      | 5439.1234
- t  |  num.trunc(n1,-1)       | 5430                           | 5430
- t  |  num.floor(n1)          | 5439                           | 5439
- t  |  num.floor(n2)          | -2                             | -2
- t  |  num.ceil(n1)           | 5440                           | 5440
- t  |  num.ceil(n2)           | -1                             | -1
- t  |  num.abs(n1)            | 5439.123456                    | 5439.123456
- t  |  num.abs(n2)            | 1.9                            | 1.9
- t  |  num.sign(n1)           | 1                              | 1
- t  |  num.sign(n2)           | -1                             | -1
- t  |  num.sqrt(n1)           | 73.750413259859093             | 73.750413259859093
- t  |  num.exp(12.3)          | 219695.98867213773             | 219695.98867213773
- t  |  num.exp(n2)            | 0.1495686192226351             | 0.1495686192226351
-(45 rows)
+create function pg_temp.f15(a integer) returns table(x text, y integer)
+  language pllua_ng as $$ for i = 1,a do coroutine.yield("row "..i, i) end $$;
+select * from pg_temp.f15(4);
+   x   | y 
+-------+---
+ row 1 | 1
+ row 2 | 2
+ row 3 | 3
+ row 4 | 4
+(4 rows)
 
-  
+create function pg_temp.f16(a inout integer, x out text) returns setof record
+  language pllua_ng as $$ for i = 1,a do coroutine.yield(i, "row "..i) end $$;
+select * from pg_temp.f16(4);
+ a |   x   
+---+-------
+ 1 | row 1
+ 2 | row 2
+ 3 | row 3
+ 4 | row 4
+(4 rows)
+
+-- compiler and validator code paths
+do language pllua_ng $$ rdepth = 40 $$;  -- global var hack
+-- This function will try and call itself at a point where it is visible
+-- but has no definition interned yet; the recursive call will likewise
+-- not see an interned definition and recurses again. without any limits
+-- this would hit a stack depth check somewhere; we eat about 3 levels of
+-- C function recursion inside lua each time, and that gets capped at 200.
+-- We don't expect this to be actually useful, the test is just that we
+-- don't crash.
+create function pg_temp.f17(a integer) returns integer language pllua_ng
+  as $$
+    return a
+  end
+  do
+    if rdepth > 0 then
+      rdepth = rdepth - 1
+      _U = spi.execute("select pg_temp.f17(1)")
+    end
+$$;
+select pg_temp.f17(1);
+ f17 
+-----
+   1
+(1 row)
+
+create type pg_temp.t1 as (a integer, b text);
+create function pg_temp.f18(a integer, b text) returns pg_temp.t1
+  language pllua_ng as $$ return a,b $$;
+select * from pg_temp.f18(123,'foo');
+  a  |  b  
+-----+-----
+ 123 | foo
+(1 row)
+
+create function pg_temp.f19(a integer) returns text language pllua_ng as $$ return 'foo '..a $$;
+select pg_temp.f19(2);
+  f19  
+-------
+ foo 2
+(1 row)
+
+create or replace function pg_temp.f19(a integer) returns text language pllua_ng as $$ return 'bar '..a $$;
+select pg_temp.f19(3);
+  f19  
+-------
+ bar 3
+(1 row)
+
+-- trusted interpreter setup
+-- check we really do have different interpreters
+-- (uses table.x rather than _ENV.x because _ENV would be sandboxed)
+do language pllua_ng $$ table.g_trusted = 1 $$;
+do language plluau_ng $$ table.g_untrusted = 1 print('untrusted',table.g_trusted,table.g_untrusted)$$;
+INFO:  untrusted	nil	1
+do language pllua_ng $$ print('trusted',table.g_trusted,table.g_untrusted) $$;
+INFO:  trusted	1	nil
+-- check the global table
+do language pllua_ng $$
+  local gk = { "io", "dofile", "debug" }  -- must not exist
+  for i = 1,#gk do print(gk[i],type(_ENV[gk[i]])) end
+$$;
+INFO:  io	nil
+INFO:  dofile	nil
+INFO:  debug	nil
+do language plluau_ng $$
+  local gk = { "io", "dofile" }  -- probably exist
+  for i = 1,#gk do print(gk[i],type(_ENV[gk[i]])) end
+$$;
+INFO:  io	table
+INFO:  dofile	function
 --end
