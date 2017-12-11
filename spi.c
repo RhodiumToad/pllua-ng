@@ -616,6 +616,28 @@ static int pllua_spi_cursor_open(lua_State *L)
 	name = lua_tostring(L, -1);
 	lua_pop(L, 1);
 
+	/*
+	 * If we don't have a prepared stmt, then extract argtypes where we have
+	 * definite info (i.e. only when the parameter is actually a datum).
+	 */
+	if (!stmt)
+	{
+		for (i = 0; i < nargs; ++i)
+		{
+			argtypes[i] = 0;
+			if (lua_type(L, argbase+i) == LUA_TUSERDATA)
+			{
+				pllua_typeinfo *dt;
+				pllua_datum *d = pllua_toanydatum(L, argbase+i, &dt);
+				if (d)
+				{
+					argtypes[i] = dt->typeoid;
+					lua_pop(L, 1);
+				}
+			}
+		}
+	}
+
 	/* we're going to re-push all the args, better have space */
 	luaL_checkstack(L, 40+nargs, NULL);
 
