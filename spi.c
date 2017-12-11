@@ -1123,10 +1123,15 @@ static int pllua_cursor_isowned(lua_State *L)
  */
 static int pllua_cursor_name(lua_State *L)
 {
-	pllua_checkobject(L, 1, PLLUA_SPI_CURSOR_OBJECT);
+	pllua_spi_cursor *curs = pllua_checkobject(L, 1, PLLUA_SPI_CURSOR_OBJECT);
 
-	lua_getuservalue(L, 1);
-	lua_getfield(L, -1, "name");
+	if (curs->portal && curs->is_live && curs->portal->name)
+		lua_pushstring(L, curs->portal->name);
+	else
+	{
+		lua_getuservalue(L, 1);
+		lua_getfield(L, -1, "name");
+	}
 	return 1;
 }
 
