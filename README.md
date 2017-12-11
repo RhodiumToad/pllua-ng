@@ -4,8 +4,8 @@ pllua_ng
 
 Embeds Lua into PostgreSQL as a procedural language module.
 
-This code is still under development and contains many bugs and much
-missing functionality. However, many of the basics now work.
+This code is still under development and probably contains bugs and
+missing functionality. However, most of the basics now work.
 
 WARNING: interfaces are not stable and are subject to change.
 
@@ -32,7 +32,10 @@ conventions:
       spi.execute("query text", arg, arg, ...)
       spi.prepare("query text", {argtypes}, [{options}])
         - returns a statement object:
-          s:execute(arg, arg, ...)
+          s:execute(arg, arg, ...)  - returns a result table
+          s:rows(arg, arg, ...) - returns iterator
+      spi.rows("query text", args...)
+        - returns iterator
 
 Execution now returns a table with no number keys (#t == 0) in the
 event of no matching rows, whereas the old version returned nil. The
@@ -98,17 +101,21 @@ the pgtype package/function:
 
       pgtype(d)
         -- if d is a pg datum value, returns an object representing its
-	   type
+           type
 
       pgtype(d,n)
         -- if d is a datum, as above; if not, returns the object
-	   describing the type of argument N of the function, or the
-	   return type of the function if N==0
+           describing the type of argument N of the function, or the
+           return type of the function if N==0
 
       pgtype['typename']
       pgtype.typename
       pgtype(nil, 'typename')
         -- parse 'typename' as an SQL type and return the object for it
+
+      pgtype.array.typename
+      pgtype.array['typename']
+        -- return the type for "typename[]" if it exists
 
 The object representing a type can then be called as a constructor for
 datum objects of that type:
@@ -117,6 +124,11 @@ datum objects of that type:
       pgtype['mytablename']({ col1 = val1, col2 = val2, col3 = val3})
       pgtype.numeric(1234)
       pgtype.date('2017-12-01')
+      pgtype.array.integer(1,2,3,4)
+      pgtype.array.integer({1,2,3,4}, 4)        -- dimension mandatory
+      pgtype.array.integer({{1,2},{3,4}},2,2)   -- dimensions mandatory
+      pgtype.numrange(1,2)        -- range type constructor
+      pgtype.numrange(1,2,'[]')   -- range type constructor
 
 or the :fromstring method can be used:
 
@@ -128,6 +140,13 @@ number or name:
       row.foo  -- value of column "foo"
       row[3]   -- note this is attnum=3, which might not be the third
                   column if columns have been dropped
+
+Arrays can be indexed normally as a[1] or a[3][6] etc. By default
+array indexes in PG start at 1, but values starting at other indexes
+can be constructed. One-dimensional arrays (but not higher dimensions)
+can be extended by adding elements with indexes outside the current
+bounds; ranges of unassigned elements between assigned ones contain
+NULL.
 
 tostring() works on any datum and returns its string representation.
 
@@ -227,7 +246,7 @@ are used for NaN.)
 
 Polymorphic and variadic functions are fully supported, including
 VARIADIC "any". VARIADIC of non-"any" type is passed as an array as
-usual (note that arrays don't work yet).
+usual.
 
 Interpreters are shut down on backend exit, meaning that finalizers
 will be run for all objects at this time (including user-defined ones).
