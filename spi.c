@@ -119,7 +119,11 @@ int pllua_spi_prepare_result(lua_State *L)
 	else
 		base = 1 + lua_tointeger(L, 4);
 
-	pllua_newtypeinfo_raw(L, tupdesc->tdtypeid, tupdesc->tdtypmod, tupdesc);
+	lua_pushcfunction(L, pllua_typeinfo_lookup);
+	lua_pushinteger(L, (lua_Integer) tupdesc->tdtypeid);
+	lua_pushinteger(L, (lua_Integer) tupdesc->tdtypmod);
+	lua_call(L, 2, 1);
+
 	for (i = 0; i < nrows; ++i)
 	{
 		HeapTuple htup = tuptab->vals[i];
