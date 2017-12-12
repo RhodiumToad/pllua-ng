@@ -771,7 +771,7 @@ pllua_validate_function(lua_State *L,
 		if (!pllua_acceptable_name(L, func_info->name))
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("PL/Lua function name \"%s\" is not a valud Lua identifier", func_info->name)));
+					 errmsg("PL/Lua function name \"%s\" is not a valid Lua identifier", func_info->name)));
 
 		/* nitpick over the argument and result types. */
 		if (get_typtype(func_info->rettype) == TYPTYPE_PSEUDO

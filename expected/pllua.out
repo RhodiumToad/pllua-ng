@@ -25,9 +25,9 @@ select pg_temp.f2();
 -- module are separate.
 -- validator
 create function pg_temp."bad name"() returns text language pllua_ng as $$ $$;
-ERROR:  PL/Lua function name "bad name" is not a valud Lua identifier
+ERROR:  PL/Lua function name "bad name" is not a valid Lua identifier
 create function pg_temp.f3("bad arg" integer) returns text language pllua_ng as $$ $$;
-ERROR:  PL/Lua argument name "bad arg" is not a valud Lua identifier
+ERROR:  PL/Lua argument name "bad arg" is not a valid Lua identifier
 -- simple params and results (see types.sql for detailed checks)
 create function pg_temp.f4(a integer) returns integer language pllua_ng as $$ return a + 1 $$;
 select pg_temp.f4(1);
