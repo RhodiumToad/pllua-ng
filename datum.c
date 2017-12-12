@@ -3087,6 +3087,7 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
  * rangetype(lo,hi)
  * rangetype(lo,hi,bounds)
  * rangetype()  empty range
+ * rangetype(str)  goes to the normal scalar call
  */
 static int pllua_typeinfo_range_call(lua_State *L)
 {
@@ -3104,7 +3105,15 @@ static int pllua_typeinfo_range_call(lua_State *L)
 	et = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 	Assert(et && et->typeoid == t->rangetype);
 
-	if (nargs == 1 || nargs > 3)
+	if (nargs == 1)
+	{
+		lua_settop(L, 2);
+		lua_pushcfunction(L, pllua_typeinfo_scalar_call);
+		lua_insert(L, 1);
+		lua_call(L, 2, 1);
+		return 1;
+	}
+	else if (nargs > 3)
 		luaL_error(L, "incorrect arguments for range constructor");
 	if (nargs == 3 && !lua_isstring(L, 4))
 		luaL_argerror(L, 3, "string");

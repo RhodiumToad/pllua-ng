@@ -78,6 +78,7 @@ do language pllua_ng $$ print(pgtype.int4range(123,456,'(]')) $$;
 do language pllua_ng $$ print(pgtype.int4range(nil,456,'(]')) $$;
 do language pllua_ng $$ print(pgtype.int4range(nil,nil)) $$;
 do language pllua_ng $$ print(pgtype.int4range(123,nil)) $$;
+do language pllua_ng $$ print(pgtype.int4range('[12,56]')) $$;
 
 create type myenum as enum ('TRUE', 'FALSE', 'FILE_NOT_FOUND');
 

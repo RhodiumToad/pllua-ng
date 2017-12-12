@@ -167,6 +167,8 @@ Function arguments are converted to simple Lua values in the case of:
  + text, varchar, char, json (not jsonb), xml, cstring, name -- all passed
    as strings (with the padding preserved in the case of char(n))
 
+ + enums  -- passed as the text label
+
  + bytea  -- passed as a string without any escaping or conversion
 
  + boolean  -- passed as boolean
