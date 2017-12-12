@@ -843,7 +843,7 @@ pllua_validate_function(lua_State *L,
 			if (argname && argname[0] && !pllua_acceptable_name(L, argname))
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						 errmsg("PL/Lua argument name \"%s\" is not a valud Lua identifier", argname)));
+						 errmsg("PL/Lua argument name \"%s\" is not a valid Lua identifier", argname)));
 		}
 
 		/*
