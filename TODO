@@ -12,5 +12,6 @@ Stuff to do.
 
  * SPI.  **DONE(for now, except subxacts)
 
- * Subxacts.
+ * Subxacts.  **DONE (maybe)
 
+ * Error handling that identifies where the error was.

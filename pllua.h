@@ -31,6 +31,10 @@
 #if LUA_VERSION_NUM == 501
 /* assume Lua 5.1 is actually luajit, and get the luajit version. */
 #include <luajit.h>
+#else
+#if LUA_VERSION_NUM != 503
+#error Only Lua 5.3 and Luajit are supported at this time
+#endif
 #endif
 
 #ifndef LUAJIT_VERSION_NUM
@@ -575,8 +579,13 @@ void pllua_initial_protected_call(pllua_interpreter *interp,
 
 void pllua_init_error(lua_State *L);
 
+int pllua_t_assert(lua_State *L);
+int pllua_t_error(lua_State *L);
+
 int pllua_t_pcall(lua_State *L);
 int pllua_t_xpcall(lua_State *L);
+int pllua_t_lpcall(lua_State *L);
+int pllua_t_lxpcall(lua_State *L);
 
 /* exec.c */
 

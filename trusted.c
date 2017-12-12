@@ -216,8 +216,12 @@ static struct luaL_Reg sandbox_funcs[] = {
 	/* from elog.c */
     { "print", pllua_p_print },
 	/* from error.c */
-    { "pcall", pllua_t_pcall },
-    { "xpcall", pllua_t_xpcall },
+	{ "assert", pllua_t_assert },
+	{ "error", pllua_t_error },
+	{ "pcall", pllua_t_pcall },
+	{ "xpcall", pllua_t_xpcall },
+	{ "lpcall", pllua_t_lpcall },
+	{ "lxpcall", pllua_t_lxpcall },
     {NULL, NULL}
 };
 
@@ -226,9 +230,7 @@ static struct luaL_Reg sandbox_funcs[] = {
  */
 static struct luaL_Reg sandbox_lua_funcs[] = {
 	/* base lib */
-	{ "assert", NULL },
 	{ "collectgarbage", NULL },
-	{ "error", NULL },
 	{ "getmetatable", NULL },
 	{ "ipairs", NULL },
 	{ "next", NULL },
@@ -249,6 +251,16 @@ static struct luaL_Reg sandbox_lua_funcs[] = {
  * List of packages to expose to the sandbox by default
  */
 struct namepair { const char *name; const char *newname; };
+static struct namepair sandbox_tables[] = {
+	{ "coroutine", NULL },
+	{ "string", NULL },
+#if LUA_VERSION_NUM == 503
+	{ "utf8", NULL },
+#endif
+	{ "table", NULL },
+	{ "math", NULL },
+	{ NULL, NULL }
+};
 static struct namepair sandbox_packages[] = {
 	{ "coroutine", NULL },
 	{ "string", NULL },
@@ -400,7 +412,38 @@ pllua_open_trusted(lua_State *L)
 	lua_setfield(L, 2, "require");
 	lua_setfield(L, 2, "package");
 
-	/* require standard modules into the sandbox */
+	/*
+	 * Make copies of standard library packages in the sandbox. We can't just
+	 * use the same tables.
+	 */
+	for (np = sandbox_tables; np->name; ++np)
+	{
+		lua_newtable(L);
+		lua_getglobal(L, np->name);
+		lua_pushnil(L);
+		while (lua_next(L, -2) != 0)
+		{
+			lua_pushvalue(L, -2);
+			lua_insert(L, -2);
+			lua_rawset(L, -5);
+		}
+		lua_pop(L, 1);
+		lua_setfield(L, 2, np->name);
+	}
+	/*
+	 * global "string" is the metatable for all string objects. We don't
+	 * want the sandbox to be able to get it via getmetatable("")
+	 */
+	lua_getglobal(L, "string");
+	lua_newtable(L);
+	lua_setfield(L, -2, "__metatable");
+	lua_pop(L, 1);
+	/*
+	 * require standard modules into the sandbox
+	 *
+	 * NOTE: code "outside" must assume that these are subject to hostile
+	 * modification! So we don't do the standard library packages this way.
+	 */
 	for (np = sandbox_packages; np->name; ++np)
 	{
 		lua_pushcfunction(L, pllua_trusted_allow);
@@ -417,7 +460,6 @@ pllua_open_trusted(lua_State *L)
 		lua_pushstring(L, np->name);
 		lua_call(L, 1, 0);
 	}
-
 	/* create and install the minimal trusted "os" library */
 	luaL_requiref(L, "pllua.trusted.os", pllua_open_trusted_os, 0);
 	lua_pop(L,1);

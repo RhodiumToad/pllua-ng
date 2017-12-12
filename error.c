@@ -2,6 +2,8 @@
 
 #include "pllua.h"
 
+#include "access/xact.h"
+#include "utils/resowner.h"
 
 /*
  * Only used in interpreter startup.
@@ -150,14 +152,15 @@ pllua_rethrow_from_lua(lua_State *L, int rc)
  * (This code is cautious about volatility issues and tends to use it much more
  * often than actually needed.)
  */
-void
-pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
-{
-	MemoryContext emcxt;
-	ErrorData *volatile edata = NULL;
 
-	if (pllua_context == PLLUA_CONTEXT_PG)
-		PG_RE_THROW();
+/*
+ * Absorb a PG error leaving it on the Lua stack. Switches memory contexts!
+ */
+static ErrorData *
+pllua_absorb_pg_error(lua_State *L)
+{
+	ErrorData *volatile edata = NULL;
+	MemoryContext emcxt;
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
 	emcxt = lua_touserdata(L, -1);
@@ -197,8 +200,6 @@ pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 	}
 	PG_END_TRY();
 
-	MemoryContextSwitchTo(mcxt);
-
 	/*
 	 * make a lua object to hold the error. This can throw an out of memory
 	 * error from lua, but we don't want to let that supersede a pg error,
@@ -218,6 +219,19 @@ pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 	}
 	else
 		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+
+	return edata;
+}
+
+void
+pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
+{
+	if (pllua_context == PLLUA_CONTEXT_PG)
+		PG_RE_THROW();
+
+	pllua_absorb_pg_error(L);
+
+	MemoryContextSwitchTo(mcxt);
 
 	lua_error(L);
 }
@@ -387,7 +401,7 @@ static int finishpcall (lua_State *L, int status, lua_KContext extra) {
     return lua_gettop(L) - (int)extra;  /* return all results */
 }
 
-int pllua_t_pcall (lua_State *L) {
+int pllua_t_lpcall (lua_State *L) {
   int status;
   luaL_checkany(L, 1);
   lua_pushboolean(L, 1);  /* first result if no errors */
@@ -404,7 +418,7 @@ int pllua_t_pcall (lua_State *L) {
 ** XXX XXX we need to intercept the error handling function somehow to
 ** ensure it doesn't mess with a pg error.
 */
-int pllua_t_xpcall (lua_State *L) {
+int pllua_t_lxpcall (lua_State *L) {
   int status;
   int n = lua_gettop(L);
   luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
@@ -417,7 +431,7 @@ int pllua_t_xpcall (lua_State *L) {
 
 #else
 
-int pllua_t_pcall (lua_State *L) {
+int pllua_t_lpcall (lua_State *L) {
   int status;
   luaL_checkany(L, 1);
   lua_pushboolean(L, 1);  /* first result if no errors */
@@ -438,7 +452,7 @@ int pllua_t_pcall (lua_State *L) {
 ** XXX XXX we need to intercept the error handling function somehow to
 ** ensure it doesn't mess with a pg error.
 */
-int pllua_t_xpcall (lua_State *L) {
+int pllua_t_lxpcall (lua_State *L) {
   int status;
   int n = lua_gettop(L);
   luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
@@ -461,6 +475,337 @@ int pllua_t_xpcall (lua_State *L) {
 #endif
 
 /*
+ * Wrap the user-visible error() and assert() so that we can see when the user
+ * throws a pg error object into the lua error handler.
+ *
+ * error(err[,levelsup])
+ */
+int
+pllua_t_error(lua_State *L)
+{
+	int level = (int) luaL_optinteger(L, 2, 1);
+
+	lua_settop(L, 1);
+
+	if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
+	{
+		lua_pushvalue(L, 1);
+		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+	}
+	else if (lua_type(L, 1) == LUA_TSTRING && level > 0)
+	{
+		luaL_where(L, level);   /* add extra information */
+		lua_pushvalue(L, 1);
+		lua_concat(L, 2);
+	}
+	return lua_error(L);
+}
+
+/*
+ * assert(cond[,error])
+ */
+int
+pllua_t_assert(lua_State *L)
+{
+	if (lua_toboolean(L, 1))  /* condition is true? */
+		return lua_gettop(L);  /* return all arguments */
+	else
+	{  /* error */
+		luaL_checkany(L, 1);  /* there must be a condition */
+		lua_remove(L, 1);  /* remove it */
+		lua_pushliteral(L, "assertion failed!");  /* default message */
+		lua_settop(L, 1);  /* leave only message (default if no other one) */
+		return pllua_t_error(L);  /* call 'error' */
+	}
+}
+
+/*
+ * Wrap pcall and xpcall for subtransaction handling.
+ *
+ * pcall func,args...
+ * xpcall func,errfunc,args...
+ *
+ * In the case of xpcall, the subxact is aborted and released before the
+ * user-supplied error function is called, though the stack isn't unwound. If
+ * the error function itself throws a Lua error, Lua would replace that with
+ * its own "error in error handling" error; if this happens while catching a PG
+ * error, then we replace it in turn with our own recursive error object which
+ * we rethrow. If the error handling function throws a PG error, we rethrow
+ * that into the outer context.
+ *
+ * This is all aimed at preserving the following invariant: we can only run the
+ * user's Lua code inside an error-free subtransaction.
+ */
+
+typedef struct pllua_subxact
+{
+	volatile struct pllua_subxact *prev;
+	bool				onstack;
+    ResourceOwner		resowner;
+    MemoryContext		mcontext;
+	ResourceOwner		own_resowner;
+} pllua_subxact;
+
+static volatile pllua_subxact *subxact_stack_top = NULL;
+
+static void
+pllua_subxact_abort(lua_State *L)
+{
+	PLLUA_TRY();
+	{
+		volatile pllua_subxact *xa = subxact_stack_top;
+		Assert(xa->onstack);
+		xa->onstack = false;
+		subxact_stack_top = xa->prev;
+		RollbackAndReleaseCurrentSubTransaction();
+		MemoryContextSwitchTo(xa->mcontext);
+		CurrentResourceOwner = xa->resowner;
+	}
+	PLLUA_CATCH_RETHROW();
+}
+
+/*
+ * Wrap the user-supplied error function (which is in upvalue 1)
+ * Upvalue 2 is a recursion flag.
+ *
+ * We don't provide the user with another subxact, though they can
+ * do that themselves. We do have to guarantee that if they throw
+ * their own pg error (and don't catch it in a subxact) then it
+ * gets rethrown outwards eventually.
+ */
+static int
+pllua_intercept_error(lua_State *L)
+{
+	int rc;
+
+	if (!lua_toboolean(L, lua_upvalueindex(2)))
+	{
+		lua_pushboolean(L, 1);
+		lua_replace(L, lua_upvalueindex(2));
+
+		if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
+		{
+			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+			Assert(lua_rawequal(L, 1, -1));
+			lua_pop(L, 1);
+		}
+		else
+		{
+			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+			Assert(lua_isnil(L, -1));
+			lua_pop(L, 1);
+		}
+		/*
+		 * At this point, the error (which could be either a lua error or a PG
+		 * error) has been caught and is on stack as our first arg; if it's a
+		 * pg error, it's been flushed from PG's error handling but is still
+		 * referenced from reg[LAST_ERROR]. The current subxact is not aborted
+		 * yet.
+		 *
+		 * If it's a lua error, we don't actually have to abort the subxact now
+		 * to preserve our invariant, but it would be deeply inconsistent not
+		 * to.
+		 *
+		 * We are still within the subtransaction's pcall at this stage; any
+		 * error will recurse here unless we establish another pcall (which we
+		 * do below).
+		 *
+		 * Abort the subxact and pop it.
+		 */
+		pllua_subxact_abort(L);
+
+		/*
+		 * The original pg error is now only of interest to the error handler
+		 * function and/or the caller of pcall. It's the error handler's
+		 * privilege to throw it away and replace it if they choose to. So we
+		 * deregister it from the registry at this point.
+		 *
+		 * rawsetp can throw error. If it does, we'll recurse (unless it was a
+		 * GC error or some such). The registry may be left unchanged in that
+		 * case; we have to be aware of that (probably very remote) possibility
+		 * elsewhere.
+		 */
+		lua_pushnil(L);
+		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+	}
+
+	/*
+	 * Call the user's error function, with itself (unwrapped) as the error
+	 * handler.
+	 */
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_insert(L, 1);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_insert(L, 1);
+	/* stack: errfunc errfunc errobj */
+	rc = pllua_pcall_nothrow(L, 1, 1, 1);
+	if (rc == LUA_ERRRUN &&
+		pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
+	{
+		/*
+		 * PG error from within the error handler. This means that we just
+		 * broke the subtransaction that was the parent of the one we're in
+		 * now. The new error should already be in the registry.
+		 */
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+		Assert(lua_rawequal(L, -2, -1));
+		lua_pop(L, 1);
+		/*
+		 * the pcall wrapper itself will rethrow, since we can't rethrow from
+		 * here without recursing
+		 */
+		return 1;
+	}
+	/* stack: errfunc newerrobj */
+	return 1;
+}
+
+/*
+ * pcall(func,args...)
+ * xpcall(func,errfunc,args...)
+ *
+ * returns either  true, ...  on success
+ * or  false, errobj   on error
+ *
+ * We don't check "func" except for existence - if it's not a function then the
+ * error will happen inside the catch. errfunc must be a function though.
+ */
+static int
+pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
+{
+	volatile pllua_subxact xa;
+	MemoryContext oldcontext = CurrentMemoryContext;
+	volatile int rc;
+
+	luaL_checkany(L, 1);
+
+	if (is_xpcall)
+	{
+		luaL_checktype(L, 2, LUA_TFUNCTION);
+		/* intercept the error func */
+		lua_pushvalue(L, 2);
+		lua_pushboolean(L, 0);
+		lua_pushcclosure(L, pllua_intercept_error, 2);
+		lua_replace(L, 2);
+		/* set up stack for return */
+		lua_pushboolean(L, 1);
+		lua_pushvalue(L, 1);
+		/* func errfunc args... true func */
+		lua_insert(L, 3);
+		/* func errfunc func args... true */
+		lua_insert(L, 3);
+		/* func errfunc true func args... */
+	}
+	else
+	{
+		lua_pushboolean(L, 1);
+		lua_insert(L, 1);
+		/* true func args ... */
+	}
+
+	ASSERT_LUA_CONTEXT;
+
+	pllua_setcontext(PLLUA_CONTEXT_PG);
+	PG_TRY();
+	{
+		xa.resowner = CurrentResourceOwner;
+		xa.mcontext = oldcontext;
+		xa.onstack = false;
+		xa.prev = subxact_stack_top;
+		xa.own_resowner = NULL;
+
+		BeginInternalSubTransaction(NULL);
+
+		xa.onstack = true;
+		xa.own_resowner = CurrentResourceOwner;
+		subxact_stack_top = &xa;
+
+		rc = pllua_pcall_nothrow(L,
+								 lua_gettop(L) - (is_xpcall ? 4 : 2),
+								 LUA_MULTRET,
+								 (is_xpcall ? 2 : 0));
+
+		if (rc == LUA_OK)
+		{
+			/* Commit the inner transaction, return to outer xact context */
+			ReleaseCurrentSubTransaction();
+			MemoryContextSwitchTo(oldcontext);
+			CurrentResourceOwner = xa.resowner;
+
+			Assert(subxact_stack_top == &xa);
+			subxact_stack_top = xa.prev;
+		}
+		else if (xa.onstack)
+			pllua_subxact_abort(L);
+	}
+	PG_CATCH();
+	{
+		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		/* absorb the error and get out of pg's error handling */
+		pllua_absorb_pg_error(L);
+		if (xa.onstack)
+			pllua_subxact_abort(L);
+		/*
+		 * Can only get here if begin or release of the subxact threw an error.
+		 * (We assume that release of a subxact can only result in aborting it
+		 * instead.) Treat this as an error within the parent context.
+		 */
+		MemoryContextSwitchTo(oldcontext);
+		lua_error(L);
+	}
+	PG_END_TRY();
+	pllua_setcontext(PLLUA_CONTEXT_LUA);
+
+	if (rc == LUA_OK)
+	{
+		/*
+		 * Normal return.
+		 *
+		 * For pcall, everything on the stack is the return value.
+		 *
+		 * For xpcall, ignore two stack slots.
+		 */
+
+		/*
+		 * something is wrong if there's a pg error still in the registry at
+		 * this point.
+		 */
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+		Assert(lua_rawequal(L, -2, -1));
+		lua_pop(L, 1);
+
+		return lua_gettop(L) - (is_xpcall ? 2 : 0);
+	}
+
+	/*
+	 * Error object is on stack top. But if there's a PG error left in the
+	 * registry, then that takes precedence; we have to rethrow it to an outer
+	 * level.
+	 */
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+	if (!lua_isnil(L, -1))
+		pllua_rethrow_from_lua(L, LUA_ERRERR);
+	lua_pop(L, 1);
+
+	lua_pushboolean(L, 0);
+	lua_insert(L, -2);
+	return 2;
+}
+
+int
+pllua_t_pcall(lua_State *L)
+{
+	return pllua_t_pcall_guts(L, false);
+}
+
+int
+pllua_t_xpcall(lua_State *L)
+{
+	return pllua_t_pcall_guts(L, true);
+}
+
+
+/*
  * module init
  */
 static struct luaL_Reg errobj_mt[] = {
@@ -469,8 +814,12 @@ static struct luaL_Reg errobj_mt[] = {
 };
 
 static struct luaL_Reg errfuncs[] = {
+	{ "assert", pllua_t_assert },
+	{ "error", pllua_t_error },
 	{ "pcall", pllua_t_pcall },
 	{ "xpcall", pllua_t_xpcall },
+	{ "lpcall", pllua_t_lpcall },
+	{ "lxpcall", pllua_t_lxpcall },
 	{ NULL, NULL }
 };
 
@@ -483,6 +832,8 @@ void pllua_init_error(lua_State *L)
 	lua_pushlightuserdata(L, NULL);
 	lua_call(L, 1, 1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+	lua_pushnil(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
 
 	lua_pushglobaltable(L);
 	luaL_setfuncs(L, errfuncs, 0);
