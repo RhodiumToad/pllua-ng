@@ -771,7 +771,7 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 		 * this point.
 		 */
 		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
-		Assert(lua_rawequal(L, -2, -1));
+		Assert(lua_isnil(L, -1));
 		lua_pop(L, 1);
 
 		return lua_gettop(L) - (is_xpcall ? 2 : 0);
