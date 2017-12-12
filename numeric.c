@@ -169,7 +169,7 @@ pllua_numeric_handler(lua_State *L)
 	lua_Integer	i2 = !d2 ? lua_tointegerx(L, 2, &isint2) : 0;
 	lua_Number	n2 = (!d2 && !isint2) ? lua_tonumberx(L, 2, &isnum2) : 0;
 	Datum		val1;
-	Datum		val2;
+	Datum		val2 = (Datum)0;
 	bool		free_val1 = !d1;
 	bool		free_val2 = !d2;
 

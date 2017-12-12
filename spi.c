@@ -350,9 +350,11 @@ static int pllua_spi_prepare(lua_State *L)
 
 	PLLUA_TRY();
 	{
+		pllua_spi_statement *stmt;
+
 		pllua_spi_enter(L);
 
-		pllua_spi_statement *stmt = pllua_spi_make_statement(L, str, nargs, argtypes, opts);
+		stmt = pllua_spi_make_statement(L, str, nargs, argtypes, opts);
 
 		/* reparent everything */
 		SPI_keepplan(stmt->plan);
@@ -372,7 +374,6 @@ static int pllua_spi_prepare(lua_State *L)
 		for(i = 0; i < stmt->nparams; ++i)
 		{
 			void **pt;
-			pllua_typeinfo *t;
 
 			lua_pushcfunction(L, pllua_typeinfo_lookup);
 			lua_pushinteger(L, (lua_Integer) stmt->param_types[i]);
@@ -380,7 +381,6 @@ static int pllua_spi_prepare(lua_State *L)
 			pt = pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 			if (!pt)
 				luaL_error(L, "unexpected type in paramtypes list: %d", (lua_Integer) stmt->param_types[i]);
-			t = *pt;
 
 			lua_rawseti(L, -2, i+1);
 		}

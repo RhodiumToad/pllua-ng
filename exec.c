@@ -390,7 +390,6 @@ pllua_call_trigger(lua_State *L)
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 	TriggerData *td = (TriggerData *) fcinfo->context;
-	pllua_func_activation *fact;
 	int			nstack;
 	int			nargs;
 
@@ -400,7 +399,7 @@ pllua_call_trigger(lua_State *L)
 	pllua_trigger_begin(L, td);
 
 	/* pushes the activation on the stack */
-	fact = pllua_validate_and_push(L, fcinfo, act->trusted);
+	pllua_validate_and_push(L, fcinfo, act->trusted);
 
 	/* stack mark for result processing */
 	nstack = lua_gettop(L);

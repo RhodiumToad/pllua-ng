@@ -561,7 +561,7 @@ int pllua_typeinfo_parsetype(lua_State *L);
 
 int pllua_p_print (lua_State *L);
 void pllua_init_error_functions(lua_State *L);
-void pllua_debug_lua(lua_State *L, const char *msg, ...);
+void pllua_debug_lua(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
 
 /* error.c */
 int pllua_panic(lua_State *L);

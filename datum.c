@@ -510,8 +510,8 @@ static int pllua_datum_gc(lua_State *L)
  */
 pllua_datum *pllua_todatum(lua_State *L, int nd, int td)
 {
-	td = lua_absindex(L, td);
 	void *p = lua_touserdata(L, nd);
+	td = lua_absindex(L, td);
 	if (p != NULL)
 	{
 		if (lua_getmetatable(L, nd))
@@ -1991,7 +1991,6 @@ int pllua_typeinfo_parsetype(lua_State *L)
 {
 	const char *str = luaL_checkstring(L, 1);
 	volatile Oid ret_oid = InvalidOid;
-	volatile int32 ret_typmod = -1;
 
 	ASSERT_LUA_CONTEXT;
 
@@ -2007,7 +2006,6 @@ int pllua_typeinfo_parsetype(lua_State *L)
 		 */
 		parseTypeString(str, &oid, &typmod, true);
 		ret_oid = oid;
-		ret_typmod = typmod;
 	}
 	PLLUA_CATCH_RETHROW();
 
@@ -3425,7 +3423,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
 		Oid coltype = att->atttypid;
 		int32 coltypmod = att->atttypmod;
-		pllua_datum *d;
+		pllua_datum *d = NULL;
 		pllua_typeinfo *argt;
 
 		values[i] = (Datum)-1;
@@ -3473,7 +3471,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 			values[i] = d->value;
 			isnull[i] = false;
 		}
-		if (coltype != RECORDOID && coltypmod >= 0 && coltypmod != d->typmod)
+		if (coltype != RECORDOID && coltypmod >= 0 && (!d || coltypmod != d->typmod))
 			pllua_typeinfo_raw_coerce(L, &values[i], &isnull[i], argt, coltypmod);
 		lua_pop(L,1);
 	}
