@@ -64,12 +64,7 @@ select pg_temp.f7(json '{"foo":1}');
  {"foo":1}
 (1 row)
 
-select pg_temp.f7(xml '<foo>bar</foo>');
-       f7       
-----------------
- <foo>bar</foo>
-(1 row)
-
+--select pg_temp.f7(xml '<foo>bar</foo>'); -- don't bother with this, might be compiled out
 select pg_temp.f7(varchar 'foo');
  f7  
 -----

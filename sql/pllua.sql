@@ -38,7 +38,7 @@ select pg_temp.f6('foo',1);
 create function pg_temp.f7(a anyelement) returns anyelement language pllua_ng as $$ return a $$;
 select pg_temp.f7(text 'foo');
 select pg_temp.f7(json '{"foo":1}');
-select pg_temp.f7(xml '<foo>bar</foo>');
+--select pg_temp.f7(xml '<foo>bar</foo>'); -- don't bother with this, might be compiled out
 select pg_temp.f7(varchar 'foo');
 select 'x',pg_temp.f7('foo'::char(20)),'x';
 select pg_temp.f7(cstring 'foo');
