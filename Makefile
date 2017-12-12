@@ -11,6 +11,8 @@ LUALIB ?= -L/usr/local/lib -llua-5.3
 # LuaJIT
 #LUA_INCDIR = /usr/local/include/luajit-2.0
 #LUALIB = -L/usr/local/lib -lluajit-5.1
+#LUA_INCDIR = /usr/local/include/luajit-2.1
+#LUALIB = -L/usr/local/lib -lluajit-5.1
 
 # Debian/Ubuntu
 #LUA_INCDIR = /usr/include/lua5.1

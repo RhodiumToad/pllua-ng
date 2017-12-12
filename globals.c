@@ -44,6 +44,22 @@ char PLLUA_TRUSTED_SANDBOX_LOADED[] = "sandbox loaded modules";
 char PLLUA_TRUSTED_SANDBOX_ALLOW[] = "sandbox allowed modules";
 
 #if LUA_VERSION_NUM == 501
+int pllua_getsubtable(lua_State *L, int i, const char *name)
+{
+	int abs_i = lua_absindex(L, i);
+	luaL_checkstack(L, 3, "not enough stack slots");
+	lua_pushstring(L, name);
+	lua_gettable(L, abs_i);
+	if (lua_istable(L, -1))
+		return 1;
+	lua_pop(L, 1);
+	lua_newtable(L);
+	lua_pushstring(L, name);
+	lua_pushvalue(L, -2);
+	lua_settable(L, abs_i);
+	return 0;
+}
+#if LUAJIT_VERSION_NUM < 20100
 /*
  * Lua compat funcs
  */
@@ -60,21 +76,8 @@ void pllua_setfuncs(lua_State *L, const luaL_Reg *l, int nup)
 	}
 	lua_pop(L, nup);  /* remove upvalues */
 }
-int pllua_getsubtable(lua_State *L, int i, const char *name)
-{
-	int abs_i = lua_absindex(L, i);
-	luaL_checkstack(L, 3, "not enough stack slots");
-	lua_pushstring(L, name);
-	lua_gettable(L, abs_i);
-	if (lua_istable(L, -1))
-		return 1;
-	lua_pop(L, 1);
-	lua_newtable(L);
-	lua_pushstring(L, name);
-	lua_pushvalue(L, -2);
-	lua_settable(L, abs_i);
-	return 0;
-}
+#endif
+
 void pllua_requiref(lua_State *L, const char *modname,
 					lua_CFunction openf, int glb)
 {

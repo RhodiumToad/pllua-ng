@@ -28,6 +28,15 @@
 
 /* Lua cruft */
 
+#if LUA_VERSION_NUM == 501
+/* assume Lua 5.1 is actually luajit, and get the luajit version. */
+#include <luajit.h>
+#endif
+
+#ifndef LUAJIT_VERSION_NUM
+#define LUAJIT_VERSION_NUM 0
+#endif
+
 #define PLLUA_LOCALVAR "_U"
 
 #define pllua_pushcfunction(L_,f_) \
@@ -79,6 +88,8 @@ static inline void lua_seti(lua_State *L, int nd, lua_Integer i)
 #define lua_gettable(L_,nd_) ((lua_gettable)(L_,nd_),lua_type(L_, -1))
 #define luaL_getmetafield(L_,nd_,f_) ((luaL_getmetafield)(L_,nd_,f_) ? lua_type(L_, -1) : LUA_TNIL)
 #define lua_resume(L_,from_,nargs_) ((lua_resume)(L_,nargs_))
+/* luajit 2.1's version of this one is ok. */
+#if LUAJIT_VERSION_NUM < 20100
 static inline lua_Number lua_tonumberx(lua_State *L, int i, int *isnum)
 {
 	lua_Number n = lua_tonumber(L, i);
@@ -87,6 +98,12 @@ static inline lua_Number lua_tonumberx(lua_State *L, int i, int *isnum)
 	}
 	return n;
 }
+#endif
+/* but for these we need to kill luajit's version and use ours: */
+#if LUAJIT_VERSION_NUM >= 20100
+#define lua_isinteger pllua_isinteger
+#define lua_tointegerx pllua_tointegerx
+#endif
 static inline bool lua_isinteger(lua_State *L, int nd)
 {
 	if (lua_type(L, nd) == LUA_TNUMBER)
@@ -109,16 +126,20 @@ static inline lua_Integer lua_tointegerx(lua_State *L, int i, int *isnum)
 #define lua_getuservalue(L_,nd_) lua_getfenv(L_,nd_)
 #define lua_setuservalue(L_,nd_) lua_setfenv(L_,nd_)
 #define lua_pushglobaltable(L_) lua_pushvalue((L_), LUA_GLOBALSINDEX)
+#if LUAJIT_VERSION_NUM < 20100
 #define luaL_setfuncs(L_,f_,u_) pllua_setfuncs(L_,f_,u_)
-#define luaL_requiref(L_,m_,f_,g_) pllua_requiref(L_,m_,f_,g_)
-#define luaL_getsubtable(L_,i_,n_) pllua_getsubtable(L_,i_,n_)
-void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int glb);
 void pllua_setfuncs(lua_State *L, const luaL_Reg *reg, int nup);
+#endif
+#define luaL_getsubtable(L_,i_,n_) pllua_getsubtable(L_,i_,n_)
 int pllua_getsubtable(lua_State *L, int i, const char *name);
-#define luaL_newlibtable(L, l) \
+#define luaL_requiref(L_,m_,f_,g_) pllua_requiref(L_,m_,f_,g_)
+void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int glb);
+#ifndef luaL_newlibtable
+#define luaL_newlibtable(L, l)							\
   (lua_createtable((L), 0, sizeof((l))/sizeof(*(l))-1))
 #define luaL_newlib(L, l) \
   (luaL_newlibtable((L), (l)), luaL_register((L), NULL, (l)))
+#endif
 #define LUA_OK 0
 /* these are probably wrong but will do for now */
 #define LUA_MAXINTEGER (INT64CONST(900719925474099))
