@@ -2973,7 +2973,12 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt,
 		{
 			if (TupleDescAttr(dt->tupdesc, i)->attisdropped)
 				continue;
-			lua_geti(L, nuv, i+1);
+			if (lua_geti(L, nuv, i+1) == LUA_TBOOLEAN)
+			{
+				/* we already skipped dropped cols so this must be an null */
+				lua_pop(L, 1);
+				lua_pushnil(L);
+			}
 			++nargs;
 		}
 		lua_call(L, nargs+1, 1);
