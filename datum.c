@@ -2954,7 +2954,8 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt,
 		int nargs;
 		/*
 		 * just push all the exploded parts of the source tuple onto the stack
-		 * and punt it to the general-case code.
+		 * and punt it to the general-case code. Watch out for booleans subbing
+		 * for nulls/dropped cols though!
 		 */
 		luaL_checkstack(L, 10 + dt->natts, NULL);
 		pllua_get_user_field(L, nd, ".deformed");
