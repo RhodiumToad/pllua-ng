@@ -306,14 +306,14 @@ INFO:  trusted	1	nil
 -- check the global table
 do language pllua_ng $$
   local gk = { "io", "dofile", "debug" }  -- must not exist
-  for i = 1,#gk do print(gk[i],type(_ENV[gk[i]])) end
+  for i = 1,#gk do print(gk[i],type(_G[gk[i]])) end
 $$;
 INFO:  io	nil
 INFO:  dofile	nil
 INFO:  debug	nil
 do language plluau_ng $$
   local gk = { "io", "dofile" }  -- probably exist
-  for i = 1,#gk do print(gk[i],type(_ENV[gk[i]])) end
+  for i = 1,#gk do print(gk[i],type(_G[gk[i]])) end
 $$;
 INFO:  io	table
 INFO:  dofile	function

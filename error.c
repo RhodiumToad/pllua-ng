@@ -353,6 +353,7 @@ static int pllua_errobject_gc(lua_State *L)
  * These are lightly tweaked versions of the luaB_ functions.
  */
 
+#if LUA_VERSION_NUM >= 502
 /*
 ** Continuation function for 'pcall' and 'xpcall'. Both functions
 ** already pushed a 'true' before doing the call, so in case of success
@@ -385,6 +386,9 @@ int pllua_t_pcall (lua_State *L) {
 ** Do a protected call with error handling. After 'lua_rotate', the
 ** stack will have <f, err, true, f, [args...]>; so, the function passes
 ** 2 to 'finishpcall' to skip the 2 first values when returning results.
+**
+** XXX XXX we need to intercept the error handling function somehow to
+** ensure it doesn't mess with a pg error.
 */
 int pllua_t_xpcall (lua_State *L) {
   int status;
@@ -396,6 +400,51 @@ int pllua_t_xpcall (lua_State *L) {
   status = lua_pcallk(L, n - 2, LUA_MULTRET, 2, 2, finishpcall);
   return finishpcall(L, status, 2);
 }
+
+#else
+
+int pllua_t_pcall (lua_State *L) {
+  int status;
+  luaL_checkany(L, 1);
+  lua_pushboolean(L, 1);  /* first result if no errors */
+  lua_insert(L, 1);  /* put it in place */
+  status = lua_pcall(L, lua_gettop(L) - 2, LUA_MULTRET, 0);
+  if (status) {  /* error? */
+    lua_pushboolean(L, 0);  /* first result (false) */
+    lua_pushvalue(L, -2);  /* error message */
+	if (pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
+		pllua_rethrow_from_lua(L, status);
+    return 2;  /* return false, msg */
+  }
+  else
+    return lua_gettop(L);  /* return all results */
+}
+
+/*
+** XXX XXX we need to intercept the error handling function somehow to
+** ensure it doesn't mess with a pg error.
+*/
+int pllua_t_xpcall (lua_State *L) {
+  int status;
+  int n = lua_gettop(L);
+  luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
+  lua_pushboolean(L, 1);  /* first result */
+  lua_insert(L, 3);
+  lua_pushvalue(L, 1);  /* function */
+  lua_insert(L, 4);
+  status = lua_pcall(L, n - 2, LUA_MULTRET, 2);
+  if (status) {  /* error? */
+    lua_pushboolean(L, 0);  /* first result (false) */
+    lua_pushvalue(L, -2);  /* error message */
+	if (pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
+		pllua_rethrow_from_lua(L, status);
+    return 2;  /* return false, msg */
+  }
+  else
+    return lua_gettop(L) - 2;  /* return all results */
+}
+
+#endif
 
 /*
  * module init

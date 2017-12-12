@@ -3,7 +3,7 @@
 -- old-pllua compat shims
 do language pllua_ng $$
   function fromstring(t,s) return pgtype(nil,t):fromstring(s) end
-  function setshared(k,v) _ENV[k] = v end
+  function setshared(k,v) _G[k] = v end
   server.execute = spi.execute
   server.rows = spi.rows
   server.prepare = spi.prepare
@@ -149,8 +149,8 @@ SELECT makegreeting(('how', 'who'), '%s, %s!');
 -- array, record output
 CREATE FUNCTION greetingset (how text, who text[])
 RETURNS SETOF greeting AS $$
-  for _, name in ipairs(who) do
-    coroutine.yield{how=how, who=name}
+  for i = 1,#who do
+    coroutine.yield{how=how, who=who[i]}
   end
 $$ LANGUAGE pllua_ng;
 SELECT makegreeting(greetingset, '%s, %s!') FROM

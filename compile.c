@@ -164,7 +164,7 @@ pllua_compile(lua_State *L)
 	if (func_info->trusted)
 	{
 		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-		lua_setupvalue(L, -2, 1);
+		pllua_set_environment(L, -2);
 	}
 	/*
 	 * Run the code to obtain the function value as a result.

@@ -139,11 +139,11 @@ do language pllua_ng $$ print('trusted',table.g_trusted,table.g_untrusted) $$;
 -- check the global table
 do language pllua_ng $$
   local gk = { "io", "dofile", "debug" }  -- must not exist
-  for i = 1,#gk do print(gk[i],type(_ENV[gk[i]])) end
+  for i = 1,#gk do print(gk[i],type(_G[gk[i]])) end
 $$;
 do language plluau_ng $$
   local gk = { "io", "dofile" }  -- probably exist
-  for i = 1,#gk do print(gk[i],type(_ENV[gk[i]])) end
+  for i = 1,#gk do print(gk[i],type(_G[gk[i]])) end
 $$;
 
 --end

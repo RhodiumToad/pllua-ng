@@ -252,7 +252,9 @@ struct namepair { const char *name; const char *newname; };
 static struct namepair sandbox_packages[] = {
 	{ "coroutine", NULL },
 	{ "string", NULL },
+#if LUA_VERSION_NUM == 503
 	{ "utf8", NULL },
+#endif
 	{ "table", NULL },
 	{ "math", NULL },
 	{ "pllua.spi", "spi" },

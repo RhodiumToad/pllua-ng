@@ -78,7 +78,7 @@ void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool userval
 		Assert(t == LUA_TTABLE);
 		lua_setmetatable(L, -2);
 	}
-	if (uservalue)
+	if (uservalue || MANDATORY_USERVALUE)
 	{
 		lua_newtable(L);
 		lua_setuservalue(L, -2);
@@ -118,7 +118,7 @@ void *pllua_newobject(lua_State *L, char *objtype, size_t sz, bool uservalue)
 		Assert(t == LUA_TTABLE);
 		lua_setmetatable(L, -2);
 	}
-	if (uservalue)
+	if (uservalue || MANDATORY_USERVALUE)
 	{
 		lua_newtable(L);
 		lua_setuservalue(L, -2);
@@ -386,10 +386,12 @@ static int pllua_dump_activation(lua_State *L)
 {
 	pllua_func_activation *act = pllua_checkobject(L, 1, PLLUA_ACTIVATION_OBJECT);
 	luaL_Buffer b;
-	char *buf = luaL_buffinitsize(L, &b, 1024);
+	char *buf;
 	int i;
 
-	snprintf(buf, 1024,
+	luaL_buffinit(L, &b);
+	buf = luaL_prepbuffer(&b);
+	snprintf(buf, LUAL_BUFFERSIZE,
 			 "%s"
 			 "func_info: %p  thread: %p  "
 			 "resolved: %d  polymorphic: %d  variadic_call: %d  retset: %d  "
@@ -407,8 +409,8 @@ static int pllua_dump_activation(lua_State *L)
 	{
 		for (i = 0; i < act->nargs; ++i)
 		{
-			buf = luaL_prepbuffsize(&b, 64);
-			snprintf(buf, 64, " %u", (unsigned) act->argtypes[i]);
+			buf = luaL_prepbuffer(&b);
+			snprintf(buf, LUAL_BUFFERSIZE, " %u", (unsigned) act->argtypes[i]);
 			luaL_addsize(&b, strlen(buf));
 		}
 	}

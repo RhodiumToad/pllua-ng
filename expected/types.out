@@ -36,7 +36,7 @@ create function tf1() returns setof tdata language pllua_ng as $f$
 				  baz = { fred = i*111, jim = i*11.1 }
 				},
 		      dcompcol = { fred = i*11, jim = i*1.1 }
-		    });
+		    })
   end
 $f$;
 select * from tf1();

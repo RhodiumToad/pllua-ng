@@ -179,11 +179,11 @@ int pllua_value_from_datum(lua_State *L,
 		case INT4OID:
 			lua_pushinteger(L, (lua_Integer) DatumGetInt32(value));
 			return LUA_TNUMBER;
-
+#ifdef PLLUA_INT8_OK
 		case INT8OID:
 			lua_pushinteger(L, (lua_Integer) DatumGetInt64(value));
 			return LUA_TNUMBER;
-
+#endif
 		default:
 			return LUA_TNONE;
 	}
@@ -340,14 +340,14 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 						else
 							*errstr = "integer value out of range";
 						return true;
-
+#ifdef PLLUA_INT8_OK
 					case INT8OID:
 						if (isint)
 							*result = Int64GetDatum(intval);
 						else
 							*errstr = "bigint out of range";
 						return true;
-
+#endif
 					case NUMERICOID:
 						if (isint)
 							*result = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(intval));
@@ -361,6 +361,54 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 		default:
 			return false;
 	}
+}
+
+/*
+ * make field "field" of the uservalue table of the object at nd
+ * contain the value at the top of the stack (which is popped).
+ *
+ * Install a table in the uservalue if it wasn't already one.
+ */
+static void pllua_set_user_field(lua_State *L, int nd, const char *field)
+{
+	nd = lua_absindex(L, nd);
+	lua_getuservalue(L, nd);
+	if (lua_type(L, -1) != LUA_TTABLE)
+	{
+		lua_pop(L, 1);
+		lua_newtable(L);
+		lua_pushvalue(L, -1);
+		lua_setuservalue(L, nd);
+	}
+	lua_insert(L, -2);
+	lua_pushstring(L, field);
+	lua_insert(L, -2);
+	lua_rawset(L, -3);
+	lua_pop(L, 1);
+}
+
+static int pllua_get_user_field(lua_State *L, int nd, const char *field)
+{
+	nd = lua_absindex(L, nd);
+	lua_getuservalue(L, nd);
+	if (lua_type(L, -1) != LUA_TTABLE)
+	{
+		lua_pop(L, 1);
+		lua_pushnil(L);
+		return LUA_TNIL;
+	}
+	lua_pushstring(L, field);
+	lua_rawget(L, -2);
+	lua_remove(L, -2);
+	return lua_type(L, -1);
+}
+
+/*
+ * Make the datum at "nd" hold a reference to the one on the stack top.
+ */
+static void pllua_datum_reference(lua_State *L, int nd)
+{
+	pllua_set_user_field(L, nd, ".datumref");
 }
 
 /*
@@ -537,6 +585,10 @@ pllua_datum *pllua_newdatum(lua_State *L)
 	pllua_datum *d;
 	pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 	d = lua_newuserdata(L, sizeof(pllua_datum));
+#if MANDATORY_USERVALUE
+	lua_newtable(L);
+	lua_setuservalue(L, -2);
+#endif
 	d->value = (Datum)0;
 	d->typmod = -1;
 	d->need_gc = false;
@@ -722,24 +774,11 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 	int i;
 
 	nd = lua_absindex(L, nd);
-	lua_getuservalue(L, nd);
-	if (!lua_isnoneornil(L, -1))
-	{
-		lua_getfield(L, -1, ".deformed");
-		if (lua_toboolean(L, -1))
-		{
-			lua_pop(L,1);
-			return;
-		}
-		lua_pop(L,1);
-	}
-	else
-	{
-		lua_pop(L,1);
-		lua_createtable(L, t->natts, 8);
-		lua_pushvalue(L, -1);
-		lua_setuservalue(L, nd);
-	}
+	if (pllua_get_user_field(L, nd, ".deformed") == LUA_TTABLE)
+		return;
+	lua_pop(L, 1);
+	lua_createtable(L, t->natts, 8);
+
 	/* stack: table */
 
 	/* actually do the deform */
@@ -808,7 +847,7 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 				 * the uservalue of the new datum points to the old one in order to
 				 * hold a reference
 				 */
-				lua_setuservalue(L, -2);
+				pllua_datum_reference(L, -2);
 			}
 			else
 			{
@@ -843,8 +882,8 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 		lua_setfield(L, -2, "oid");
 	}
 
-	lua_pushboolean(L, 1);
-	lua_setfield(L, -2, ".deformed");
+	lua_pushvalue(L, -1);
+	pllua_set_user_field(L, nd, ".deformed");
 }
 
 /*
@@ -943,7 +982,7 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 					 */
 					pllua_savedatum(L, ed, et);
 					lua_pushnil(L);
-					lua_setuservalue(L, -1);
+					pllua_datum_reference(L, -3);
 				}
 				lua_pop(L, 1);
 			}
@@ -963,7 +1002,7 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 			d->modified = true;
 			d->value = (Datum)0;
 			lua_pushnil(L);
-			lua_setuservalue(L, nd);
+			pllua_datum_reference(L, nd);
 		}
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -1204,10 +1243,8 @@ static void	pllua_datum_array_make_idxlist(lua_State *L, int nd, int *idxlist, i
 	for (i = 0; i < n; ++i)
 		nlist[2+i] = idxlist[2+i];
 	nlist[2+i] = newidx;
-	lua_getuservalue(L, -1);
 	lua_pushvalue(L, nd);
-	lua_setfield(L, -2, "datum");
-	lua_pop(L, 1);
+	pllua_set_user_field(L, -2, "datum");
 }
 
 static int pllua_datum_idxlist_index(lua_State *L)
@@ -1216,8 +1253,7 @@ static int pllua_datum_idxlist_index(lua_State *L)
 	int idx = luaL_checkinteger(L, 2);
 	int n = idxlist[0];
 
-	lua_getuservalue(L, 1);
-	lua_getfield(L, -1, "datum");
+	pllua_get_user_field(L, 1, "datum");
 	pllua_datum_array_make_idxlist(L, lua_absindex(L, -1), idxlist, idx);
 
 	if (n + 1 >= idxlist[1])
@@ -1232,9 +1268,8 @@ static int pllua_datum_idxlist_newindex(lua_State *L)
 	int idx = luaL_checkinteger(L, 2);
 	int n = idxlist[0];
 
-	lua_getuservalue(L, 1);
-	lua_getfield(L, -1, "datum");
-	pllua_datum_array_make_idxlist(L, -1, idxlist, idx);
+	pllua_get_user_field(L, 1, "datum");
+	pllua_datum_array_make_idxlist(L, lua_absindex(L, -1), idxlist, idx);
 
 	if (n + 1 >= idxlist[1])
 	{
@@ -1248,8 +1283,7 @@ static int pllua_datum_idxlist_len(lua_State *L)
 {
 	pllua_checkobject(L, 1, PLLUA_IDXLIST_OBJECT);
 
-	lua_getuservalue(L, 1);
-	lua_getfield(L, -1, "datum");
+	pllua_get_user_field(L, 1, "datum");
 	if (luaL_getmetafield(L, -1, "__len") == LUA_TNIL)
 		luaL_error(L, "array len error");
 	lua_pushvalue(L, -2);
@@ -1437,7 +1471,7 @@ static int pllua_datum_array_len(lua_State *L)
 	if (!t->is_array)
 		luaL_error(L, "datum is not an array type");
 
-	if (!idxlist && !lua_rawequal(L, 1, 2))
+	if (!idxlist && !lua_isnoneornil(L, 2) && !lua_rawequal(L, 1, 2))
 		luaL_argerror(L, 2, "incorrect type");
 
 	/* Switch to expanded representation if we haven't already. */
@@ -1919,7 +1953,9 @@ static int pllua_dump_typeinfo(lua_State *L)
 	void **p = pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *obj = *p;
 	luaL_Buffer b;
-	char *buf = luaL_buffinitsize(L, &b, 1024);
+	char *buf;
+
+	luaL_buffinit(L, &b);
 
 	if (!obj)
 	{
@@ -1928,7 +1964,8 @@ static int pllua_dump_typeinfo(lua_State *L)
 		return 1;
 	}
 
-	snprintf(buf, 1024,
+	buf = luaL_prepbuffer(&b);
+	snprintf(buf, LUAL_BUFFERSIZE,
 			 "oid: %u  typmod: %d  natts: %d  hasoid: %c  revalidate: %c  "
 			 "tupdesc: %p  reloid: %u  typlen: %d  typbyval: %c  "
 			 "typalign: %c  typdelim: %c  typioparam: %u  outfuncid: %u",
@@ -2508,15 +2545,15 @@ static int pllua_tupconv_new(lua_State *L)
 {
 	pllua_typeinfo *from_t = *pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *to_t = *pllua_checkrefobject(L, 2, PLLUA_TYPEINFO_OBJECT);
-	void **p = pllua_newrefobject(L, PLLUA_TUPCONV_OBJECT, NULL, false);
+	void **p = pllua_newrefobject(L, PLLUA_TUPCONV_OBJECT, NULL, true);
 	pllua_tupconv *volatile obj = NULL;
 
 	if (!from_t->tupdesc || !to_t->tupdesc)
 		luaL_error(L, "pllua_tupconv: type is not a row type");
 
-	/* uservalue of a tupconv is its destination typeinfo */
+	/* uservalue of a tupconv points to its destination typeinfo */
 	lua_pushvalue(L, 2);
-	lua_setuservalue(L, -2);
+	pllua_set_user_field(L, -2, "dest");
 
 	PLLUA_TRY();
 	{
@@ -2569,7 +2606,7 @@ static int pllua_tupconv_call(lua_State *L)
 		|| dt->tupdesc->tdtypmod != obj->indesc->tdtypmod)
 		luaL_error(L, "pllua_tupconv: unexpected source type");
 
-	lua_getuservalue(L, 1);
+	pllua_get_user_field(L, 1, "dest");
 	totype = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 
 	/* sanity - dest type must match conversion result type */
@@ -2641,8 +2678,7 @@ static int pllua_typeinfo_convert_tuple(lua_State *L)
 	pllua_checkrefobject(L, 2, PLLUA_TYPEINFO_OBJECT);
 	pllua_checkrefobject(L, 3, PLLUA_TYPEINFO_OBJECT);
 
-	lua_getuservalue(L, 2);
-	lua_getfield(L, -1, "tupconv");
+	pllua_get_user_field(L, 2, "tupconv");
 	lua_pushvalue(L, 3);
 	lua_gettable(L, -2);
 
@@ -2845,7 +2881,7 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt,
 		 * and punt it to the general-case code.
 		 */
 		luaL_checkstack(L, 10 + dt->natts, NULL);
-		lua_getuservalue(L, nd);
+		pllua_get_user_field(L, nd, ".deformed");
 		nuv = lua_absindex(L, -1);
 		lua_pushcfunction(L, pllua_typeinfo_row_call);
 		lua_pushvalue(L, nt);
@@ -2987,9 +3023,7 @@ static int pllua_typeinfo_range_call(lua_State *L)
 
 	lua_settop(L, 4);
 
-	lua_getuservalue(L, 1);
-	lua_getfield(L, -1, "elemtypeinfo");
-	lua_remove(L, -2);
+	pllua_get_user_field(L, 1, "elemtypeinfo");
 
 	et = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 	Assert(et && et->typeoid == t->rangetype);
@@ -3086,9 +3120,7 @@ static int pllua_typeinfo_array_call(lua_State *L)
 	int dims[MAXDIM];
 	int i;
 
-	lua_getuservalue(L, 1);
-	lua_getfield(L, -1, "elemtypeinfo");
-	lua_remove(L, -2);
+	pllua_get_user_field(L, 1, "elemtypeinfo");
 
 	et = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 	Assert(et && !et->is_array && et->typeoid == t->elemtype);

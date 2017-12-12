@@ -461,7 +461,7 @@ pllua_call_inline(lua_State *L)
 	if (act->trusted)
 	{
 		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-		lua_setupvalue(L, -2, 1);
+		pllua_set_environment(L, -2);
 	}
 	lua_call(L, 0, 0);
 

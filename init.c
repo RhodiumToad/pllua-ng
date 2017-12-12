@@ -265,7 +265,7 @@ pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashvalue)
  * lua if one needs to monitor usage.
  */
 static void *
-pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize)
+pllua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 {
 	void	   *nptr;
 
@@ -471,7 +471,11 @@ pllua_newstate(bool trusted,
 								  8*1024,
 								  8*1024);
 
+#if LUA_VERSION_NUM == 501
+	L = luaL_newstate();
+#else
 	L = lua_newstate(pllua_alloc, NULL);
+#endif
 
 	if (!L)
 		elog(ERROR, "Out of memory creating Lua interpreter");

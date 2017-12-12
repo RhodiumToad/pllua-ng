@@ -33,6 +33,113 @@
 #define pllua_pushcfunction(L_,f_) \
 	do { int rc = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_)); Assert(rc==LUA_TFUNCTION); } while(0)
 
+#if LUA_VERSION_NUM == 501
+/*
+ * Parts of the lua 5.1 compatibility cruft here is derived from the
+ * lua-compat-5.3 project, which is licensed under the same terms as this
+ * project and carries the following copyright:
+ *
+ * Copyright (c) 2015 Kepler Project.
+ */
+static inline int lua_absindex(lua_State *L, int nd)
+{
+	return (nd < 0 && nd > LUA_REGISTRYINDEX) ? nd + lua_gettop(L) + 1 : nd;
+}
+static inline int lua_rawgetp(lua_State *L, int nd, void *p)
+{
+	int tnd = lua_absindex(L, nd);
+	lua_pushlightuserdata(L, p);
+	lua_rawget(L, tnd);
+	return lua_type(L, -1);
+}
+static inline void lua_rawsetp(lua_State *L, int nd, void *p)
+{
+	int tnd = lua_absindex(L, nd);
+	lua_pushlightuserdata(L, p);
+	lua_insert(L, -2);
+	lua_rawset(L, tnd);
+}
+static inline int lua_geti(lua_State *L, int nd, lua_Integer i)
+{
+	int tnd = lua_absindex(L, nd);
+	lua_pushinteger(L, i);
+	lua_gettable(L, tnd);
+	return lua_type(L, -1);
+}
+static inline void lua_seti(lua_State *L, int nd, lua_Integer i)
+{
+	int tnd = lua_absindex(L, nd);
+	lua_pushinteger(L, i);
+	lua_insert(L, -2);
+	lua_settable(L, tnd);
+}
+#define lua_rawgeti(L_,nd_,i_) ((lua_rawgeti)(L_,nd_,i_),lua_type(L_, -1))
+#define lua_rawget(L_,nd_) ((lua_rawget)(L_,nd_),lua_type(L_, -1))
+#define lua_getfield(L_,nd_,i_) ((lua_getfield)(L_,nd_,i_),lua_type(L_, -1))
+#define lua_gettable(L_,nd_) ((lua_gettable)(L_,nd_),lua_type(L_, -1))
+#define luaL_getmetafield(L_,nd_,f_) ((luaL_getmetafield)(L_,nd_,f_) ? lua_type(L_, -1) : LUA_TNIL)
+#define lua_resume(L_,from_,nargs_) ((lua_resume)(L_,nargs_))
+static inline lua_Number lua_tonumberx(lua_State *L, int i, int *isnum)
+{
+	lua_Number n = lua_tonumber(L, i);
+	if (isnum != NULL) {
+		*isnum = (n != 0 || lua_isnumber(L, i));
+	}
+	return n;
+}
+static inline bool lua_isinteger(lua_State *L, int nd)
+{
+	if (lua_type(L, nd) == LUA_TNUMBER)
+	{
+		lua_Number n = lua_tonumber(L, nd);
+		lua_Integer i = lua_tointeger(L, nd);
+		if (i == n)
+			return 1;
+	}
+	return 0;
+}
+static inline lua_Integer lua_tointegerx(lua_State *L, int i, int *isnum)
+{
+	lua_Integer n = lua_tointeger(L, i);
+	if (isnum != NULL) {
+		*isnum = (n == lua_tonumber(L, i));
+	}
+	return n;
+}
+#define lua_getuservalue(L_,nd_) lua_getfenv(L_,nd_)
+#define lua_setuservalue(L_,nd_) lua_setfenv(L_,nd_)
+#define lua_pushglobaltable(L_) lua_pushvalue((L_), LUA_GLOBALSINDEX)
+#define luaL_setfuncs(L_,f_,u_) pllua_setfuncs(L_,f_,u_)
+#define luaL_requiref(L_,m_,f_,g_) pllua_requiref(L_,m_,f_,g_)
+#define luaL_getsubtable(L_,i_,n_) pllua_getsubtable(L_,i_,n_)
+void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int glb);
+void pllua_setfuncs(lua_State *L, const luaL_Reg *reg, int nup);
+int pllua_getsubtable(lua_State *L, int i, const char *name);
+#define luaL_newlibtable(L, l) \
+  (lua_createtable((L), 0, sizeof((l))/sizeof(*(l))-1))
+#define luaL_newlib(L, l) \
+  (luaL_newlibtable((L), (l)), luaL_register((L), NULL, (l)))
+#define LUA_OK 0
+/* these are probably wrong but will do for now */
+#define LUA_MAXINTEGER (INT64CONST(900719925474099))
+#define LUA_MININTEGER (-INT64CONST(900719925474099))
+#define pllua_set_environment(L_,i_) lua_setfenv(L, i_)
+#else
+#define pllua_set_environment(L_,i_) lua_setupvalue(L_, i_, 1)
+#endif
+
+#if LUA_VERSION_NUM == 503
+#if LUA_MAXINTEGER == PG_INT64_MAX
+#define PLLUA_INT8_OK
+#endif
+#endif
+
+#if LUA_VERSION_NUM == 501
+#define MANDATORY_USERVALUE 1
+#else
+#define MANDATORY_USERVALUE 0
+#endif
+
 /*
  * Track what error handling context we're in, to try and detect any violations
  * of error-handling protocol (lua errors thrown through pg catch blocks and
