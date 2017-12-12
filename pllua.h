@@ -379,6 +379,7 @@ typedef struct pllua_typeinfo
 	bool		nested;		/* may contain nested explodable values */
 	bool		is_array;
 	bool		is_range;
+	bool		is_enum;
 
 	bool		revalidate;
 
@@ -533,6 +534,10 @@ void pllua_savedatum(lua_State *L,
 int pllua_value_from_datum(lua_State *L,
 						   Datum value,
 						   Oid typeid);
+int pllua_datum_transform_fromsql(lua_State *L,
+								  Datum value,
+								  int nt,
+								  pllua_typeinfo *t);
 bool pllua_datum_from_value(lua_State *L, int nd,
 							Oid typeid,
 							Datum *result,

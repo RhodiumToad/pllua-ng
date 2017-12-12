@@ -205,8 +205,12 @@ pllua_push_args(lua_State *L,
 				luaL_error(L, "failed to find typeinfo");
 			p = pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 			argtinfo[i] = *p;
-			d = pllua_newdatum(L);
-			d->value = value;
+
+			if (pllua_datum_transform_fromsql(L, value, -1, *p) == LUA_TNONE)
+			{
+				d = pllua_newdatum(L);
+				d->value = value;
+			}
 			lua_remove(L,-2);
 		}
 		else

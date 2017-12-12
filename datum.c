@@ -62,6 +62,8 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 								  IOFuncSelector whichfunc);
 static int pllua_tupconv_lookup(lua_State *L);
 
+static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t);
+
 /*
  * IMPORTANT!!!
  *
@@ -680,7 +682,7 @@ static int pllua_datum_tostring(lua_State *L)
 	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	void **p = pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *t = *p;
-	char *volatile str = NULL;
+	const char *volatile str = NULL;
 
 	ASSERT_LUA_CONTEXT;
 
@@ -695,13 +697,7 @@ static int pllua_datum_tostring(lua_State *L)
 
 	PLLUA_TRY();
 	{
-		if ((OidIsValid(t->outfuncid) && OidIsValid(t->outfunc.fn_oid))
-			|| pllua_typeinfo_iofunc(L, t, IOFunc_output))
-		{
-			str = OutputFunctionCall(&t->outfunc, d->value);
-		}
-		else
-			elog(ERROR, "failed to find output function for type %u", t->typeoid);
+		str = pllua_typeinfo_raw_output(L, d->value, t);
 	}
 	PLLUA_CATCH_RETHROW();
 
@@ -1017,7 +1013,8 @@ static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
 			{
 				pllua_typeinfo *et;
 				pllua_datum *ed = pllua_checkanydatum(L, -1, &et);
-				if (pllua_value_from_datum(L, ed->value, et->typeoid) == LUA_TNONE)
+				if (pllua_value_from_datum(L, ed->value, et->typeoid) == LUA_TNONE &&
+					pllua_datum_transform_fromsql(L, ed->value, -1, et) == LUA_TNONE)
 					lua_pop(L,1);
 				else
 				{
@@ -1367,7 +1364,8 @@ static int pllua_datum_array_index(lua_State *L)
 
 	if (isnull)
 		lua_pushnil(L);
-	else if (pllua_value_from_datum(L, res, et->typeoid) == LUA_TNONE)
+	else if (pllua_value_from_datum(L, res, et->typeoid) == LUA_TNONE &&
+			 pllua_datum_transform_fromsql(L, res, lua_upvalueindex(2), et) == LUA_TNONE)
 	{
 		lua_pushvalue(L, lua_upvalueindex(2));
 		nd = pllua_newdatum(L);
@@ -1566,6 +1564,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		t->typmod_funcid = InvalidOid;
 		t->elemtype = elemtype;
 		t->rangetype = InvalidOid;
+		t->is_enum = (typtype == TYPTYPE_ENUM);
 
 		switch (find_typmod_coercion_function(oid, &t->typmod_funcid))
 		{
@@ -2268,7 +2267,21 @@ static bool pllua_typeinfo_raw_input(lua_State *L, Datum *res, pllua_typeinfo *t
 	return false;
 }
 
-#ifdef notyet
+static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t)
+{
+	const char *volatile res = NULL;
+
+	if ((OidIsValid(t->outfuncid) && OidIsValid(t->outfunc.fn_oid))
+		|| pllua_typeinfo_iofunc(L, t, IOFunc_output))
+	{
+		res = OutputFunctionCall(&t->outfunc, value);
+	}
+	else
+		elog(ERROR, "failed to find output function for type %u", t->typeoid);
+
+	return res;
+}
+
 static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *t)
 {
 	FunctionCallInfoData fcinfo;
@@ -2288,7 +2301,7 @@ static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *
 
 	node.type = T_Invalid;
 	node.magic = PLLUA_MAGIC;
-	node.interp = L;
+	node.L = L;
 
 	InitFunctionCallInfoData(fcinfo, &t->fromsql_func, 1, InvalidOid, (struct Node *) &node, NULL);
 
@@ -2299,7 +2312,6 @@ static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *
 
 	return fcinfo.isnull;
 }
-#endif
 
 static Datum pllua_typeinfo_raw_tosql(lua_State *L, pllua_typeinfo *t, bool *isnull)
 {
@@ -2362,6 +2374,30 @@ static int pllua_typeinfo_tosql(lua_State *L)
 		lua_pushvalue(L, lua_upvalueindex(2));
 	}
 	return 1;
+}
+
+/*
+ * upvalue 1 is the typeinfo
+ * upvalue 2 is a userdata with the value to convert
+ * returns the value or nothing
+ */
+static int pllua_typeinfo_fromsql(lua_State *L)
+{
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	Datum d = *(Datum *)lua_touserdata(L, lua_upvalueindex(2));
+	volatile bool done;
+
+	Assert(lua_gettop(L) == 0);
+
+	PLLUA_TRY();
+	{
+		done = pllua_typeinfo_raw_fromsql(L, d, t);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	Assert(done ? lua_gettop(L) == 1 : lua_gettop(L) == 0);
+
+	return done ? 1 : 0;
 }
 
 static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
@@ -2735,6 +2771,46 @@ static bool pllua_datum_transform_tosql(lua_State *L, int nargs, int argbase, in
 		lua_pushvalue(L, argbase+i);
 	lua_call(L, nargs, 1);
 	return true;
+}
+
+int pllua_datum_transform_fromsql(lua_State *L, Datum val, int nidx, pllua_typeinfo *t)
+{
+	Datum *tmpd;
+	int nd;
+
+	/*
+	 * This would belong in pllua_value_from_datum except that we don't have
+	 * the typeinfo available there.
+	 */
+	if (t->is_enum)
+	{
+		const char *volatile str = NULL;
+
+		PLLUA_TRY();
+		{
+			str = pllua_typeinfo_raw_output(L, val, t);
+		}
+		PLLUA_CATCH_RETHROW();
+		lua_pushstring(L, str);
+		return LUA_TSTRING;
+	}
+
+	if (!OidIsValid(t->fromsql))
+		return LUA_TNONE;
+
+	nd = lua_gettop(L);
+	lua_pushvalue(L, nidx);
+	tmpd = lua_newuserdata(L, sizeof(Datum));
+	*tmpd = val;
+	lua_pushcclosure(L, pllua_typeinfo_fromsql, 2);
+	lua_call(L, 0, LUA_MULTRET);
+	nd = lua_gettop(L) - nd;
+	if (nd == 0)
+		return LUA_TNONE;
+	else if (nd > 1 || nd < 0)
+		return luaL_error(L, "invalid return from transform function");
+	else
+		return lua_type(L, -1);
 }
 
 /*

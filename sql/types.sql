@@ -79,4 +79,12 @@ do language pllua_ng $$ print(pgtype.int4range(nil,456,'(]')) $$;
 do language pllua_ng $$ print(pgtype.int4range(nil,nil)) $$;
 do language pllua_ng $$ print(pgtype.int4range(123,nil)) $$;
 
+create type myenum as enum ('TRUE', 'FALSE', 'FILE_NOT_FOUND');
+
+create function pg_temp.f1(a myenum) returns text language pllua_ng as $$ print(a,type(a)) return a $$;
+select pg_temp.f1(x) from unnest(enum_range(null::myenum)) x;
+
+create function pg_temp.f2() returns myenum language pllua_ng as $$ return 'FILE_NOT_FOUND' $$;
+select pg_temp.f2();
+
 --
