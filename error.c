@@ -65,6 +65,22 @@ pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int msgh)
 }
 
 /*
+ * To be called in an ereport() parameter list; if the top of the lua stack is
+ * a string, then pass it to errmsg_internal (which will copy it); if not,
+ * supply a default message. Either way, pop the lua stack.
+ */
+static int
+pllua_errmsg(lua_State *L)
+{
+	if (lua_type(L, -1) == LUA_TSTRING)
+		errmsg_internal("pllua: %s", lua_tostring(L, -1));
+	else
+		errmsg_internal("pllua: (error is not a string: type=%d)", lua_type(L, -1));
+	lua_pop(L, 1);
+	return 0; /* ignored */
+}
+
+/*
  * Having caught an error in lua, which is now on top of the stack (as returned
  * by pcall), rethrow it either back into lua or into pg according to what
  * context we're now in.
@@ -106,9 +122,7 @@ pllua_rethrow_from_lua(lua_State *L, int rc)
 	}
 
 	ereport(ERROR,
-			(errmsg_internal("pllua: %s",
-							 (lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "(error is not a string)")),
-			 (lua_pop(L, 1), 1)));
+			(pllua_errmsg(L)));
 }
 
 /*
