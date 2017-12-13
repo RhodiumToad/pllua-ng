@@ -183,6 +183,8 @@ pllua_push_args(lua_State *L,
 			pllua_get_record_argtype(L, &value, &argtype, &argtypmod);
 		}
 
+		argtinfo[i] = NULL;
+
 		/*
 		 * Try pushing the value as a simple lua value first, and only push a
 		 * datum object if that failed.
@@ -193,8 +195,8 @@ pllua_push_args(lua_State *L,
 		}
 		else if (pllua_value_from_datum(L, value, argtype) == LUA_TNONE)
 		{
-			void **p;
 			pllua_datum *d;
+			pllua_typeinfo *t;
 
 			lua_pushcfunction(L, pllua_typeinfo_lookup);
 			lua_pushinteger(L, (lua_Integer) argtype);
@@ -203,18 +205,28 @@ pllua_push_args(lua_State *L,
 
 			if (lua_isnil(L, -1))
 				luaL_error(L, "failed to find typeinfo");
-			p = pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
-			argtinfo[i] = *p;
+			t = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
 
-			if (pllua_datum_transform_fromsql(L, value, -1, *p) == LUA_TNONE)
+			/*
+			 * arg might be a domain, in which case give pllua_value_from_datum
+			 * another chance with the base type. If not, give the transform a
+			 * shot at it. If that doesn't like it, then make a datum object.
+			 */
+			if ((t->basetype == t->typeoid ||
+				 (pllua_value_from_datum(L, value, t->basetype) == LUA_TNONE))
+				&& (pllua_datum_transform_fromsql(L, value, -1, t) == LUA_TNONE))
 			{
 				d = pllua_newdatum(L);
 				d->value = value;
+				/*
+				 * needs savedatum; the datum object on the stack will ensure
+				 * this isn't GC'd even when we drop the typeinfo below
+				 */
+				argtinfo[i] = t;
 			}
+			/* drop the typeinfo off the stack */
 			lua_remove(L,-2);
 		}
-		else
-			argtinfo[i] = NULL;
 	}
 
 	/*

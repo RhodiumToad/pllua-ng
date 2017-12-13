@@ -408,6 +408,8 @@ typedef struct pllua_typeinfo
 	Oid			typmod_funcid;
 	FmgrInfo	typmod_func;
 
+	int32		basetypmod;			/* for domains */
+	void	   *domain_extra;		/* domain_check workspace */
 	ArrayMetaState array_meta;		/* array workspace */
 
 	int16		elemtyplen;			/* for arrays only */

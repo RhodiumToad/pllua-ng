@@ -1013,7 +1013,7 @@ static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
 			{
 				pllua_typeinfo *et;
 				pllua_datum *ed = pllua_checkanydatum(L, -1, &et);
-				if (pllua_value_from_datum(L, ed->value, et->typeoid) == LUA_TNONE &&
+				if (pllua_value_from_datum(L, ed->value, et->basetype) == LUA_TNONE &&
 					pllua_datum_transform_fromsql(L, ed->value, -1, et) == LUA_TNONE)
 					lua_pop(L,1);
 				else
@@ -1364,7 +1364,7 @@ static int pllua_datum_array_index(lua_State *L)
 
 	if (isnull)
 		lua_pushnil(L);
-	else if (pllua_value_from_datum(L, res, et->typeoid) == LUA_TNONE &&
+	else if (pllua_value_from_datum(L, res, et->basetype) == LUA_TNONE &&
 			 pllua_datum_transform_fromsql(L, res, lua_upvalueindex(2), et) == LUA_TNONE)
 	{
 		lua_pushvalue(L, lua_upvalueindex(2));
@@ -1542,8 +1542,14 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 												   "pllua type object",
 												   ALLOCSET_SMALL_SIZES);
 		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
-		Oid elemtype = get_base_element_type(oid);
-		char typtype = get_typtype(getBaseType(oid));
+		Oid basetype;
+		int32 basetypmod = typmod;
+		Oid elemtype;
+		char typtype;
+
+		basetype = getBaseTypeAndTypmod(oid, &basetypmod);
+		elemtype = get_element_type(basetype);
+		typtype = get_typtype(basetype);
 
 		t = palloc0(sizeof(pllua_typeinfo));
 		t->mcxt = mcxt;
@@ -1556,7 +1562,8 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		t->hasoid = false;
 		t->revalidate = false;
 		t->reloid = InvalidOid;
-		t->basetype = getBaseType(oid);
+		t->basetype = basetype;
+		t->basetypmod = basetypmod;
 		t->nested = false;
 		t->array_meta.element_type = InvalidOid;
 		t->coerce_typmod = false;
@@ -1566,7 +1573,10 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		t->rangetype = InvalidOid;
 		t->is_enum = (typtype == TYPTYPE_ENUM);
 
-		switch (find_typmod_coercion_function(oid, &t->typmod_funcid))
+		/*
+		 * Must look at the base type for typmod coercions
+		 */
+		switch (find_typmod_coercion_function(basetype, &t->typmod_funcid))
 		{
 			default:
 			case COERCION_PATH_NONE:
@@ -1702,6 +1712,14 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 
 		lua_setmetatable(L, -2);
 		lua_setfield(L, -2, "tupconv");
+	}
+	/* stack: self uservalue */
+	if (t->basetype != t->typeoid)
+	{
+		lua_pushcfunction(L, pllua_typeinfo_lookup);
+		lua_pushinteger(L, (lua_Integer) t->basetype);
+		lua_call(L, 1, 1);
+		lua_setfield(L, -2, "basetype");
 	}
 	/* stack: self uservalue */
 	if (t->is_array || t->is_range)
@@ -2311,6 +2329,59 @@ static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *
 	return fcinfo.isnull;
 }
 
+static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
+									  pllua_typeinfo *t, int32 typmod, bool is_explicit)
+{
+	FunctionCallInfoData fcinfo;
+
+	Assert(OidIsValid(t->typmod_funcid));
+	if (!OidIsValid(t->typmod_func.fn_oid))
+		fmgr_info_cxt(t->typmod_funcid, &t->typmod_func, t->mcxt);
+
+	if (*isnull && t->typmod_func.fn_strict)
+		return;
+
+	InitFunctionCallInfoData(fcinfo, &t->typmod_func, 3, InvalidOid, NULL, NULL);
+
+	fcinfo.arg[0] = *val;
+	fcinfo.argnull[0] = *isnull;
+	fcinfo.arg[1] = Int32GetDatum(typmod);
+	fcinfo.argnull[1] = false;
+	fcinfo.arg[2] = BoolGetDatum(is_explicit);
+	fcinfo.argnull[2] = false;
+
+	*val = FunctionCallInvoke(&fcinfo);
+	*isnull = fcinfo.isnull;
+}
+
+/*
+ * "val" is already known to be of t's base type.
+ *
+ * Note that we might replace "val" with a new datum allocated in the current
+ * memory context.
+ *
+ * "typmod" is "val's" existing typmod if known, or -1.
+ */
+static void pllua_typeinfo_check_domain(lua_State *L,
+										Datum *val, bool *isnull, int32 typmod,
+										pllua_typeinfo *t)
+{
+	ASSERT_LUA_CONTEXT;
+
+	PLLUA_TRY();
+	{
+		/*
+		 * Check if we need to do typmod coercion first. This might alter the
+		 * value.
+		 */
+		if (t->basetypmod != -1	&& typmod != t->basetypmod)
+			pllua_typeinfo_raw_coerce(L, val, isnull, t, t->basetypmod, false);
+
+		domain_check(*val, *isnull, t->typeoid, &t->domain_extra, t->mcxt);
+	}
+	PLLUA_CATCH_RETHROW();
+}
+
 static Datum pllua_typeinfo_raw_tosql(lua_State *L, pllua_typeinfo *t, bool *isnull)
 {
 	FunctionCallInfoData fcinfo;
@@ -2398,8 +2469,13 @@ static int pllua_typeinfo_fromsql(lua_State *L)
 	return done ? 1 : 0;
 }
 
-static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
-									  pllua_typeinfo *t, int32 typmod)
+/*
+ * Note that "typmod" here is the _destination_ typmod
+ */
+static void pllua_typeinfo_coerce_typmod(lua_State *L,
+										 Datum *val, bool *isnull,
+										 pllua_typeinfo *t,
+										 int32 typmod)
 {
 	if (!t->coerce_typmod)
 		return;
@@ -2407,12 +2483,7 @@ static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
 		luaL_error(L, "element typmod coercion not implemented yet");
 	PLLUA_TRY();
 	{
-		Assert(OidIsValid(t->typmod_funcid));
-		if (!OidIsValid(t->typmod_func.fn_oid))
-			fmgr_info_cxt(t->typmod_funcid, &t->typmod_func, t->mcxt);
-		/* we currently assume typmod coercions are irrelevant for nulls */
-		if (!*isnull)
-			*val = FunctionCall3(&t->typmod_func, *val, Int32GetDatum(typmod), BoolGetDatum(false));
+		pllua_typeinfo_raw_coerce(L, val, isnull, t, typmod, false);
 	}
 	PLLUA_CATCH_RETHROW();
 }
@@ -2844,19 +2915,53 @@ static int pllua_typeinfo_range_call(lua_State *L);
  * scalartype(datum)
  * arraytype(datum)
  *
- * Datum must be of the right type already (we need to extend this to consider
- * domains and casts).
+ * Converting a single Datum of one type to the target type.
  *
- * We just deep-copy the value. Savedatum does a bunch of the work for us.
+ * If we already have the right type, we just deep-copy the value. Savedatum
+ * does a bunch of the work for us.
+ *
+ * Otherwise, look through domains of the source type, and see whether we have
+ * the base type for our own domain; then we just need domain_check and copy.
+ *
+ * Otherwise, we need to look for coercions (not done yet).
+ *
  */
-static int pllua_typeinfo_nonrow_call_datum(lua_State *L, int nd, int nt,
+static int pllua_typeinfo_nonrow_call_datum(lua_State *L, int nd, int nt, int ndt,
 											pllua_typeinfo *t, pllua_datum *d, pllua_typeinfo *dt)
 {
 	pllua_datum *newd;
 	Datum val = d->value;
+	bool isnull = false;
 
-	nd = lua_absindex(L, nd);
-	nt = lua_absindex(L, nt);
+	nd = lua_absindex(L, nd);   /* source datum */
+	nt = lua_absindex(L, nt);   /* target typeinfo */
+	ndt = lua_absindex(L, ndt); /* source datum's typeinfo */
+
+	/* arg is a domain type? */
+	if (dt->basetype != dt->typeoid)
+	{
+		pllua_get_user_field(L, ndt, "basetype");
+		dt = *pllua_checkrefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+		ndt = lua_absindex(L, -1);
+	}
+	/*
+	 * If we're a domain and arg is our base type, check it. But this might
+	 * return a locally allocated copy of the value (if the domain's typmod
+	 * changes the value).
+	 */
+	if (t->basetype == dt->typeoid && t->typeoid != dt->typeoid)
+	{
+		pllua_typeinfo_check_domain(L, &val, &isnull, d->typmod, t);
+		if (isnull)
+		{
+			/*
+			 * it would take a pretty badly-behaved typmod cast to get here,
+			 * but do something sane anyway, rather than crash later.
+			 */
+			lua_pushnil(L);
+			return 1;
+		}
+	}
 
 	/*
 	 * If it's an RW expanded datum, take the RO value instead to force making
@@ -2889,7 +2994,7 @@ static int pllua_typeinfo_nonrow_call_datum(lua_State *L, int nd, int nt,
  * the type is already an exact match.
  *
  */
-static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt,
+static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt, int ndt,
 										 pllua_typeinfo *t, pllua_datum *d, pllua_typeinfo *dt)
 {
 	pllua_datum *newd;
@@ -3000,9 +3105,10 @@ static int pllua_typeinfo_call(lua_State *L)
 	{
 		if (t->natts >= 0 && dt->natts >= 0
 			&& (t->arity > 1 || t->typeoid == dt->typeoid))
-			return pllua_typeinfo_row_call_datum(L, 2, -1, t, d, dt);
-		else if (dt->typeoid == t->typeoid)
-			return pllua_typeinfo_nonrow_call_datum(L, 2, -1, t, d, dt);
+			return pllua_typeinfo_row_call_datum(L, 2, 1, -1, t, d, dt);
+		else
+			return pllua_typeinfo_nonrow_call_datum(L, 2, 1, -1, t, d, dt);
+		lua_pop(L,1);
 	}
 
 	if (t->is_array)
@@ -3018,6 +3124,9 @@ static int pllua_typeinfo_call(lua_State *L)
 	return lua_gettop(L);
 }
 
+/*
+ * We only get here for non-Datum input
+ */
 static int pllua_typeinfo_scalar_call(lua_State *L)
 {
 	pllua_typeinfo *t = *pllua_torefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
@@ -3042,10 +3151,18 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 		luaL_error(L, "incorrect number of arguments for type constructor (expected 1 got %d)",
 				   nargs);
 	}
-	else if (pllua_datum_from_value(L, 2, t->typeoid, &nvalue, &isnull, &err))
+	else if (pllua_datum_from_value(L, 2,
+									t->basetype,  /* accept input for the base type of a domain */
+									&nvalue,
+									&isnull,
+									&err))
 	{
 		if (err)
 			luaL_error(L, "could not convert value: %s", err);
+		/* must check domain constraints before accepting a null */
+		/* note this can change the value */
+		if (t->typeoid != t->basetype)
+			pllua_typeinfo_check_domain(L, &nvalue, &isnull, -1, t);
 		if (isnull)
 		{
 			lua_pushnil(L);
@@ -3472,7 +3589,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 			isnull[i] = false;
 		}
 		if (coltype != RECORDOID && coltypmod >= 0 && (!d || coltypmod != d->typmod))
-			pllua_typeinfo_raw_coerce(L, &values[i], &isnull[i], argt, coltypmod);
+			pllua_typeinfo_coerce_typmod(L, &values[i], &isnull[i], argt, coltypmod);
 		lua_pop(L,1);
 	}
 

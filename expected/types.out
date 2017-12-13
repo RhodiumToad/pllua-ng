@@ -120,4 +120,91 @@ select pg_temp.f2();
  FILE_NOT_FOUND
 (1 row)
 
+-- domains
+create domain mydom1 as varchar(3);
+create domain mydom2 as varchar(3) check (value in ('foo','bar','baz'));
+create domain mydom3 as varchar(3) not null;
+create domain mydom4 as varchar(3) not null check (value in ('foo','bar','baz'));
+create function pg_temp.f3(a mydom1) returns void language pllua_ng as $$
+  print(pgtype(nil,1):name(), type(a), #a)
+$$;
+select pg_temp.f3('foo') union all select pg_temp.f3('bar   ');
+INFO:  mydom1	string	3
+INFO:  mydom1	string	3
+ f3 
+----
+ 
+ 
+(2 rows)
+
+create function pg_temp.f4d1(a text) returns mydom1 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d1('foo');
+ f4d1 
+------
+ foo
+(1 row)
+
+select pg_temp.f4d1('bar   ');
+ f4d1 
+------
+ bar
+(1 row)
+
+select pg_temp.f4d1('toolong');
+ERROR:  value too long for type character varying(3)
+select pg_temp.f4d1(null);
+ f4d1 
+------
+ 
+(1 row)
+
+create function pg_temp.f4d2(a text) returns mydom2 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d2('bar   ');
+ f4d2 
+------
+ bar
+(1 row)
+
+select pg_temp.f4d2('bad');
+ERROR:  value for domain mydom2 violates check constraint "mydom2_check"
+select pg_temp.f4d1('toolong');
+ERROR:  value too long for type character varying(3)
+select pg_temp.f4d2(null);
+ f4d2 
+------
+ 
+(1 row)
+
+create function pg_temp.f4d3(a text) returns mydom3 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d3('bar   ');
+ f4d3 
+------
+ bar
+(1 row)
+
+select pg_temp.f4d1('toolong');
+ERROR:  value too long for type character varying(3)
+select pg_temp.f4d3(null);
+ERROR:  domain mydom3 does not allow null values
+create function pg_temp.f4d4(a text) returns mydom4 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d3('bar   ');
+ f4d3 
+------
+ bar
+(1 row)
+
+select pg_temp.f4d2('bad');
+ERROR:  value for domain mydom2 violates check constraint "mydom2_check"
+select pg_temp.f4d2('toolong');
+ERROR:  value too long for type character varying(3)
+select pg_temp.f4d3(null);
+ERROR:  domain mydom3 does not allow null values
 --

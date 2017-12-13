@@ -88,4 +88,47 @@ select pg_temp.f1(x) from unnest(enum_range(null::myenum)) x;
 create function pg_temp.f2() returns myenum language pllua_ng as $$ return 'FILE_NOT_FOUND' $$;
 select pg_temp.f2();
 
+-- domains
+
+create domain mydom1 as varchar(3);
+create domain mydom2 as varchar(3) check (value in ('foo','bar','baz'));
+create domain mydom3 as varchar(3) not null;
+create domain mydom4 as varchar(3) not null check (value in ('foo','bar','baz'));
+
+create function pg_temp.f3(a mydom1) returns void language pllua_ng as $$
+  print(pgtype(nil,1):name(), type(a), #a)
+$$;
+select pg_temp.f3('foo') union all select pg_temp.f3('bar   ');
+
+create function pg_temp.f4d1(a text) returns mydom1 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d1('foo');
+select pg_temp.f4d1('bar   ');
+select pg_temp.f4d1('toolong');
+select pg_temp.f4d1(null);
+
+create function pg_temp.f4d2(a text) returns mydom2 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d2('bar   ');
+select pg_temp.f4d2('bad');
+select pg_temp.f4d1('toolong');
+select pg_temp.f4d2(null);
+
+create function pg_temp.f4d3(a text) returns mydom3 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d3('bar   ');
+select pg_temp.f4d1('toolong');
+select pg_temp.f4d3(null);
+
+create function pg_temp.f4d4(a text) returns mydom4 language pllua_ng as $$
+  return a
+$$;
+select pg_temp.f4d3('bar   ');
+select pg_temp.f4d2('bad');
+select pg_temp.f4d2('toolong');
+select pg_temp.f4d3(null);
+
 --
