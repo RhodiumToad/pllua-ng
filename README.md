@@ -106,8 +106,8 @@ subject to change if I decide it was a bad idea.)
 
 e.g.
 
-  local ok,err = pcall(function() --[[ do stuff in subxact ]] end)
-  if not ok then print("subxact failed with error",err) end
+      local ok,err = pcall(function() --[[ do stuff in subxact ]] end)
+      if not ok then print("subxact failed with error",err) end
 
 Currently there's also lpcall and lxpcall functions which do NOT
 create subtransactions, but which will catch only Lua errors and not
