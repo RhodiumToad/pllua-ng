@@ -56,6 +56,14 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 	{
 		interp_desc->L = NULL;
 		interp_desc->trusted = trusted;
+
+		interp_desc->cur_activation.fcinfo = NULL;
+		interp_desc->cur_activation.retval = (Datum) 0;
+		interp_desc->cur_activation.trusted = trusted;
+		interp_desc->cur_activation.cblock = NULL;
+		interp_desc->cur_activation.validate_func = InvalidOid;
+		interp_desc->cur_activation.interp = NULL;
+		interp_desc->cur_activation.err_text = NULL;
 	}
 
 	/*
