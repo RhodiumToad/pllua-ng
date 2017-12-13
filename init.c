@@ -271,17 +271,17 @@ pllua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 
 	(void)ud;  /* not used */
 
-	if (simulate_memory_failure)
+	if (nsize == 0)
 	{
-		nptr = NULL;
-		if (nsize == 0)
-			simulate_memory_failure = false;
+		free(ptr);							/* free(NULL) is explicitly safe */
+		simulate_memory_failure = false;
+		return NULL;
 	}
+
+	if (simulate_memory_failure)
+		nptr = NULL;
 	else
 		nptr = realloc(ptr, nsize);
-
-	if (nsize == 0)
-		return NULL;
 
 	if (ptr && nsize < osize)
 	{
