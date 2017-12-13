@@ -213,6 +213,8 @@ pllua_setcontext(pllua_context_type newctx)
 /*
  * Describes one call to the top-level handler.
  */
+struct pllua_interpreter;
+
 typedef struct pllua_activation_record
 {
 	FunctionCallInfo fcinfo;
@@ -222,6 +224,10 @@ typedef struct pllua_activation_record
 	/* if fcinfo is null, we're validating or doing inline */
 	InlineCodeBlock *cblock;
 	Oid			validate_func;
+
+	/* for error context stuff */
+	struct pllua_interpreter *interp;
+	const char *err_text;
 } pllua_activation_record;
 
 /*
@@ -239,6 +245,9 @@ typedef struct pllua_interpreter
 
 	/* state below must be saved/restored for recursive calls */
 	pllua_activation_record cur_activation;
+
+	/* stuff used transiently in error handling */
+	lua_Debug	ar;
 } pllua_interpreter;
 
 /* We abuse the node system to pass this in fcinfo->context */
@@ -564,6 +573,10 @@ int pllua_typeinfo_parsetype(lua_State *L);
 int pllua_p_print (lua_State *L);
 void pllua_init_error_functions(lua_State *L);
 void pllua_debug_lua(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
+void pllua_error(lua_State *L, const char *msg, ...) pg_attribute_noreturn();
+void pllua_warning(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
+void pllua_error_callback(void *arg);
+int pllua_error_callback_location(lua_State *L);
 
 /* error.c */
 int pllua_panic(lua_State *L);

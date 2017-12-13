@@ -12,6 +12,7 @@
 static void
 pllua_elog(lua_State *L,
 		   int elevel,
+		   bool hidecontext,
 		   int e_code,
 		   const char *e_message,
 		   const char *e_detail,
@@ -26,6 +27,7 @@ pllua_elog(lua_State *L,
 	{
 		ereport(elevel,
 				(e_code ? errcode(e_code) : 0,
+				 (hidecontext ? errhidecontext(true) : 0),
 				 errmsg_internal("%s", e_message),
 				 (e_detail != NULL) ? errdetail_internal("%s", e_detail) : 0,
 				 (e_hint != NULL) ? errhint("%s", e_hint) : 0,
@@ -61,8 +63,131 @@ pllua_debug_lua(lua_State *L, const char *msg, ...)
 	luaL_addsize(&b, strlen(buf));
 	luaL_pushresult(&b);
 	msg = lua_tostring(L, -1);
-	pllua_elog(L, DEBUG1, 0, msg, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	pllua_elog(L, DEBUG1, true, 0, msg, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	lua_pop(L, 1);
+}
+
+void
+pllua_warning(lua_State *L, const char *msg, ...)
+{
+	luaL_Buffer b;
+	char *buf;
+	va_list va;
+
+	luaL_buffinit(L, &b);
+	buf = luaL_prepbuffer(&b);
+	va_start(va, msg);
+	vsnprintf(buf, LUAL_BUFFERSIZE, msg, va);
+	va_end(va);
+	luaL_addsize(&b, strlen(buf));
+	luaL_pushresult(&b);
+	msg = lua_tostring(L, -1);
+	pllua_elog(L, WARNING, true, 0, msg, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	lua_pop(L, 1);
+}
+
+static void pllua_where(lua_State *L, int level)
+{
+	lua_Debug ar;
+	lua_CFunction fn;
+	luaL_checkstack(L, 3, NULL);
+	while (lua_getstack(L, level, &ar))
+	{
+		lua_getinfo(L, "Slf", &ar);
+		fn = lua_tocfunction(L, -1);
+		lua_pop(L, 1);
+		/*
+		 * Treat these functions (all the possible args of
+		 * pllua_initial_protected_call) as being barriers to error traceback.
+		 */
+		if (fn == pllua_resume_function ||
+			fn == pllua_call_function ||
+			fn == pllua_call_trigger ||
+			fn == pllua_call_event_trigger ||
+			fn == pllua_validate ||
+			fn == pllua_call_inline)
+			break;
+		if (ar.currentline > 0)
+		{
+			lua_pushfstring(L, "%s:%d: ", ar.short_src, ar.currentline);
+			return;
+		}
+		++level;
+    }
+	lua_pushfstring(L, "");  /* else, no information available... */
+}
+
+void pllua_error (lua_State *L, const char *fmt, ...)
+{
+	va_list argp;
+	va_start(argp, fmt);
+	pllua_where(L, 1);
+	lua_pushvfstring(L, fmt, argp);
+	va_end(argp);
+	lua_concat(L, 2);
+	lua_error(L);
+	pg_unreachable();
+}
+
+int pllua_error_callback_location(lua_State *L)
+{
+	pllua_interpreter *interp = lua_touserdata(L, 1);
+	lua_Debug *ar = &interp->ar;
+	lua_CFunction fn;
+	int level = 1;
+
+	while (lua_getstack(L, level, ar))
+	{
+		lua_getinfo(L, "Slf", ar);
+		fn = lua_tocfunction(L, -1);
+		lua_pop(L, 1);
+		/*
+		 * Treat these functions (all the possible args of
+		 * pllua_initial_protected_call) as being barriers to error traceback.
+		 */
+		if (fn == pllua_resume_function ||
+			fn == pllua_call_function ||
+			fn == pllua_call_trigger ||
+			fn == pllua_call_event_trigger ||
+			fn == pllua_validate ||
+			fn == pllua_call_inline)
+			break;
+		if (ar->currentline > 0)
+			return 0;
+		++level;
+    }
+	ar->currentline = 0;
+	return 0;
+}
+/*
+ *
+ */
+void pllua_error_callback(void *arg)
+{
+	pllua_activation_record *act = arg;
+	lua_State *thr = NULL;
+	FunctionCallInfo fcinfo;
+	int rc;
+
+	if (!act)
+		return;
+
+	if (!act->interp)
+	{
+		errcontext("during PL/Lua interpreter setup");
+		return;
+	}
+	if (pllua_context != PLLUA_CONTEXT_PG)
+		return;  /* dangerous elog call! */
+	thr = act->interp->L;
+	fcinfo = act->fcinfo;
+	if (fcinfo && fcinfo->flinfo && fcinfo->flinfo->fn_extra &&
+		((pllua_func_activation *)(fcinfo->flinfo->fn_extra))->thread)
+		thr = ((pllua_func_activation *)(fcinfo->flinfo->fn_extra))->thread;
+	rc = pllua_cpcall(thr, pllua_error_callback_location, act->interp);
+	if (rc == 0 && act->interp->ar.currentline > 0)
+		errcontext("Lua function %s at line %d",
+				   act->interp->ar.short_src, act->interp->ar.currentline);
 }
 
 /*
@@ -97,7 +222,7 @@ pllua_p_print(lua_State *L)
 	}
 	luaL_pushresult(&b);
 	s = lua_tostring(L, -1);
-	pllua_elog(L, INFO, 0, s,
+	pllua_elog(L, INFO, true, 0, s,
 			   NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	return 0;
 }
@@ -310,7 +435,7 @@ pllua_p_elog(lua_State *L)
 			break;
 	}
 
-	pllua_elog(L, elevel, e_code, e_message,
+	pllua_elog(L, elevel, false, e_code, e_message,
 			   e_detail, e_hint, e_column, e_constraint,
 			   e_datatype, e_table, e_schema);
 	return 0;

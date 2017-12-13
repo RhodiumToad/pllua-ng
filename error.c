@@ -24,9 +24,9 @@ pllua_panic(lua_State *L)
 void
 pllua_poperror(lua_State *L)
 {
-	elog(WARNING,
-		 "Ignored Lua error: %s",
-		 (lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "(not a string)"));
+	pllua_warning(L,
+				  "Ignored Lua error: %s",
+				  (lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "(not a string)"));
 	lua_pop(L, 1);
 }
 

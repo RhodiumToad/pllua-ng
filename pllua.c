@@ -76,38 +76,56 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 	pllua_interpreter *interp;
 	pllua_activation_record act;
 	pllua_func_activation *funcact = (fcinfo->flinfo) ? fcinfo->flinfo->fn_extra : NULL;
+	ErrorContextCallback ecxt;
 
 	act.fcinfo = fcinfo;
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
 	act.cblock = NULL;
 	act.validate_func = InvalidOid;
+	act.interp = NULL;
+	act.err_text = NULL;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
-	if (funcact && funcact->thread)
+	/* this catch block exists only to save/restore the error context stack */
+	PG_TRY();
 	{
-		interp = funcact->interp;
-		/*
-		 * We're resuming a value-per-call SRF, so we bypass almost everything
-		 * since we don't want to, for example, compile a new version of the
-		 * function halfway through a result set. We know we're in a
-		 * non-first-row condition if there's an existing thread in the
-		 * function activation.
-		 */
-		pllua_initial_protected_call(interp, pllua_resume_function, &act);
-	}
-	else
-	{
-		interp = pllua_getstate(trusted, &act);
+		ecxt.callback = pllua_error_callback;
+		ecxt.arg = &act;
+		ecxt.previous = error_context_stack;
+		error_context_stack = &ecxt;
 
-		if (CALLED_AS_TRIGGER(fcinfo))
+		if (funcact && funcact->thread)
+			interp = funcact->interp;
+		else
+			interp = pllua_getstate(trusted, &act);
+
+		act.interp = interp;
+
+		if (funcact && funcact->thread)
+		{
+			/*
+			 * We're resuming a value-per-call SRF, so we bypass almost
+			 * everything since we don't want to, for example, compile a new
+			 * version of the function halfway through a result set. We know
+			 * we're in a non-first-row condition if there's an existing thread
+			 * in the function activation.
+			 */
+			pllua_initial_protected_call(interp, pllua_resume_function, &act);
+		}
+		else if (CALLED_AS_TRIGGER(fcinfo))
 			pllua_initial_protected_call(interp, pllua_call_trigger, &act);
 		else if (CALLED_AS_EVENT_TRIGGER(fcinfo))
 			pllua_initial_protected_call(interp, pllua_call_event_trigger, &act);
 		else
 			pllua_initial_protected_call(interp, pllua_call_function, &act);
 	}
+	PG_CATCH();
+	{
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
 
 	return act.retval;
 }
@@ -117,6 +135,7 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 	pllua_interpreter *interp;
 	pllua_activation_record act;
 	Oid funcoid = PG_GETARG_OID(0);
+	ErrorContextCallback ecxt;
 
 	/* security checks */
 	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
@@ -127,12 +146,30 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 	act.trusted = trusted;
 	act.cblock = NULL;
 	act.validate_func = funcoid;
+	act.interp = NULL;
+	act.err_text = NULL;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
-	interp = pllua_getstate(trusted, &act);
+	/* this catch block exists only to save/restore the error context stack */
+	PG_TRY();
+	{
+		ecxt.callback = pllua_error_callback;
+		ecxt.arg = &act;
+		ecxt.previous = error_context_stack;
+		error_context_stack = &ecxt;
 
-	pllua_initial_protected_call(interp, pllua_validate, &act);
+		interp = pllua_getstate(trusted, &act);
+
+		act.interp = interp;
+
+		pllua_initial_protected_call(interp, pllua_validate, &act);
+	}
+	PG_CATCH();
+	{
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
 
 	PG_RETURN_VOID();
 }
@@ -141,14 +178,15 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 {
 	pllua_interpreter *interp;
 	pllua_activation_record act;
-
-	/* XXX luajit may need this to be palloc'd. check later */
+	ErrorContextCallback ecxt;
 
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
 	act.trusted = trusted;
 	act.cblock = (InlineCodeBlock *) PG_GETARG_POINTER(0);
 	act.validate_func = InvalidOid;
+	act.interp = NULL;
+	act.err_text = "inline block entry";
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
@@ -156,9 +194,25 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	if (act.cblock->langIsTrusted != act.trusted)
 		elog(ERROR, "trusted state mismatch");
 
-	interp = pllua_getstate(trusted, &act);
+	/* this catch block exists only to save/restore the error context stack */
+	PG_TRY();
+	{
+		ecxt.callback = pllua_error_callback;
+		ecxt.arg = &act;
+		ecxt.previous = error_context_stack;
+		error_context_stack = &ecxt;
 
-	pllua_initial_protected_call(interp, pllua_call_inline, &act);
+		interp = pllua_getstate(trusted, &act);
+
+		act.interp = interp;
+
+		pllua_initial_protected_call(interp, pllua_call_inline, &act);
+	}
+	PG_CATCH();
+	{
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
 
 	PG_RETURN_VOID();
 }

@@ -223,7 +223,9 @@ int pllua_resetactivation(lua_State *L)
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
 	{
-		elog(WARNING, "failed to find an activation: %p", act);
+		/* unsafe to elog here
+		 *elog(WARNING, "failed to find an activation: %p", act);
+		 */
 		return 0;
 	}
 
@@ -302,7 +304,7 @@ int pllua_setactivation(lua_State *L)
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
 	{
-		elog(WARNING, "failed to find an activation: %p", act);
+		pllua_warning(L, "failed to find an activation: %p", act);
 		return 0;
 	}
 
