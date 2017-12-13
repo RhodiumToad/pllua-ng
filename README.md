@@ -5,7 +5,7 @@ pllua_ng
 Embeds Lua into PostgreSQL as a procedural language module.
 
 This code is still under development and probably contains bugs and
-missing functionality. However, most of the basics now work.
+missing functionality. However, all the basic stuff should work.
 
 WARNING: interfaces are not stable and are subject to change.
 
@@ -14,7 +14,11 @@ is known that this module will never work on pg versions before 9.5
 (we rely critically on memory context callbacks, which were introduced
 in that version).
 
-Only Lua 5.3 is supported at this time.
+Only Lua 5.3 is fully supported at this time, though it also is
+believed to mostly work if built against LuaJIT with the COMPAT52
+option.
+
+Bugs can be reported by opening issues on github.
 
 
 CHANGES
@@ -90,6 +94,27 @@ alternative place to put these functions. Suggestions welcome.)
 
 Sqlstates can be given either as 5-character strings or as the string
 names used in plpgsql: server.error('invalid_argument', 'message')
+
+Subtransactions are implemented via pcall() and xpcall(), which now
+run the called function in a subtransaction. In the case of xpcall,
+the subtransaction is ended *before* running the error function, which
+therefore runs in the outer subtransaction. This does mean that while
+Lua errors in the error function cause recursion and are eventually
+caught by the xpcall, if an error function causes a PG error then the
+xpcall will eventually rethrow that to its own caller. (This is
+subject to change if I decide it was a bad idea.)
+
+e.g.
+
+  local ok,err = pcall(function() --[[ do stuff in subxact ]] end)
+  if not ok then print("subxact failed with error",err) end
+
+Currently there's also lpcall and lxpcall functions which do NOT
+create subtransactions, but which will catch only Lua errors and not
+PG errors (which are immediately rethrown). It's not clear yet how
+useful this is; it saves the (possibly significant) subxact overhead,
+but it can be quite unpredictable whether any given error will
+manifest as a Lua error or a PG error.
 
 The readonly-global-table and setshared() hacks are omitted. As the
 trusted language now creates an entirely separate lua_State for each
@@ -174,6 +199,8 @@ Function arguments are converted to simple Lua values in the case of:
  + boolean  -- passed as boolean
  
  + nulls of any type  -- passed as nil
+
+ + domains over any of the above are treated as the base types
 
 Other values are kept as datum objects.
 

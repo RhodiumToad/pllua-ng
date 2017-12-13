@@ -2,16 +2,9 @@
 Stuff to do.
 ============
 
- * Typemods, typemods, everywhere.  **DONE(hopefully)
-
- * Arrays.  **DONE (hopefully)
-
- * Domains.
+ * Array element typmod coercion.
 
  * Try and do something more sane about type coercions.
 
- * SPI.  **DONE(for now, except subxacts)
+ * Improve error reporting
 
- * Subxacts.  **DONE (maybe)
-
- * Error handling that identifies where the error was.
