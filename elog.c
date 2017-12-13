@@ -264,6 +264,21 @@ static struct { const char *str; int val; } ecodes[] = {
 	{ NULL, 0 }
 };
 
+void
+pllua_get_errcodes(lua_State *L, int nidx)
+{
+	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
+	int i;
+
+	nidx = lua_absindex(L, nidx);
+
+	for (i = 0; i < ncodes; ++i)
+	{
+		lua_pushstring(L, ecodes[i].str);
+		lua_seti(L, nidx, ecodes[i].val);
+	}
+}
+
 static int
 pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 {

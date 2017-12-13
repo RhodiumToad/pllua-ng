@@ -579,6 +579,7 @@ void pllua_error(lua_State *L, const char *msg, ...) pg_attribute_noreturn();
 void pllua_warning(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
 void pllua_error_callback(void *arg);
 int pllua_error_callback_location(lua_State *L);
+void pllua_get_errcodes(lua_State *L, int nidx);
 
 /* error.c */
 int pllua_panic(lua_State *L);

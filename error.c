@@ -777,15 +777,8 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 		return lua_gettop(L) - (is_xpcall ? 2 : 0);
 	}
 
-	/*
-	 * Error object is on stack top. But if there's a PG error left in the
-	 * registry, then that takes precedence; we have to rethrow it to an outer
-	 * level.
-	 */
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
-	if (!lua_isnil(L, -1))
-		pllua_rethrow_from_lua(L, LUA_ERRERR);
-	lua_pop(L, 1);
+	lua_pushnil(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
 
 	lua_pushboolean(L, 0);
 	lua_insert(L, -2);
@@ -804,12 +797,196 @@ pllua_t_xpcall(lua_State *L)
 	return pllua_t_pcall_guts(L, true);
 }
 
+/*
+ * Functions to access data from the error object
+ *
+ * keys:
+ *
+ * These match up with the ones in elog.c:
+ *  "message"
+ *  "detail"
+ *  "hint"
+ *  "column"
+ *  "constraint"
+ *  "datatype"
+ *	"table"
+ *	"schema"
+ *
+ *  "severity"  -- error, warning, etc. (downcased)
+ *	"sqlstate"  -- always the 5-char code
+ *	"errcode"   -- the long name or the sqlstate
+ *	"context"
+ *	"pg_source_file"
+ *	"pg_source_line"
+ *	"pg_source_function"
+ *  "position"
+ *	"internal_query"
+ *	"internal_position"
+ *
+ */
+
+static void
+pllua_push_sqlstate(lua_State *L, int errcode)
+{
+	char buf[8];
+	int i;
+	for (i = 0; i < 5; ++i)
+	{
+		buf[i] = PGUNSIXBIT(errcode);
+		errcode = errcode >> 6;
+	}
+	buf[5] = 0;
+	lua_pushstring(L, buf);
+}
+
+static void
+pllua_push_errcode(lua_State *L, int errcode)
+{
+	if (lua_geti(L, lua_upvalueindex(1), errcode) == LUA_TNIL)
+	{
+		if (lua_next(L, lua_upvalueindex(1)))
+		{
+			lua_pop(L, 2);
+			pllua_push_sqlstate(L, errcode);
+			return;
+		}
+		else
+		{
+			pllua_get_errcodes(L, lua_upvalueindex(1));
+			if (lua_geti(L, lua_upvalueindex(1), errcode) == LUA_TNIL)
+			{
+				lua_pop(L, 1);
+				pllua_push_sqlstate(L, errcode);
+				return;
+			}
+		}
+	}
+}
+
+static void
+pllua_push_severity(lua_State *L, int elevel, bool uppercase)
+{
+	switch (elevel)
+	{
+		default:
+			lua_pushnil(L);	break;
+		case DEBUG1:
+		case DEBUG2:
+		case DEBUG3:
+		case DEBUG4:
+		case DEBUG5:
+			lua_pushstring(L, uppercase ? "DEBUG" : "debug"); break;
+		case LOG:
+		case LOG_SERVER_ONLY:
+			lua_pushstring(L, uppercase ? "LOG" : "log"); break;
+		case INFO:
+			lua_pushstring(L, uppercase ? "INFO" : "info"); break;
+		case NOTICE:
+			lua_pushstring(L, uppercase ? "NOTICE" : "notice"); break;
+		case WARNING:
+			lua_pushstring(L, uppercase ? "WARNING" : "warning"); break;
+		case ERROR:
+			lua_pushstring(L, uppercase ? "ERROR" : "error"); break;
+		/* below cases can't actually be seen here */
+		case FATAL:
+			lua_pushstring(L, uppercase ? "FATAL" : "fatal"); break;
+		case PANIC:
+			lua_pushstring(L, uppercase ? "PANIC" : "panic"); break;
+	}
+}
+
+static int
+pllua_errobject_index(lua_State *L)
+{
+	ErrorData *e = *pllua_checkrefobject(L, 1, PLLUA_ERROR_OBJECT);
+	const char *key = luaL_checkstring(L, 2);
+
+#define PUSHINT(s_) do { lua_pushinteger(L, (s_)); } while(0)
+#define PUSHSTR(s_) do { if (s_) lua_pushstring(L, (s_)); else lua_pushnil(L); } while(0)
+
+	switch (key[0])
+	{
+		case 'c':
+			if (strcmp(key,"context") == 0) PUSHSTR(e->context);
+			else if (strcmp(key,"column") == 0) PUSHSTR(e->column_name);
+			else if (strcmp(key,"constraint") == 0) PUSHSTR(e->constraint_name);
+			else lua_pushnil(L);
+			break;
+		case 'd':
+			if (strcmp(key,"datatype") == 0) PUSHSTR(e->datatype_name);
+			else if (strcmp(key,"detail") == 0) PUSHSTR(e->detail);
+			else lua_pushnil(L);
+			break;
+		case 'e':
+			if (strcmp(key,"errcode") == 0)	pllua_push_errcode(L, e->sqlerrcode);
+			else lua_pushnil(L);
+			break;
+		case 'h':
+			if (strcmp(key,"hint") == 0) PUSHSTR(e->hint);
+			else lua_pushnil(L);
+			break;
+		case 'i':
+			if (strcmp(key,"internal_position") == 0) PUSHINT(e->internalpos);
+			else if (strcmp(key,"internal_query") == 0) PUSHSTR(e->internalquery);
+			else lua_pushnil(L);
+			break;
+		case 'm':
+			if (strcmp(key,"message") == 0) PUSHSTR(e->message);
+			else if (strcmp(key,"message_id") == 0) PUSHSTR(e->message_id);
+			else lua_pushnil(L);
+			break;
+		case 'p':
+			if (strcmp(key,"pg_source_file") == 0) PUSHSTR(e->filename);
+			else if (strcmp(key,"pg_source_function") == 0) PUSHSTR(e->funcname);
+			else if (strcmp(key,"pg_source_line") == 0) PUSHINT(e->lineno);
+			else if (strcmp(key,"position") == 0) PUSHINT(e->cursorpos);
+			else lua_pushnil(L);
+			break;
+		case 's':
+			if (strcmp(key,"schema") == 0) PUSHSTR(e->schema_name);
+			else if (strcmp(key,"severity") == 0) pllua_push_severity(L, e->elevel, false);
+			else if (strcmp(key,"sqlstate") == 0) pllua_push_sqlstate(L, e->sqlerrcode);
+			else lua_pushnil(L);
+			break;
+		case 't':
+			if (strcmp(key,"table") == 0) PUSHSTR(e->table_name);
+			else lua_pushnil(L);
+			break;
+		default:
+			lua_pushnil(L);
+			break;
+	}
+#undef PUSHINT
+#undef PUSHSTR
+
+	return 1;
+}
+
+static int
+pllua_errobject_tostring(lua_State *L)
+{
+	ErrorData *e = *pllua_checkrefobject(L, 1, PLLUA_ERROR_OBJECT);
+	luaL_Buffer b;
+	luaL_buffinit(L, &b);
+	pllua_push_severity(L, e->elevel, true);
+	luaL_addvalue(&b);
+	luaL_addstring(&b, ": ");
+	pllua_push_sqlstate(L, e->sqlerrcode);
+	luaL_addvalue(&b);
+	luaL_addstring(&b, " ");
+	luaL_addstring(&b, e->message ? e->message : "(no message)");
+	luaL_pushresult(&b);
+	return 1;
+}
+
 
 /*
  * module init
  */
+
 static struct luaL_Reg errobj_mt[] = {
 	{ "__gc", pllua_errobject_gc },
+	{ "__tostring", pllua_errobject_tostring },
 	{ NULL, NULL }
 };
 
@@ -826,6 +1003,9 @@ static struct luaL_Reg errfuncs[] = {
 void pllua_init_error(lua_State *L)
 {
 	pllua_newmetatable(L, PLLUA_ERROR_OBJECT, errobj_mt);
+	lua_newtable(L);
+	lua_pushcclosure(L, pllua_errobject_index, 1);
+	lua_setfield(L, -2, "__index");
 	lua_pop(L, 1);
 
 	lua_pushcfunction(L, pllua_newerror);

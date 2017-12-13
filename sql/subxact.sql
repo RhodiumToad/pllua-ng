@@ -28,6 +28,18 @@ $$;
 -- should now be one xid in xatst, and 2 rows
 select count(*), count(distinct age(xmin)) from xatst;
 
+truncate table xatst;
+
+do language pllua_ng $$
+  local stmt = spi.prepare([[ insert into xatst values ($1) ]]);
+  stmt:execute(1);
+  print(pcall(function() stmt:execute(2) server.error("foo") end))
+  stmt:execute(3);
+$$;
+
+-- should now be one xid in xatst, and 2 rows
+select count(*), count(distinct age(xmin)) from xatst;
+
 do language pllua_ng $$
   local function f() for r in spi.rows([[ select * from xatst order by a ]]) do print(r) end end
   print(pcall(f))
