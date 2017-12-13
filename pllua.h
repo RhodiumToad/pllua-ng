@@ -248,6 +248,8 @@ typedef struct pllua_interpreter
 
 	/* stuff used transiently in error handling */
 	lua_Debug	ar;
+	int			errdepth;
+	bool		update_errdepth;
 } pllua_interpreter;
 
 /* We abuse the node system to pass this in fcinfo->context */

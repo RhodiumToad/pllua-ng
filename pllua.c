@@ -73,7 +73,7 @@ Datum plluau_inline_handler(PG_FUNCTION_ARGS)
 
 Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 {
-	pllua_interpreter *interp;
+	pllua_interpreter *volatile interp = NULL;
 	pllua_activation_record act;
 	pllua_func_activation *funcact = (fcinfo->flinfo) ? fcinfo->flinfo->fn_extra : NULL;
 	ErrorContextCallback ecxt;
@@ -97,11 +97,11 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 		error_context_stack = &ecxt;
 
 		if (funcact && funcact->thread)
-			interp = funcact->interp;
+			act.interp = funcact->interp;
 		else
-			interp = pllua_getstate(trusted, &act);
+			act.interp = pllua_getstate(trusted, &act);
 
-		act.interp = interp;
+		interp = act.interp;
 
 		if (funcact && funcact->thread)
 		{
@@ -112,17 +112,19 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 			 * we're in a non-first-row condition if there's an existing thread
 			 * in the function activation.
 			 */
-			pllua_initial_protected_call(interp, pllua_resume_function, &act);
+			pllua_initial_protected_call(act.interp, pllua_resume_function, &act);
 		}
 		else if (CALLED_AS_TRIGGER(fcinfo))
-			pllua_initial_protected_call(interp, pllua_call_trigger, &act);
+			pllua_initial_protected_call(act.interp, pllua_call_trigger, &act);
 		else if (CALLED_AS_EVENT_TRIGGER(fcinfo))
-			pllua_initial_protected_call(interp, pllua_call_event_trigger, &act);
+			pllua_initial_protected_call(act.interp, pllua_call_event_trigger, &act);
 		else
-			pllua_initial_protected_call(interp, pllua_call_function, &act);
+			pllua_initial_protected_call(act.interp, pllua_call_function, &act);
 	}
 	PG_CATCH();
 	{
+		if (interp)
+			interp->errdepth = 0;
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -132,7 +134,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 
 Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 {
-	pllua_interpreter *interp;
+	pllua_interpreter *volatile interp = NULL;
 	pllua_activation_record act;
 	Oid funcoid = PG_GETARG_OID(0);
 	ErrorContextCallback ecxt;
@@ -159,14 +161,14 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 		ecxt.previous = error_context_stack;
 		error_context_stack = &ecxt;
 
-		interp = pllua_getstate(trusted, &act);
+		interp = act.interp = pllua_getstate(trusted, &act);
 
-		act.interp = interp;
-
-		pllua_initial_protected_call(interp, pllua_validate, &act);
+		pllua_initial_protected_call(act.interp, pllua_validate, &act);
 	}
 	PG_CATCH();
 	{
+		if (interp)
+			interp->errdepth = 0;
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -176,7 +178,7 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 
 Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 {
-	pllua_interpreter *interp;
+	pllua_interpreter *volatile interp = NULL;
 	pllua_activation_record act;
 	ErrorContextCallback ecxt;
 
@@ -202,14 +204,14 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 		ecxt.previous = error_context_stack;
 		error_context_stack = &ecxt;
 
-		interp = pllua_getstate(trusted, &act);
+		interp = act.interp = pllua_getstate(trusted, &act);
 
-		act.interp = interp;
-
-		pllua_initial_protected_call(interp, pllua_call_inline, &act);
+		pllua_initial_protected_call(act.interp, pllua_call_inline, &act);
 	}
 	PG_CATCH();
 	{
+		if (interp)
+			interp->errdepth = 0;
 		PG_RE_THROW();
 	}
 	PG_END_TRY();

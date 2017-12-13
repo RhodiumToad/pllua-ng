@@ -129,16 +129,35 @@ void pllua_error (lua_State *L, const char *fmt, ...)
 	pg_unreachable();
 }
 
-int pllua_error_callback_location(lua_State *L)
+/*
+ * The use of errdepth is a bit subtle. The main lua stack is shared between
+ * all non-SRF function calls, so if a lua function calls another via SPI, then
+ * we want to scan only a small part of the stack each time.
+ *
+ * So errdepth starts out at 0 (it can only be left non-zero if something
+ * errors out of the error context stack, and in that case the topmost catch
+ * block will clean it up), and each traverse of the main stack stops when it
+ * hits a top-level call and stores the current level back in errdepth for the
+ * next context callback to use. However, if the activation we're looking at is
+ * for a running SRF, then it's on its own private stack, so we ignore all this
+ * and start at the stack top (the update_errdepth=false case).
+ *
+ * This does mean that the scan of the stack must not stop until it reaches a
+ * barrier or runs out of stack; stopping when we find the frame of interest
+ * for the error wouldn't leave the right errdepth for the next call.
+ */
+int
+pllua_error_callback_location(lua_State *L)
 {
 	pllua_interpreter *interp = lua_touserdata(L, 1);
 	lua_Debug *ar = &interp->ar;
 	lua_CFunction fn;
-	int level = 1;
+	int level = interp->update_errdepth ? interp->errdepth + 1 : 1;
+	bool found = false;
 
 	while (lua_getstack(L, level, ar))
 	{
-		lua_getinfo(L, "Slf", ar);
+		lua_getinfo(L, found ? "f" : "Slf", ar);
 		fn = lua_tocfunction(L, -1);
 		lua_pop(L, 1);
 		/*
@@ -151,18 +170,26 @@ int pllua_error_callback_location(lua_State *L)
 			fn == pllua_call_event_trigger ||
 			fn == pllua_validate ||
 			fn == pllua_call_inline)
-			break;
-		if (ar->currentline > 0)
+		{
+			if (interp->update_errdepth)
+				interp->errdepth = level;
 			return 0;
+		}
+		if (!found && ar->currentline > 0)
+		{
+			found = true;
+		}
 		++level;
     }
-	ar->currentline = 0;
+	if (!found)
+		ar->currentline = 0;
+	if (interp->update_errdepth)
+		interp->errdepth = 0;
 	return 0;
 }
-/*
- *
- */
-void pllua_error_callback(void *arg)
+
+void
+pllua_error_callback(void *arg)
 {
 	pllua_activation_record *act = arg;
 	lua_State *thr = NULL;
@@ -183,7 +210,12 @@ void pllua_error_callback(void *arg)
 	fcinfo = act->fcinfo;
 	if (fcinfo && fcinfo->flinfo && fcinfo->flinfo->fn_extra &&
 		((pllua_func_activation *)(fcinfo->flinfo->fn_extra))->thread)
+	{
 		thr = ((pllua_func_activation *)(fcinfo->flinfo->fn_extra))->thread;
+		act->interp->update_errdepth = false;
+	}
+	else
+		act->interp->update_errdepth = true;
 	rc = pllua_cpcall(thr, pllua_error_callback_location, act->interp);
 	if (rc == 0 && act->interp->ar.currentline > 0)
 		errcontext("Lua function %s at line %d",

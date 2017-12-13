@@ -58,4 +58,4 @@ $(OBJS): pllua.h
 init.o: pllua_functable.h
 
 pllua_functable.h: $(OBJS:.o=.c)
-	cat $(OBJS:.o=.c) | perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call)\(\s*(\w+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | sort -u >pllua_functable.h
+	cat $(OBJS:.o=.c) | perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call)\(\s*([\w.]+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | sort -u >pllua_functable.h
