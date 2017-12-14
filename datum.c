@@ -10,6 +10,7 @@
 #include "mb/pg_wchar.h"
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
+#include "utils/arrayaccess.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
 #include "utils/lsyscache.h"
@@ -25,6 +26,7 @@
  *   Datum value;
  *   int32 typmod;
  *   bool  need_gc;
+ *   bool  modified;
  *
  * We create the object initially with just the value, and need_gc false.
  * However, we then have to (more or less immediately) copy the value if it's a
@@ -33,9 +35,9 @@
  * The code that does the copying is separated from the initial creation for
  * reasons of error handling.
  *
- * An exception is made for datums extracted from a row or array which is
- * itself already a datum. For this case we leave need_gc false, and put a
- * reference to the parent value in the uservalue slot.
+ * An exception is made for datums extracted from a row which is itself already
+ * a datum. For this case we leave need_gc false, and put a reference to the
+ * parent value in the uservalue slot.
  *
  * Typmod is -1 unless we took this datum from a column in which case it's the
  * column atttypmod.
@@ -804,13 +806,21 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 		 * We intentionally *don't* do this for arrays. We point at the original
 		 * value as an opaque blob until we need to deform or explode it, and at
 		 * that point we convert it to an expanded object.
+		 *
+		 * We don't look at the substructure of range types ourselves, but we
+		 * do allow calls to functions that will detoast a range if it is a
+		 * short varlena. So better to expand it once here than risk doing so
+		 * many times elsewhere.
 		 */
 		for (i = 0; i < t->natts; ++i)
 		{
 			Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+			char typtype = (att->attlen == -1) ? get_typtype(getBaseType(att->atttypid)) : '\0';
 			if (!nulls[i]
 				&& att->attlen == -1
-				&& type_is_rowtype(att->atttypid)
+				&& (att->atttypid == RECORDOID ||
+					typtype == TYPTYPE_RANGE ||
+					typtype == TYPTYPE_COMPOSITE)
 				&& VARATT_IS_EXTENDED(DatumGetPointer(values[i])))
 			{
 				struct varlena *vl = (struct varlena *) DatumGetPointer(values[i]);
@@ -1229,31 +1239,37 @@ static int pllua_datum_row_len(lua_State *L)
 	return 1;
 }
 
-
-static void	pllua_datum_array_make_idxlist(lua_State *L, int nd, int *idxlist, int newidx)
+struct idxlist
 {
-	int *nlist = pllua_newobject(L, PLLUA_IDXLIST_OBJECT, (idxlist[0] + 3)*sizeof(int), true);
-	int i;
-	int n = idxlist[0];
-	nlist[0] = idxlist[0] + 1;
-	nlist[1] = idxlist[1];
-	for (i = 0; i < n; ++i)
-		nlist[2+i] = idxlist[2+i];
-	nlist[2+i] = newidx;
+	int ndim;  /* ndim of parent array */
+	int cur_dim;  /* dim 1..ndim of max currently specified index */
+	int idx[MAXDIM];  /* specified indexes [dim-1] */
+};
+
+static struct idxlist *
+pllua_datum_array_make_idxlist(lua_State *L, int nd,
+							   struct idxlist *idxlist)
+{
+	struct idxlist *nlist = pllua_newobject(L, PLLUA_IDXLIST_OBJECT, sizeof(struct idxlist), true);
+
+	*nlist = *idxlist;
+
 	lua_pushvalue(L, nd);
 	pllua_set_user_field(L, -2, "datum");
+
+	return nlist;
 }
 
 static int pllua_datum_idxlist_index(lua_State *L)
 {
-	int *idxlist = pllua_toobject(L, 1, PLLUA_IDXLIST_OBJECT);
+	struct idxlist *idxlist = pllua_toobject(L, 1, PLLUA_IDXLIST_OBJECT);
 	int idx = luaL_checkinteger(L, 2);
-	int n = idxlist[0];
 
 	pllua_get_user_field(L, 1, "datum");
-	pllua_datum_array_make_idxlist(L, lua_absindex(L, -1), idxlist, idx);
+	idxlist = pllua_datum_array_make_idxlist(L, lua_absindex(L, -1), idxlist);
+	idxlist->idx[idxlist->cur_dim++] = idx;
 
-	if (n + 1 >= idxlist[1])
+	if (idxlist->cur_dim >= idxlist->ndim)
 		lua_gettable(L, -2);
 
 	return 1;
@@ -1261,18 +1277,21 @@ static int pllua_datum_idxlist_index(lua_State *L)
 
 static int pllua_datum_idxlist_newindex(lua_State *L)
 {
-	int *idxlist = pllua_toobject(L, 1, PLLUA_IDXLIST_OBJECT);
+	struct idxlist *idxlist = pllua_toobject(L, 1, PLLUA_IDXLIST_OBJECT);
 	int idx = luaL_checkinteger(L, 2);
-	int n = idxlist[0];
+
+	luaL_checkany(L, 3);
 
 	pllua_get_user_field(L, 1, "datum");
-	pllua_datum_array_make_idxlist(L, lua_absindex(L, -1), idxlist, idx);
+	idxlist = pllua_datum_array_make_idxlist(L, lua_absindex(L, -1), idxlist);
+	idxlist->idx[idxlist->cur_dim++] = idx;
 
-	if (n + 1 >= idxlist[1])
-	{
-		lua_pushvalue(L, 3);
-		lua_settable(L, -2);
-	}
+	if (idxlist->cur_dim != idxlist->ndim)
+		luaL_error(L, "incorrect number of dimensions in array assignment (expected %d got %d)",
+				   idxlist->ndim, idxlist->cur_dim);
+
+	lua_pushvalue(L, 3);
+	lua_settable(L, -2);
 	return 0;
 }
 
@@ -1296,6 +1315,33 @@ static struct luaL_Reg idxlist_mt[] = {
 	{ NULL, NULL }
 };
 
+static int
+pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t)
+{
+	pllua_datum *nd;
+
+	nt = lua_absindex(L, nt);
+
+	if (isnull)
+		lua_pushnil(L);
+	else if (pllua_value_from_datum(L, res, t->basetype) == LUA_TNONE &&
+			 pllua_datum_transform_fromsql(L, res, nt, t) == LUA_TNONE)
+	{
+		lua_pushvalue(L, nt);
+		nd = pllua_newdatum(L);
+
+		PLLUA_TRY();
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+			nd->value = res;
+			pllua_savedatum(L, nd, t);
+			MemoryContextSwitchTo(oldcontext);
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+	return 1;
+}
+
 /*
  * __index(self,key)
  */
@@ -1304,11 +1350,11 @@ static int pllua_datum_array_index(lua_State *L)
 	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *et = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
-	int d_idxlist[3];
-	int *idxlist;
+	struct idxlist d_idxlist;
+	struct idxlist *idxlist = NULL;
 	ExpandedArrayHeader *arr;
-	pllua_datum *nd;
 	bool isnull = false;
+	const char *str = NULL;
 	volatile Datum res;
 
 	if (!t->is_array)
@@ -1316,10 +1362,87 @@ static int pllua_datum_array_index(lua_State *L)
 
 	if (lua_isinteger(L, 2))
 	{
-		d_idxlist[2] = lua_tointeger(L, 2);
-		d_idxlist[1] = 1;
-		d_idxlist[0] = 1;
-		idxlist = d_idxlist;
+		d_idxlist.idx[0] = lua_tointeger(L, 2);
+		d_idxlist.cur_dim = 1;
+	}
+	else if ((str = lua_tostring(L, 2)) &&
+			 luaL_getmetafield(L, 1, "__methods") != LUA_TNIL)
+	{
+		lua_getfield(L, -1, str);
+		return 1;
+	}
+	else if (!(idxlist = pllua_toobject(L, 2, PLLUA_IDXLIST_OBJECT)))
+	{
+		luaL_argerror(L, 2, NULL);
+	}
+
+	/* Switch to expanded representation if we haven't already. */
+	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
+	{
+		PLLUA_TRY();
+		{
+			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			d->need_gc = true;
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+
+	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+
+	if (idxlist)
+	{
+		pllua_get_user_field(L, 2, "datum");
+
+		if (idxlist->ndim != arr->ndims ||
+			idxlist->cur_dim != arr->ndims ||
+			!lua_rawequal(L, -1, 1))
+			luaL_argerror(L, 2, "wrong idxlist");
+
+		lua_pop(L, 1);
+	}
+	else if (arr->ndims > 1)
+	{
+		d_idxlist.ndim = arr->ndims;
+		pllua_datum_array_make_idxlist(L, 1, &d_idxlist);
+		return 1;
+	}
+	else
+		idxlist = &d_idxlist;
+
+	PLLUA_TRY();
+	{
+		res = array_get_element(d->value,
+								idxlist->cur_dim, idxlist->idx,
+								t->typlen, t->elemtyplen, t->elemtypbyval, t->elemtypalign,
+								&isnull);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	pllua_datum_single(L, res, isnull, lua_upvalueindex(2), et);
+
+	return 1;
+}
+
+/*
+ * __newindex(self,key,val)   self[key] = val
+ */
+static int pllua_datum_array_newindex(lua_State *L)
+{
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	struct idxlist d_idxlist;
+	struct idxlist *idxlist = NULL;
+	ExpandedArrayHeader *arr;
+	pllua_datum *nd;
+
+	if (!t->is_array)
+		luaL_error(L, "datum is not an array type");
+
+	if (lua_isinteger(L, 2))
+	{
+		d_idxlist.idx[0] = lua_tointeger(L, 2);
+		d_idxlist.cur_dim = 1;
+		idxlist = &d_idxlist;
 	}
 	else
 	{
@@ -1341,119 +1464,34 @@ static int pllua_datum_array_index(lua_State *L)
 
 	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
 
-	if (idxlist[0] < arr->ndims)
-	{
-		if (idxlist[0] > 1)
-			luaL_error(L, "not enough subscripts for array");
-		idxlist[0] = 0;
-		idxlist[1] = arr->ndims;
-		pllua_datum_array_make_idxlist(L, 1, idxlist, idxlist[2]);
-		return 1;
-	}
-	else if (idxlist[0] > arr->ndims && arr->ndims > 0)
+	if (idxlist->cur_dim < arr->ndims)
+		luaL_error(L, "not enough subscripts for array");
+	else if (idxlist->cur_dim > arr->ndims && arr->ndims > 0)
 		luaL_error(L, "too many subscripts for array");
+
+	lua_pushvalue(L, lua_upvalueindex(2));
+	lua_pushvalue(L, 3);
+	lua_call(L, 1, 1);
+	if (!lua_isnil(L, -1))
+		nd = pllua_todatum(L, -1, lua_upvalueindex(2));
+	else
+		nd = NULL;
 
 	PLLUA_TRY();
 	{
-		res = array_get_element(d->value,
-								idxlist[0], &idxlist[2],
-								t->typlen, t->elemtyplen, t->elemtypbyval, t->elemtypalign,
-								&isnull);
+		bool isnull = (nd == NULL);
+		Datum val = nd ? nd->value : (Datum)0;
+		Datum res;
+
+		res = array_set_element(d->value,
+								idxlist->cur_dim, idxlist->idx,
+								val, isnull,
+								t->typlen, t->elemtyplen, t->elemtypbyval, t->elemtypalign);
+		Assert(res == d->value);
 	}
 	PLLUA_CATCH_RETHROW();
 
-	if (isnull)
-		lua_pushnil(L);
-	else if (pllua_value_from_datum(L, res, et->basetype) == LUA_TNONE &&
-			 pllua_datum_transform_fromsql(L, res, lua_upvalueindex(2), et) == LUA_TNONE)
-	{
-		lua_pushvalue(L, lua_upvalueindex(2));
-		nd = pllua_newdatum(L);
-
-		PLLUA_TRY();
-		{
-			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
-			nd->value = res;
-			pllua_savedatum(L, nd, et);
-			MemoryContextSwitchTo(oldcontext);
-		}
-		PLLUA_CATCH_RETHROW();
-	}
-
-	return 1;
-}
-
-/*
- * __newindex(self,key,val)   self[key] = val
- */
-static int pllua_datum_array_newindex(lua_State *L)
-{
-	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
-	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
-	int d_idxlist[3];
-	int *idxlist;
-
-	if (!t->is_array)
-		luaL_error(L, "datum is not an array type");
-
-	if (lua_isinteger(L, 2))
-	{
-		d_idxlist[2] = lua_tointeger(L, 2);
-		d_idxlist[1] = 1;
-		d_idxlist[0] = 1;
-		idxlist = d_idxlist;
-	}
-	else
-	{
-		idxlist = pllua_toobject(L, 2, PLLUA_IDXLIST_OBJECT);
-		if (!idxlist)
-			luaL_argerror(L, 2, "integer");
-	}
-
-	/* Switch to expanded representation if we haven't already. */
-	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
-	{
-		PLLUA_TRY();
-		{
-			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
-			d->need_gc = true;
-		}
-		PLLUA_CATCH_RETHROW();
-	}
-
-	{
-		ExpandedArrayHeader *arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
-		pllua_datum *nd;
-
-		if (idxlist[0] < arr->ndims)
-			luaL_error(L, "not enough subscripts for array");
-		else if (idxlist[0] > arr->ndims && arr->ndims > 0)
-			luaL_error(L, "too many subscripts for array");
-
-		lua_pushvalue(L, lua_upvalueindex(2));
-		lua_pushvalue(L, 3);
-		lua_call(L, 1, 1);
-		if (!lua_isnil(L, -1))
-			nd = pllua_todatum(L, -1, lua_upvalueindex(2));
-		else
-			nd = NULL;
-
-		PLLUA_TRY();
-		{
-			bool isnull = (nd == NULL);
-			Datum val = nd ? nd->value : (Datum)0;
-			Datum res;
-
-			res = array_set_element(d->value,
-									idxlist[0], &idxlist[2],
-									val, isnull,
-									t->typlen, t->elemtyplen, t->elemtypbyval, t->elemtypalign);
-			Assert(res == d->value);
-		}
-		PLLUA_CATCH_RETHROW();
-
-		return 0;
-	}
+	return 0;
 }
 
 /*
@@ -1463,8 +1501,10 @@ static int pllua_datum_array_len(lua_State *L)
 {
 	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
-	int *idxlist = pllua_toobject(L, 2, PLLUA_IDXLIST_OBJECT);
-	int reqdim = (idxlist) ? idxlist[0] + 1 : 1;
+	struct idxlist *idxlist = pllua_toobject(L, 2, PLLUA_IDXLIST_OBJECT);
+	int reqdim = (idxlist) ? idxlist->cur_dim + 1 : 1;
+	ExpandedArrayHeader *arr;
+	int res;
 
 	if (!t->is_array)
 		luaL_error(L, "datum is not an array type");
@@ -1483,19 +1523,256 @@ static int pllua_datum_array_len(lua_State *L)
 		PLLUA_CATCH_RETHROW();
 	}
 
-	{
-		ExpandedArrayHeader *arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
-		int res;
+	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
 
-		if (arr->ndims < 1 || reqdim > arr->ndims)
-			res = 0;
-		else
-			res = arr->lbound[reqdim - 1] + arr->dims[reqdim - 1] - 1;
-		lua_pushinteger(L, res);
-		return 1;
-	}
+	if (arr->ndims < 1 || reqdim > arr->ndims)
+		res = 0;
+	else
+		res = arr->lbound[reqdim - 1] + arr->dims[reqdim - 1] - 1;
+	lua_pushinteger(L, res);
+	return 1;
 }
 
+
+/*
+ * map(array,func)
+ *
+ * Calls func on every element of array and returns the results as a Lua table
+ * (NOT an array).
+ *
+ * mapnull(array,nullval)
+ * table(array)
+ *
+ * Converts array to a Lua table optionally replacing all null values by
+ * "nullval"
+ *
+ * These are actually the same function, the presence and argument type of arg
+ * 2 determines which.
+ */
+static int
+pllua_datum_array_map(lua_State *L)
+{
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *et = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
+	struct idxlist idxlist;
+	ExpandedArrayHeader *arr;
+	array_iter iter;
+	int index;
+	int nstack;
+	int ndim;
+	int nelems;
+	int i;
+	bool isfunc = lua_isfunction(L, 2);
+
+	lua_settop(L, 2);
+
+	if (!t->is_array)
+		luaL_error(L, "datum is not an array type");
+
+	/* Switch to expanded representation if we haven't already. */
+	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
+	{
+		PLLUA_TRY();
+		{
+			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			d->need_gc = true;
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+
+	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+	ndim = arr->ndims;
+	nelems = ArrayGetNItems(ndim, arr->dims);
+
+	if (ndim < 1 || nelems < 1)
+	{
+		lua_newtable(L);
+		return 1;
+	}
+
+	/*
+	 * We create a stack of tables per dimension:
+	 *
+	 * t1 t2 t3 ...
+	 *
+	 * At each step, we append the current value to the top table on the stack.
+	 * When we reach the end of a dimension, the top table is appended to the
+	 * next one down, as needed, and then new tables created until we get back
+	 * to the right depth.
+	 */
+
+	array_iter_setup(&iter, (AnyArrayType *) arr);
+
+	for (nstack = 0, index = 0; index < nelems; ++index)
+	{
+		Datum val;
+		bool isnull = false;
+
+		/* stack up new tables to the required depth */
+		while (nstack < ndim)
+		{
+			lua_createtable(L, arr->dims[nstack], 0);
+			idxlist.idx[nstack] = 0;  /* lbound added later */
+			++nstack;
+		}
+
+		val = array_iter_next(&iter, &isnull, index,
+							  et->typlen, et->typbyval, et->typalign);
+
+		pllua_datum_single(L, val, isnull, lua_upvalueindex(2), et);
+		if (isfunc)
+		{
+			lua_pushvalue(L, 2);
+			lua_insert(L, -2);
+			lua_call(L, 1, 1);
+		}
+		else if (lua_isnil(L, -1))
+		{
+			lua_pop(L, 1);
+			lua_pushvalue(L, 2);
+		}
+
+		lua_seti(L, -2, idxlist.idx[nstack-1] + arr->lbound[nstack-1]);
+
+		for (i = nstack - 1; i >= 0; --i)
+		{
+			if ((idxlist.idx[i] = (idxlist.idx[i] + 1) % arr->dims[i]))
+				break;
+			else if (i > 0)
+			{
+				--nstack;
+				lua_seti(L, -2, idxlist.idx[nstack-1] + arr->lbound[nstack-1]);
+			}
+		}
+	}
+
+	return 1;
+}
+
+/*
+ * deform a range value and cache the details
+ */
+static void
+pllua_datum_range_deform(lua_State *L, int nd, int nte, pllua_datum *d, pllua_typeinfo *t, pllua_typeinfo *et)
+{
+	RangeType  *r1;
+	TypeCacheEntry *typcache;
+	RangeBound	lower;
+	RangeBound	upper;
+	bool		empty;
+	pllua_datum *ld = NULL;
+	pllua_datum *ud = NULL;
+
+	nd = lua_absindex(L, nd);
+	nte = lua_absindex(L, nte);
+
+	PLLUA_TRY();
+	{
+		r1 = DatumGetRangeTypeP(d->value);
+		typcache = lookup_type_cache(t->typeoid, TYPECACHE_RANGE_INFO);
+		if (typcache->rngelemtype == NULL)
+			elog(ERROR, "type %u is not a range type", t->typeoid);
+		range_deserialize(typcache, r1, &lower, &upper, &empty);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	lua_createtable(L, 0, 8);
+	lua_pushboolean(L, empty);
+	lua_setfield(L, -2, "isempty");
+
+	if (empty)
+	{
+		lua_pushboolean(L, false);
+		lua_setfield(L, -2, "lower");
+		lua_pushboolean(L, false);
+		lua_setfield(L, -2, "upper");
+		lua_pushboolean(L, false);
+		lua_setfield(L, -2, "lower_inc");
+		lua_pushboolean(L, false);
+		lua_setfield(L, -2, "upper_inc");
+		lua_pushboolean(L, false);
+		lua_setfield(L, -2, "lower_inf");
+		lua_pushboolean(L, false);
+		lua_setfield(L, -2, "upper_inf");
+		return;
+	}
+
+	lua_pushboolean(L, lower.inclusive);
+	lua_setfield(L, -2, "lower_inc");
+	lua_pushboolean(L, lower.infinite);
+	lua_setfield(L, -2, "lower_inf");
+	if (lower.infinite)
+		lua_pushlightuserdata(L, (void*)0);
+	else
+	{
+		lua_pushvalue(L, nte);
+		ld = pllua_newdatum(L);
+		lua_remove(L, -2);
+		ld->value = lower.val;
+	}
+
+	lua_pushboolean(L, upper.inclusive);
+	lua_setfield(L, -3, "upper_inc");
+	lua_pushboolean(L, upper.infinite);
+	lua_setfield(L, -3, "upper_inf");
+	if (upper.infinite)
+		lua_pushlightuserdata(L, (void*)0);
+	else
+	{
+		lua_pushvalue(L, nte);
+		ud = pllua_newdatum(L);
+		lua_remove(L, -2);
+		ud->value = upper.val;
+	}
+
+	PLLUA_TRY();
+	{
+		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+		if (ld)
+			pllua_savedatum(L, ld, et);
+		if (ud)
+			pllua_savedatum(L, ud, et);
+		MemoryContextSwitchTo(oldcontext);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	lua_setfield(L, -3, "upper");
+	lua_setfield(L, -2, "lower");
+	lua_pushvalue(L, -1);
+	pllua_set_user_field(L, nd, ".deformed");
+}
+/*
+ * __index(range,idx)
+ *
+ * Provide virtual columns .lower, .upper, .isempty, etc.
+ *
+ * Upvalue 1 is the typeinfo, 2 the element typeinfo
+ */
+static int
+pllua_datum_range_index(lua_State *L)
+{
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *et = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
+	const char *str = luaL_checkstring(L, 2);
+
+	if (pllua_get_user_field(L, 1, ".deformed") != LUA_TTABLE)
+	{
+		lua_pop(L, 1);
+		pllua_datum_range_deform(L, 1, lua_upvalueindex(2), d, t, et);
+	}
+	switch (lua_getfield(L, -1, str))
+	{
+		case LUA_TNIL:
+			return 1;   /* no such field */
+		case LUA_TLIGHTUSERDATA:
+			lua_pushnil(L);
+			return 1;   /* dummy null */
+		default:
+			return 1;
+	}
+}
 
 static struct luaL_Reg datumobj_base_mt[] = {
 	/* __gc entry is handled separately */
@@ -1509,6 +1786,18 @@ static struct luaL_Reg datumobj_row_mt[] = {
 	{ "__index", pllua_datum_row_index },
 	{ "__newindex", pllua_datum_row_newindex },
 	{ "__pairs", pllua_datum_row_pairs },
+	{ NULL, NULL }
+};
+
+static struct luaL_Reg datumobj_range_mt[] = {
+	{ "__index", pllua_datum_range_index },
+	{ NULL, NULL }
+};
+
+static struct luaL_Reg datumobj_array_methods[] = {
+	{ "table", pllua_datum_array_map },
+	{ "map", pllua_datum_array_map },
+	{ "mapnull", pllua_datum_array_map },
 	{ NULL, NULL }
 };
 
@@ -1742,6 +2031,17 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		lua_pushvalue(L, -3);
 		lua_pushvalue(L, -3);
 		luaL_setfuncs(L, datumobj_array_mt, 2);
+		lua_newtable(L);
+		lua_pushvalue(L, -4);
+		lua_pushvalue(L, -4);
+		luaL_setfuncs(L, datumobj_array_methods, 2);
+		lua_setfield(L, -2, "__methods");
+	}
+	else if (t->is_range)
+	{
+		lua_pushvalue(L, -3);
+		lua_pushvalue(L, -3);
+		luaL_setfuncs(L, datumobj_range_mt, 2);
 	}
 	else if (t->natts >= 0)
 	{
