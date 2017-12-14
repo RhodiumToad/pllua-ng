@@ -1239,6 +1239,104 @@ static int pllua_datum_row_len(lua_State *L)
 	return 1;
 }
 
+/*
+ * __call(row)
+ * __call(row,func)
+ * __call(row,nullvalue)
+ * __call(row,configtable)
+ *
+ * mapfunc is function(k,v,n,d)
+ *
+ *
+ * Apply a mapping to the row and return the result as a Lua table.
+ */
+static int
+pllua_datum_row_map(lua_State *L)
+{
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	int funcidx = 0;
+	int nullvalue = 0;
+	bool noresult = false;
+	lua_Integer attno = 0;
+
+	lua_settop(L, 2);
+
+	if (t->natts < 0)
+		luaL_error(L, "datum is not a row type");
+
+	switch (lua_type(L, 2))
+	{
+		case LUA_TTABLE:
+			if (lua_getfield(L, 2, "mapfunc") == LUA_TFUNCTION)
+			{
+				funcidx = lua_absindex(L, -1);
+				/* leave on stack */
+			}
+			else
+				lua_pop(L, 1);
+			if (lua_getfield(L, 2, "noresult") &&
+				lua_toboolean(L, -1))
+				noresult = true;
+			lua_pop(L, 1);
+			lua_getfield(L, 2, "nullvalue");
+			nullvalue = lua_absindex(L, -1);
+			break;
+		case LUA_TFUNCTION:
+			funcidx = 2;
+			break;
+		case LUA_TNIL:
+			break;
+		default:
+			nullvalue = 2;
+			break;
+	}
+
+	if (!noresult)
+		lua_newtable(L);
+	pllua_datum_getattrs(L, 1, lua_upvalueindex(1));
+	pllua_datum_deform_tuple(L, 1, d, t);
+	/* stack: [table] attrs deform */
+
+	for (++attno; attno <= t->natts; ++attno)
+	{
+		if (pllua_datum_column(L, attno, true))
+		{
+			/* stack: [table] attrs deform value */
+			lua_geti(L, -3, attno);
+			lua_insert(L, -2);
+			/* stack: [table] attrs deform key value */
+			if (nullvalue && lua_isnil(L, -1))
+			{
+				lua_pop(L, 1);
+				lua_pushvalue(L, nullvalue);
+			}
+			if (funcidx)
+			{
+				lua_pushvalue(L, funcidx);
+				lua_insert(L, -2);
+				/* ... deform key func value */
+				lua_pushvalue(L, -3);
+				/* ... deform key func value key */
+				lua_insert(L, -2);
+				/* ... deform key func key value */
+				lua_pushinteger(L, attno);
+				lua_pushvalue(L, 1);
+				/* ... deform key func key value attno datum */
+				lua_call(L, 4, 1);
+				/* ... [table] attrs deform key newvalue */
+			}
+			if (!noresult)
+				lua_settable(L, -5);
+			else
+				lua_pop(L, 2);
+		}
+	}
+	lua_pop(L, 2);
+	return noresult ? 0 : 1;
+}
+
+
 struct idxlist
 {
 	int ndim;  /* ndim of parent array */
@@ -1535,6 +1633,16 @@ static int pllua_datum_array_len(lua_State *L)
 
 
 /*
+ * __call(array)
+ * __call(array,func)
+ * __call(array,nullval)
+ * __call(array,configtable)
+ *
+ * configtable:
+ *   mapfunc = function(e,a,i,j,k,...)
+ *   noresult = boolean, if true the result of map is discarded
+ *   nullvalue = any
+ *
  * map(array,func)
  *
  * Calls func on every element of array and returns the results as a Lua table
@@ -1546,8 +1654,8 @@ static int pllua_datum_array_len(lua_State *L)
  * Converts array to a Lua table optionally replacing all null values by
  * "nullval"
  *
- * These are actually the same function, the presence and argument type of arg
- * 2 determines which.
+ * These are actually all the same function, the presence and argument type of
+ * arg 2 determines which.
  */
 static int
 pllua_datum_array_map(lua_State *L)
@@ -1563,12 +1671,41 @@ pllua_datum_array_map(lua_State *L)
 	int ndim;
 	int nelems;
 	int i;
-	bool isfunc = lua_isfunction(L, 2);
+	int funcidx = 0;
+	int nullvalue = 0;
+	bool noresult = false;
 
 	lua_settop(L, 2);
 
 	if (!t->is_array)
 		luaL_error(L, "datum is not an array type");
+
+	switch (lua_type(L, 2))
+	{
+		case LUA_TTABLE:
+			if (lua_getfield(L, 2, "mapfunc") == LUA_TFUNCTION)
+			{
+				funcidx = lua_absindex(L, -1);
+				/* leave on stack */
+			}
+			else
+				lua_pop(L, 1);
+			if (lua_getfield(L, 2, "noresult") &&
+				lua_toboolean(L, -1))
+				noresult = true;
+			lua_pop(L, 1);
+			lua_getfield(L, 2, "nullvalue");
+			nullvalue = lua_absindex(L, -1);
+			break;
+		case LUA_TFUNCTION:
+			funcidx = 2;
+			break;
+		case LUA_TNIL:
+			break;
+		default:
+			nullvalue = 2;
+			break;
+	}
 
 	/* Switch to expanded representation if we haven't already. */
 	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
@@ -1587,8 +1724,9 @@ pllua_datum_array_map(lua_State *L)
 
 	if (ndim < 1 || nelems < 1)
 	{
-		lua_newtable(L);
-		return 1;
+		if (!noresult)
+			lua_newtable(L);
+		return noresult ? 0 : 1;
 	}
 
 	/*
@@ -1612,7 +1750,8 @@ pllua_datum_array_map(lua_State *L)
 		/* stack up new tables to the required depth */
 		while (nstack < ndim)
 		{
-			lua_createtable(L, arr->dims[nstack], 0);
+			if (!noresult)
+				lua_createtable(L, arr->dims[nstack], 0);
 			idxlist.idx[nstack] = 0;  /* lbound added later */
 			++nstack;
 		}
@@ -1621,19 +1760,25 @@ pllua_datum_array_map(lua_State *L)
 							  et->typlen, et->typbyval, et->typalign);
 
 		pllua_datum_single(L, val, isnull, lua_upvalueindex(2), et);
-		if (isfunc)
-		{
-			lua_pushvalue(L, 2);
-			lua_insert(L, -2);
-			lua_call(L, 1, 1);
-		}
-		else if (lua_isnil(L, -1))
+
+		if (nullvalue && lua_isnil(L, -1))
 		{
 			lua_pop(L, 1);
-			lua_pushvalue(L, 2);
+			lua_pushvalue(L, nullvalue);
 		}
 
-		lua_seti(L, -2, idxlist.idx[nstack-1] + arr->lbound[nstack-1]);
+		if (funcidx)
+		{
+			lua_pushvalue(L, funcidx);
+			lua_insert(L, -2);
+			lua_pushvalue(L, 1);
+			for (i = 0; i < ndim; ++i)
+				lua_pushinteger(L, idxlist.idx[i] + arr->lbound[i]);
+			lua_call(L, 2+ndim, 1);
+		}
+
+		if (!noresult)
+			lua_seti(L, -2, idxlist.idx[nstack-1] + arr->lbound[nstack-1]);
 
 		for (i = nstack - 1; i >= 0; --i)
 		{
@@ -1642,12 +1787,13 @@ pllua_datum_array_map(lua_State *L)
 			else if (i > 0)
 			{
 				--nstack;
-				lua_seti(L, -2, idxlist.idx[nstack-1] + arr->lbound[nstack-1]);
+				if (!noresult)
+					lua_seti(L, -2, idxlist.idx[nstack-1] + arr->lbound[nstack-1]);
 			}
 		}
 	}
 
-	return 1;
+	return noresult ? 0 : 1;
 }
 
 /*
@@ -1786,6 +1932,7 @@ static struct luaL_Reg datumobj_row_mt[] = {
 	{ "__index", pllua_datum_row_index },
 	{ "__newindex", pllua_datum_row_newindex },
 	{ "__pairs", pllua_datum_row_pairs },
+	{ "__call", pllua_datum_row_map },
 	{ NULL, NULL }
 };
 
@@ -1805,6 +1952,7 @@ static struct luaL_Reg datumobj_array_mt[] = {
 	{ "__len", pllua_datum_array_len },
 	{ "__index", pllua_datum_array_index },
 	{ "__newindex", pllua_datum_array_newindex },
+	{ "__call", pllua_datum_array_map },
 	{ NULL, NULL }
 };
 

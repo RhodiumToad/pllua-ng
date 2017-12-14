@@ -185,6 +185,43 @@ The result is always in column order.
 ipairs() should NOT be used on a composite datum since it will stop at
 a null value or dropped column.
 
+Arrays and composite types support a mapping operation controlled by
+a configuration table:
+
+      rowval{ mapfunc = function(colname,value,attno,row) ... end,
+               nullvalue = (any value),
+	       noresult = (boolean)
+	     }
+      arrayval{ mapfunc = function(elem,array,i,j,k...) ... end,
+                 nullvalue = (any value),
+		 noresult = (boolean)
+	       }
+
+The result in both cases is returned as a Lua table, not a datum,
+unless the "noresult" option was given as true, in which case no
+result at all is returned. The mapfunc for arrays is passed as many
+indexes as the original array dimension. Substitution of null values
+happens BEFORE the mapping function is called; if that's not what you
+want, then do the substitution yourself before returning the result.
+(If the mapping function itself returns a Lua nil, then the entry will
+be omitted from the result.)
+
+As a convenience shorthand, these work:
+
+      d(nvl)   -> d{nullvalue = nvl}
+      d(func)  -> d{mapfunc = func}
+      d()      -> d{}
+
+Range types support the following pseudo-columns (immutable):
+
+      r.lower
+      r.upper
+      r.lower_inc
+      r.upper_inc
+      r.lower_inf
+      r.upper_inf
+      r.isempty
+
 Function arguments are converted to simple Lua values in the case of:
 
  + integers, floats  -- passed as Lua numbers
