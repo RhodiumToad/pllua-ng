@@ -1829,9 +1829,9 @@ pllua_datum_range_deform(lua_State *L, int nd, int nte, pllua_datum *d, pllua_ty
 
 	if (empty)
 	{
-		lua_pushboolean(L, false);
+		lua_pushlightuserdata(L, (void*)0);
 		lua_setfield(L, -2, "lower");
-		lua_pushboolean(L, false);
+		lua_pushlightuserdata(L, (void*)0);
 		lua_setfield(L, -2, "upper");
 		lua_pushboolean(L, false);
 		lua_setfield(L, -2, "lower_inc");

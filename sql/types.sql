@@ -68,6 +68,14 @@ $f$;
 
 select * from tf2();
 
+-- ensure detoasting of nested composites works right
+
+do language pllua_ng $f$
+  for r in spi.rows("select * from tdata") do
+    print(r.intcol, r.compcol.foo, r.compcol.bar.wotsit, r.dcompcol.jim)
+  end
+$f$;
+
 do language pllua_ng $$ a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2) print(a) $$;
 do language pllua_ng $$ print(#a,#(a[1]),#(a[1][1])) $$;
 do language pllua_ng $$ print(a[3][1][2],a[1][1][1]) $$;
@@ -79,6 +87,15 @@ do language pllua_ng $$ print(pgtype.int4range(nil,456,'(]')) $$;
 do language pllua_ng $$ print(pgtype.int4range(nil,nil)) $$;
 do language pllua_ng $$ print(pgtype.int4range(123,nil)) $$;
 do language pllua_ng $$ print(pgtype.int4range('[12,56]')) $$;
+
+do language pllua_ng $$
+  local r1,r2,r3 = pgtype.numrange('[12,56]'),
+                   pgtype.numrange('empty'),
+                   pgtype.numrange('(12,)')
+  print(r1.lower,r1.upper,r1.lower_inc,r1.upper_inc,r1.lower_inf,r1.upper_inf,r1.isempty)
+  print(r2.lower,r2.upper,r2.lower_inc,r2.upper_inc,r2.lower_inf,r2.upper_inf,r2.isempty)
+  print(r3.lower,r3.upper,r3.lower_inc,r3.upper_inc,r3.lower_inf,r3.upper_inf,r3.isempty)
+$$;
 
 create type myenum as enum ('TRUE', 'FALSE', 'FILE_NOT_FOUND');
 

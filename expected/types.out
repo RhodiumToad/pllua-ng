@@ -80,6 +80,15 @@ select * from tf2();
       3 | row 3   | padded with blanks               | not padded | (x,"(y,3333)","(333,33.3)") | (33,3.3)
 (3 rows)
 
+-- ensure detoasting of nested composites works right
+do language pllua_ng $f$
+  for r in spi.rows("select * from tdata") do
+    print(r.intcol, r.compcol.foo, r.compcol.bar.wotsit, r.dcompcol.jim)
+  end
+$f$;
+INFO:  1	x	1111	1.1
+INFO:  2	x	2222	2.2
+INFO:  3	x	3333	3.3
 do language pllua_ng $$ a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2) print(a) $$;
 INFO:  {{{1,2}},{{3,4}},{{5,6}}}
 do language pllua_ng $$ print(#a,#(a[1]),#(a[1][1])) $$;
@@ -100,6 +109,17 @@ do language pllua_ng $$ print(pgtype.int4range(123,nil)) $$;
 INFO:  [123,)
 do language pllua_ng $$ print(pgtype.int4range('[12,56]')) $$;
 INFO:  [12,57)
+do language pllua_ng $$
+  local r1,r2,r3 = pgtype.numrange('[12,56]'),
+                   pgtype.numrange('empty'),
+                   pgtype.numrange('(12,)')
+  print(r1.lower,r1.upper,r1.lower_inc,r1.upper_inc,r1.lower_inf,r1.upper_inf,r1.isempty)
+  print(r2.lower,r2.upper,r2.lower_inc,r2.upper_inc,r2.lower_inf,r2.upper_inf,r2.isempty)
+  print(r3.lower,r3.upper,r3.lower_inc,r3.upper_inc,r3.lower_inf,r3.upper_inf,r3.isempty)
+$$;
+INFO:  12	56	true	true	false	false	false
+INFO:  nil	nil	false	false	false	false	true
+INFO:  12	nil	false	false	false	true	false
 create type myenum as enum ('TRUE', 'FALSE', 'FILE_NOT_FOUND');
 create function pg_temp.f1(a myenum) returns text language pllua_ng as $$ print(a,type(a)) return a $$;
 select pg_temp.f1(x) from unnest(enum_range(null::myenum)) x;
