@@ -1,0 +1,268 @@
+/* hstore_pllua.c */
+
+#include "pllua.h"
+
+#include "hstore.h"
+
+#include "mb/pg_wchar.h"
+
+PG_MODULE_MAGIC;
+
+extern void _PG_init(void);
+
+/* Linkage to functions in hstore module */
+typedef HStore *(*hstoreUpgrade_t) (Datum orig);
+static hstoreUpgrade_t hstoreUpgrade_p;
+typedef int (*hstoreUniquePairs_t) (Pairs *a, int32 l, int32 *buflen);
+static hstoreUniquePairs_t hstoreUniquePairs_p;
+typedef HStore *(*hstorePairs_t) (Pairs *pairs, int32 pcount, int32 buflen);
+static hstorePairs_t hstorePairs_p;
+typedef size_t (*hstoreCheckKeyLen_t) (size_t len);
+static hstoreCheckKeyLen_t hstoreCheckKeyLen_p;
+typedef size_t (*hstoreCheckValLen_t) (size_t len);
+static hstoreCheckValLen_t hstoreCheckValLen_p;
+
+/* Linkage to functions in pllua module */
+typedef void (*pllua_pcall_t)(lua_State *L, int nargs, int nresults, int msgh);
+static pllua_pcall_t pllua_pcall_p;
+static lua_CFunction pllua_trampoline_p;
+
+/*
+ * Module initialize function: fetch function pointers for cross-module calls.
+ */
+void
+_PG_init(void)
+{
+	/* Asserts verify that typedefs above match original declarations */
+	AssertVariableIsOfType(&hstoreUpgrade, hstoreUpgrade_t);
+	hstoreUpgrade_p = (hstoreUpgrade_t)
+		load_external_function("$libdir/hstore", "hstoreUpgrade",
+							   true, NULL);
+	AssertVariableIsOfType(&hstoreUniquePairs, hstoreUniquePairs_t);
+	hstoreUniquePairs_p = (hstoreUniquePairs_t)
+		load_external_function("$libdir/hstore", "hstoreUniquePairs",
+							   true, NULL);
+	AssertVariableIsOfType(&hstorePairs, hstorePairs_t);
+	hstorePairs_p = (hstorePairs_t)
+		load_external_function("$libdir/hstore", "hstorePairs",
+							   true, NULL);
+	AssertVariableIsOfType(&hstoreCheckKeyLen, hstoreCheckKeyLen_t);
+	hstoreCheckKeyLen_p = (hstoreCheckKeyLen_t)
+		load_external_function("$libdir/hstore", "hstoreCheckKeyLen",
+							   true, NULL);
+	AssertVariableIsOfType(&hstoreCheckValLen, hstoreCheckValLen_t);
+	hstoreCheckValLen_p = (hstoreCheckValLen_t)
+		load_external_function("$libdir/hstore", "hstoreCheckValLen",
+							   true, NULL);
+
+	AssertVariableIsOfType(&pllua_pcall, pllua_pcall_t);
+	pllua_pcall_p = (pllua_pcall_t)
+		load_external_function("$libdir/pllua_ng", "pllua_pcall",
+							   true, NULL);
+	pllua_trampoline_p = (lua_CFunction)
+		load_external_function("$libdir/pllua_ng", "pllua_trampoline",
+							   true, NULL);
+}
+
+
+/* These defines must be after the module init function */
+#define hstoreUpgrade hstoreUpgrade_p
+#define hstoreUniquePairs hstoreUniquePairs_p
+#define hstorePairs hstorePairs_p
+#define hstoreCheckKeyLen hstoreCheckKeyLen_p
+#define hstoreCheckValLen hstoreCheckValLen_p
+
+#define pllua_pcall pllua_pcall_p
+#define pllua_trampoline pllua_trampoline_p
+
+
+static int
+hstore_to_pllua_real(lua_State *L)
+{
+	HStore	   *in = lua_touserdata(L, 1);
+	int			i;
+	int			count = HS_COUNT(in);
+	char	   *base = STRPTR(in);
+	HEntry	   *entries = ARRPTR(in);
+
+	lua_createtable(L, 0, count);
+
+	for (i = 0; i < count; i++)
+	{
+		lua_pushlstring(L,
+						HSTORE_KEY(entries, base, i),
+						HSTORE_KEYLEN(entries, i));
+		if (HSTORE_VALISNULL(entries, i))
+			lua_pushboolean(L, 0);
+		else
+			lua_pushlstring(L,
+						   HSTORE_VAL(entries, base, i),
+						   HSTORE_VALLEN(entries, i));
+		lua_rawset(L, -3);
+	}
+
+	return 1;
+}
+
+/*
+ * equivalent to:
+ *
+ *  local keys,vals = {},{}
+ *  for k,v in pairs(hs) do keys[#keys+1] = k vals[#vals+1] = v end
+ *  then makes a full userdata with a Pairs array and refs to keys,vals
+ *
+ */
+static int
+pllua_to_hstore_real(lua_State *L)
+{
+	Pairs	   *pairs = NULL;
+	int			idx = 0;
+	int			pcount = 0;
+
+	lua_settop(L, 1);
+
+	if (lua_isnil(L, 1))
+	{
+		lua_pushnil(L);
+		return 2;
+	}
+
+	lua_newtable(L); /* index 2: keys */
+	lua_newtable(L); /* index 3: vals */
+
+	lua_getglobal(L, "pairs");
+	lua_pushvalue(L, 1);
+	lua_call(L, 1, 3);  /* index 4-6: iter, state, key */
+
+	for (;;)
+	{
+		lua_pushvalue(L, 4);
+		lua_insert(L, -2);    /* ... iter key */
+		lua_pushvalue(L, 5);
+		lua_insert(L, -2);    /* ... iter state key */
+		lua_call(L, 2, 2);    /* iter state key val */
+		if (lua_isnil(L, -2))
+			break;
+		++idx;
+		if (lua_isnil(L, -1) || (lua_isboolean(L, -1) && !lua_toboolean(L, -1)))
+		{
+			lua_pop(L, 1);
+		}
+		else
+		{
+			luaL_tolstring(L, -1, NULL);
+			lua_rawseti(L, 3, idx);
+			lua_pop(L, 1);
+		}
+		luaL_tolstring(L, -1, NULL);
+		lua_rawseti(L, 2, idx);
+	}
+
+	lua_settop(L, 3);
+	pcount = idx;
+	lua_pushinteger(L, pcount);  /* first result */
+	pairs = lua_newuserdata(L, (idx ? idx : 1) * sizeof(Pairs));
+	lua_newtable(L);
+	lua_pushvalue(L, 2);
+	lua_setfield(L, -2, "keys");
+	lua_pushvalue(L, 3);
+	lua_setfield(L, -2, "values");
+	lua_setuservalue(L, -2);
+	for (idx = 0; idx < pcount; ++idx)
+	{
+		lua_rawgeti(L, 2, idx+1);
+		pairs[idx].key = (char *) lua_tolstring(L, -1, &(pairs[idx].keylen));
+		pairs[idx].needfree = false;
+		lua_pop(L, 1);
+
+		if (lua_rawgeti(L, 3, idx+1) == LUA_TNIL)
+		{
+			pairs[idx].val = NULL;
+			pairs[idx].vallen = 0;
+			pairs[idx].isnull = true;
+		}
+		else
+		{
+			pairs[idx].val = (char *) lua_tolstring(L, -1, &(pairs[idx].vallen));
+			pairs[idx].isnull = false;
+		}
+		lua_pop(L, 1);
+	}
+	return 2;
+}
+
+
+PG_FUNCTION_INFO_V1(hstore_to_pllua);
+
+Datum
+hstore_to_pllua(PG_FUNCTION_ARGS)
+{
+	HStore	   *in = PG_GETARG_HSTORE_P(0);
+	pllua_node *node = (pllua_node *) fcinfo->context;
+	lua_State  *L;
+
+	if (!node || node->type != T_Invalid || node->magic != PLLUA_MAGIC)
+		elog(ERROR, "hstore_to_pllua must only be called from pllua");
+
+	L = node->L;
+	pllua_pushcfunction(L, pllua_trampoline);
+	lua_pushlightuserdata(L, hstore_to_pllua_real);
+	lua_pushlightuserdata(L, in);
+	pllua_pcall(L, 2, 1, 0);
+
+	return (Datum)0;
+}
+
+
+PG_FUNCTION_INFO_V1(pllua_to_hstore);
+
+Datum
+pllua_to_hstore(PG_FUNCTION_ARGS)
+{
+	pllua_node *node = (pllua_node *) fcinfo->context;
+	lua_State  *L;
+	int32		pcount = 0;
+	HStore	   *out = NULL;
+	Pairs	   *pairs;
+
+	if (!node || node->type != T_Invalid || node->magic != PLLUA_MAGIC)
+		elog(ERROR, "pllua_to_hstore must only be called from pllua");
+
+	L = node->L;
+	pllua_pushcfunction(L, pllua_trampoline);
+	lua_insert(L, 1);
+	lua_pushlightuserdata(L, pllua_to_hstore_real);
+	lua_insert(L, 2);
+	pllua_pcall(L, lua_gettop(L) - 1, 2, 0);
+
+	/*
+	 * this ptr is the Pairs struct as a Lua full userdata, which carries
+	 * refs to the tables holding the keys and values strings to prevent
+	 * them being GC'd. hstorePairs will copy everything into a new palloc'd
+	 * value, and the storage will be GC'd sometime later after we pop it.
+	 */
+	pcount = lua_tointeger(L, -2);
+	pairs = lua_touserdata(L, -1);
+
+	if (pairs)
+	{
+		int i;
+		int32 buflen;
+		for (i = 0; i < pcount; ++i)
+		{
+			pairs[i].keylen = hstoreCheckKeyLen(pairs[i].keylen);
+			pairs[i].vallen = hstoreCheckKeyLen(pairs[i].vallen);
+			pg_verifymbstr(pairs[i].key, pairs[i].keylen, false);
+			pg_verifymbstr(pairs[i].val, pairs[i].vallen, false);
+		}
+		pcount = hstoreUniquePairs(pairs, pcount, &buflen);
+		out = hstorePairs(pairs, pcount, buflen);
+	}
+
+	lua_pop(L, 1);
+
+	if (out)
+		PG_RETURN_POINTER(out);
+	else
+		PG_RETURN_NULL();
+}

@@ -2774,7 +2774,7 @@ static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *
 
 	FunctionCallInvoke(&fcinfo);
 
-	return fcinfo.isnull;
+	return !fcinfo.isnull;
 }
 
 static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
@@ -3586,9 +3586,11 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 	const char *str = NULL;
 
 	/*
-	 * If there's a transform, it might accept multiple args, so try it first.
+	 * If there's a transform, it might accept multiple args, so try it first,
+	 * but only if the input isn't a single string arg.
 	 */
-	if (pllua_datum_transform_tosql(L, nargs, 2, 1, t))
+	if ((nargs > 1 || lua_type(L,2) != LUA_TSTRING) &&
+		pllua_datum_transform_tosql(L, nargs, 2, 1, t))
 	{
 		if (lua_isnil(L, -1))
 			return 1;

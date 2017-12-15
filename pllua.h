@@ -127,7 +127,7 @@ static inline lua_Integer lua_tointegerx(lua_State *L, int i, int *isnum)
 	}
 	return n;
 }
-#define lua_getuservalue(L_,nd_) lua_getfenv(L_,nd_)
+#define lua_getuservalue(L_,nd_) (lua_getfenv(L_,nd_), lua_type(L_,-1))
 #define lua_setuservalue(L_,nd_) lua_setfenv(L_,nd_)
 #define lua_pushglobaltable(L_) lua_pushvalue((L_), LUA_GLOBALSINDEX)
 #if LUAJIT_VERSION_NUM < 20100
@@ -590,6 +590,8 @@ void pllua_rethrow_from_lua(lua_State *L, int rc);
 void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt);
 int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg);
 void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
+
+int pllua_trampoline(lua_State *L);
 
 void pllua_initial_protected_call(pllua_interpreter *interp,
 								  lua_CFunction func,

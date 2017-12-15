@@ -1,0 +1,6 @@
+# hstore_pllua_ng extension
+default_version = '1.0'
+comment = 'Hstore transform for Lua'
+module_pathname = '$libdir/hstore_pllua_ng'
+relocatable = true
+requires = 'hstore, pllua_ng'

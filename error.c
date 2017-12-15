@@ -311,6 +311,26 @@ pllua_pcall(lua_State *L, int nargs, int nresults, int msgh)
 }
 
 /*
+ * Supplementary modules like transforms need pllua_pcall functionality, but
+ * have no way to register their addresses for pllua_pushcfunction. So provide
+ * this trampoline so that they can use pushlightuserdata instead.
+ */
+#if 0
+/* DO NOT REMOVE THIS, IT'S NEEDED FOR pllua_functable.h */
+pllua_pushcfunction(L, pllua_trampoline);
+#endif
+
+int
+pllua_trampoline(lua_State *L)
+{
+	lua_CFunction f = (lua_CFunction) lua_touserdata(L, 1);
+	lua_pushcfunction(L, f);
+	lua_replace(L, 1);
+	lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+	return lua_gettop(L);
+}
+
+/*
  * We store a lot of our state inside lua for convenience, but that means
  * we have to consider possible lua errors (e.g. out of memory) happening
  * even outside the actual function call. So, arrange to do all the work in
