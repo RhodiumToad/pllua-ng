@@ -148,4 +148,17 @@ select pg_temp.f4d2('bad');
 select pg_temp.f4d2('toolong');
 select pg_temp.f4d3(null);
 
---
+-- array typmod coercions
+
+create temp table atc (a varchar(10)[], b char(10)[]);
+do language pllua_ng $$
+  local a = pgtype.array.varchar('foo','bar','value_too_long_for_type')
+  local b = pgtype.atc(a,nil)
+$$;
+do language pllua_ng $$
+  local a = pgtype.array.varchar('foo','bar','value            ')
+  local b = pgtype.atc(nil,a)
+  print(b)
+$$;
+
+--end

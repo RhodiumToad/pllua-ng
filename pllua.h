@@ -585,13 +585,14 @@ void pllua_get_errcodes(lua_State *L, int nidx);
 int pllua_panic(lua_State *L);
 void pllua_poperror(lua_State *L);
 int pllua_newerror(lua_State *L);
-int pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int msgh);
 void pllua_rethrow_from_lua(lua_State *L, int rc);
-void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt);
-int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg);
-void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
 
-int pllua_trampoline(lua_State *L);
+/* These are DLLEXPORT so that transform modules can get at them */
+PGDLLEXPORT void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt);
+PGDLLEXPORT int pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int msgh);
+PGDLLEXPORT int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg);
+PGDLLEXPORT void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
+PGDLLEXPORT int pllua_trampoline(lua_State *L);
 
 void pllua_initial_protected_call(pllua_interpreter *interp,
 								  lua_CFunction func,

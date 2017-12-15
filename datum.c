@@ -2763,6 +2763,46 @@ static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
 	*isnull = fcinfo.isnull;
 }
 
+static void pllua_typeinfo_raw_coerce_array(lua_State *L, AnyArrayType *val, int nitems,
+											Datum *values, bool *isnulls,
+											pllua_typeinfo *t, int32 typmod, bool is_explicit)
+{
+	FunctionCallInfoData fcinfo;
+	array_iter iter;
+	int idx;
+
+	Assert(OidIsValid(t->typmod_funcid));
+	if (!OidIsValid(t->typmod_func.fn_oid))
+		fmgr_info_cxt(t->typmod_funcid, &t->typmod_func, t->mcxt);
+
+	array_iter_setup(&iter, val);
+
+	InitFunctionCallInfoData(fcinfo, &t->typmod_func, 3, InvalidOid, NULL, NULL);
+
+	for (idx = 0; idx < nitems; ++idx)
+	{
+		fcinfo.arg[0] = array_iter_next(&iter, &fcinfo.argnull[0], idx,
+										t->elemtyplen, t->elemtypbyval, t->elemtypalign);
+
+		if (!fcinfo.argnull[0] || !t->typmod_func.fn_strict)
+		{
+			fcinfo.arg[1] = Int32GetDatum(typmod);
+			fcinfo.argnull[1] = false;
+			fcinfo.arg[2] = BoolGetDatum(is_explicit);
+			fcinfo.argnull[2] = false;
+			fcinfo.isnull = false;
+
+			values[idx] = FunctionCallInvoke(&fcinfo);
+			isnulls[idx] = fcinfo.isnull;
+		}
+		else
+		{
+			values[idx] = (Datum)0;
+			isnulls[idx] = true;
+		}
+	}
+}
+
 /*
  * "val" is already known to be of t's base type.
  *
@@ -2878,6 +2918,42 @@ static int pllua_typeinfo_fromsql(lua_State *L)
 	return done ? 1 : 0;
 }
 
+static void pllua_typeinfo_coerce_array_typmod(lua_State *L,
+											   Datum *val, bool *isnull,
+											   pllua_typeinfo *t,
+											   int32 typmod)
+{
+	if (*isnull)
+		return;
+
+	PLLUA_TRY();
+	{
+		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
+												   "pllua temporary array context",
+												   ALLOCSET_DEFAULT_SIZES);
+		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+		AnyArrayType *arr = DatumGetAnyArrayP(*val);
+		ArrayType *newarr;
+		int ndim = AARR_NDIM(arr);
+		int32 *dims = AARR_DIMS(arr);
+		int nitems = ArrayGetNItems(ndim,dims);
+		Datum *values = palloc(nitems * sizeof(Datum));
+		bool *isnull = palloc(nitems * sizeof(bool));
+
+		pllua_typeinfo_raw_coerce_array(L, arr, nitems, values, isnull, t, typmod, false);
+
+		MemoryContextSwitchTo(oldcontext);
+
+		newarr = construct_md_array(values, isnull, ndim, dims, AARR_LBOUND(arr),
+									t->elemtype, t->elemtyplen, t->elemtypbyval, t->elemtypalign);
+		*val = PointerGetDatum(newarr);
+		*isnull = false;
+
+		MemoryContextDelete(mcxt);
+	}
+	PLLUA_CATCH_RETHROW();
+}
+
 /*
  * Note that "typmod" here is the _destination_ typmod
  */
@@ -2889,7 +2965,10 @@ static void pllua_typeinfo_coerce_typmod(lua_State *L,
 	if (!t->coerce_typmod)
 		return;
 	if (t->coerce_typmod_element && typmod >= 0)
-		luaL_error(L, "element typmod coercion not implemented yet");
+	{
+		Assert(t->is_array);
+		pllua_typeinfo_coerce_array_typmod(L, val, isnull, t, typmod);
+	}
 	PLLUA_TRY();
 	{
 		pllua_typeinfo_raw_coerce(L, val, isnull, t, typmod, false);
@@ -3903,6 +3982,9 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 	return 1;
 }
 
+/*
+ *
+ */
 
 static int pllua_typeinfo_row_call(lua_State *L)
 {
