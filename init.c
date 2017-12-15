@@ -331,7 +331,7 @@ pllua_init_state(lua_State *L)
 	MemoryContext *emcxt = lua_touserdata(L, 5);
 	pllua_interpreter *interp = lua_touserdata(L, 6);
 
-	lua_pushliteral(L, "0.01");
+	lua_pushliteral(L, "0.1");
 	lua_setglobal(L, "_PLVERSION");
 	lua_pushlightuserdata(L, mcxt);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
