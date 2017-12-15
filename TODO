@@ -2,8 +2,6 @@
 Stuff to do.
 ============
 
- * Array element typmod coercion.
-
  * Try and do something more sane about type coercions.
 
  * Improve error reporting

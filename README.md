@@ -38,7 +38,7 @@ conventions:
       spi.prepare("query text", {argtypes}, [{options}])
         - returns a statement object:
           s:execute(arg, arg, ...)  - returns a result table
-	  s:execute_count(maxrows, arg, arg, ...)  - returns a result table
+          s:execute_count(maxrows, arg, arg, ...)  - returns a result table
           s:rows(arg, arg, ...) - returns iterator
       spi.rows("query text", args...)
         - returns iterator
@@ -77,10 +77,12 @@ Cursors work:
 
 There can only be one cursor object for a given open portal - doing a
 findcursor on an existing cursor will always return the same object.
-If a cursor is closed by external code (or transaction end), then the
-:isopen() state will be automatically updated (this happens when the
-portal is actually dropped). Cursor options are set on the statement
-object.
+(But note that this matching is by portal, not name - if a cursor was
+closed and reopened with the same name, findcursor will return a
+different object for the new cursor.) If a cursor is closed by
+external code (or transaction end), then the :isopen() state will be
+automatically updated (this happens when the portal is actually
+dropped). Cursor options are set on the statement object.
 
 :save on a statement is now a no-op - all statements seen by lua code
 have been passed through SPI_keepplan and are managed by Lua garbage
@@ -208,12 +210,12 @@ a configuration table:
 
       rowval{ mapfunc = function(colname,value,attno,row) ... end,
                nullvalue = (any value),
-	       noresult = (boolean)
-	     }
+               noresult = (boolean)
+             }
       arrayval{ mapfunc = function(elem,array,i,j,k...) ... end,
                  nullvalue = (any value),
-		 noresult = (boolean)
-	       }
+                 noresult = (boolean)
+               }
 
 The result in both cases is returned as a Lua table, not a datum,
 unless the "noresult" option was given as true, in which case no
