@@ -9,10 +9,21 @@
 #include "parser/analyze.h"
 #include "parser/parse_param.h"
 
+/*
+ * plpgsql uses 10. We have a bit more overhead per queue fill since we
+ * start/stop SPI and do a bunch of data copies, so a larger value seems good.
+ * However, above 50 the returns are very small and the potential for memory
+ * problems increases.
+ *
+ * The fetch count can be set per-statement.
+ */
+#define DEFAULT_FETCH_COUNT 50
+
 typedef struct pllua_spi_statement {
 	SPIPlanPtr plan;
 	bool kept;
 	bool cursor_plan;
+	int fetch_count;   /* only used for private cursors */
 	int nparams;
 	int param_types_len;
 	Oid *param_types;
@@ -38,6 +49,7 @@ typedef struct pllua_spi_cursor {
 	Portal portal;  /* or null if closed or dead */
 	MemoryContextCallback *cb;  /* allocated in PortalContext */
 	lua_State *L; /* needed by callback */
+	int fetch_count;   /* only used for private cursors */
 	bool is_ours;   /* we created (and will close) it? */
 	bool is_private;  /* nobody else should be touching it */
 	bool is_live;  /* cleared by callback */
@@ -142,7 +154,7 @@ int pllua_spi_prepare_result(lua_State *L)
 	}
 
 	lua_pushvalue(L, 3);
-	lua_pushinteger(L, base+nrows);
+	lua_pushinteger(L, base+nrows-1);
 	lua_setfield(L, -2, "n");
 
 	lua_pushinteger(L, base);
@@ -176,14 +188,27 @@ static void pllua_spi_save_result(lua_State *L, lua_Integer nrows)
 
 
 
-static int pllua_cursor_options(lua_State *L, int nd)
+static int pllua_cursor_options(lua_State *L, int nd, int *fetch_count)
 {
+	int n = 0;
+	int isint = 0;
 	int flag = 0;
 	if (lua_isnoneornil(L, nd))
 		return 0;
 	luaL_checktype(L, nd, LUA_TTABLE);
 	lua_getfield(L, nd, "scroll");
-	flag |= (lua_toboolean(L, -1)) ? CURSOR_OPT_SCROLL : 0;
+	/*
+	 * support scroll = false as if it were no_scroll = true, because not doing
+	 * so is too confusing. But note that specifying neither has a different
+	 * effect.
+	 */
+	if (!lua_isnil(L, -1))
+	{
+		if (lua_toboolean(L, -1))
+			flag |= CURSOR_OPT_SCROLL;
+		else
+			flag |= CURSOR_OPT_NO_SCROLL;
+	}
 	lua_pop(L, 1);
 	lua_getfield(L, nd, "no_scroll");
 	flag |= (lua_toboolean(L, -1)) ? CURSOR_OPT_NO_SCROLL : 0;
@@ -196,6 +221,11 @@ static int pllua_cursor_options(lua_State *L, int nd)
 	lua_pop(L, 1);
 	lua_getfield(L, nd, "generic_plan");
 	flag |= (lua_toboolean(L, -1)) ? CURSOR_OPT_GENERIC_PLAN : 0;
+	lua_pop(L, 1);
+	lua_getfield(L, nd, "fetch_count");
+	n = lua_tointegerx(L, -1, &isint);
+	if (isint && n >= 1 && n < 10000000)
+		*fetch_count = n;
 	lua_pop(L, 1);
 	return flag;
 }
@@ -235,6 +265,7 @@ static pllua_spi_statement *pllua_spi_make_statement(lua_State *L,
 
 	stmt->mcxt = mcxt;
 	stmt->nparams = 0;
+	stmt->fetch_count = 0;
 
 	if (nargs_known > 0)
 	{
@@ -296,7 +327,7 @@ static pllua_spi_statement *pllua_spi_make_statement(lua_State *L,
 }
 
 /*
- * prepare(cmd,[{argtypes}, [{flag=true,...}])
+ * prepare(cmd,[{argtypes}, [{flag=true,...,fetch_count=n}])
  *
  * argtypes are given as text or typeinfo.
  * flags: "scroll","no_scroll","fast_start","custom_plan","generic_plan"
@@ -304,7 +335,8 @@ static pllua_spi_statement *pllua_spi_make_statement(lua_State *L,
 static int pllua_spi_prepare(lua_State *L)
 {
 	const char *str = lua_tostring(L, 1);
-	int opts = pllua_cursor_options(L, 3);
+	int fetch_count = 0;
+	int opts = pllua_cursor_options(L, 3, &fetch_count);
 	void **volatile p;
 	int i;
 	int nargs = 0;
@@ -363,6 +395,7 @@ static int pllua_spi_prepare(lua_State *L)
 		/* reparent everything */
 		SPI_keepplan(stmt->plan);
 		stmt->kept = true;
+		stmt->fetch_count = fetch_count;
 		MemoryContextSetParent(stmt->mcxt, pllua_get_memory_cxt(L));
 		*p = stmt;
 
@@ -379,14 +412,18 @@ static int pllua_spi_prepare(lua_State *L)
 		{
 			void **pt;
 
-			lua_pushcfunction(L, pllua_typeinfo_lookup);
-			lua_pushinteger(L, (lua_Integer) stmt->param_types[i]);
-			lua_call(L, 1, 1);
-			pt = pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
-			if (!pt)
-				luaL_error(L, "unexpected type in paramtypes list: %d", (lua_Integer) stmt->param_types[i]);
+			/* unused params will have InvalidOid here */
+			if (OidIsValid(stmt->param_types[i]))
+			{
+				lua_pushcfunction(L, pllua_typeinfo_lookup);
+				lua_pushinteger(L, (lua_Integer) stmt->param_types[i]);
+				lua_call(L, 1, 1);
+				pt = pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
+				if (!pt)
+					luaL_error(L, "unexpected type in paramtypes list: %d", (lua_Integer) stmt->param_types[i]);
 
-			lua_rawseti(L, -2, i+1);
+				lua_rawseti(L, -2, i+1);
+			}
 		}
 	}
 
@@ -436,27 +473,33 @@ int pllua_spi_convert_args(lua_State *L)
 }
 
 /*
- * spi.execute(cmd, arg...) returns {rows...}
- * also stmt:execute(arg...)
+ * spi.execute_count(cmd, count, arg...) returns {rows...}
+ * also stmt:execute_count(count, arg...)
  *
  */
-static int pllua_spi_execute(lua_State *L)
+static int pllua_spi_execute_count(lua_State *L)
 {
 	void **p = pllua_torefobject(L, 1, PLLUA_SPI_STMT_OBJECT);
 	const char *str = lua_tostring(L, 1);
-	int nargs = lua_gettop(L) - 1;
-	int argbase = 2;
+	int nargs = lua_gettop(L) - 2;
+	int argbase = 3;
 	Datum d_values[100];
 	bool d_isnull[100];
 	Oid d_argtypes[100];
 	Datum *values = d_values;
 	bool *isnull = d_isnull;
 	Oid *argtypes = d_argtypes;
+	long count = luaL_optinteger(L, 2, 0);
 	volatile lua_Integer nrows = -1;
 	int i;
 
 	if (!str && !p)
 		luaL_error(L, "incorrect argument type for execute, string or statement expected");
+
+	if (count == 0)
+		count = Min(LUA_MAXINTEGER-1, LONG_MAX-1);
+	else if (count < 0 || count > LUA_MAXINTEGER-1 || count > LONG_MAX-1)
+		luaL_error(L, "requested number of rows is out of range");
 
 	if (pllua_ending)
 		luaL_error(L, "cannot call SPI during shutdown");
@@ -539,8 +582,7 @@ static int pllua_spi_execute(lua_State *L)
 			}
 		}
 
-		rc = SPI_execute_plan_with_paramlist(stmt->plan, paramLI,
-											 readonly, Min(LUA_MAXINTEGER-1, LONG_MAX-1));
+		rc = SPI_execute_plan_with_paramlist(stmt->plan, paramLI, readonly, count);
 		if (rc >= 0)
 		{
 			nrows = SPI_processed;
@@ -571,6 +613,23 @@ static int pllua_spi_execute(lua_State *L)
 	PLLUA_CATCH_RETHROW();
 
 	return 1;
+}
+
+/*
+ * spi.execute(cmd, arg...) returns {rows...}
+ * also stmt:execute(arg...)
+ *
+ * simple shim to insert the count arg
+ */
+static int pllua_spi_execute(lua_State *L)
+{
+	luaL_checkany(L, 1);
+	lua_pushcfunction(L, pllua_spi_execute_count);
+	lua_insert(L, 1);
+	lua_pushnil(L);
+	lua_insert(L, 3);
+	lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+	return lua_gettop(L);
 }
 
 /*
@@ -822,6 +881,34 @@ static int pllua_spi_cursor_move(lua_State *L)
 	return 1;
 }
 
+static int pllua_stmt_cursor_ok(lua_State *L)
+{
+	pllua_spi_statement *stmt = *pllua_checkrefobject(L, 1, PLLUA_SPI_STMT_OBJECT);
+	lua_pushboolean(L, stmt->cursor_plan);
+	return 1;
+}
+
+static int pllua_stmt_numargs(lua_State *L)
+{
+	pllua_spi_statement *stmt = *pllua_checkrefobject(L, 1, PLLUA_SPI_STMT_OBJECT);
+	lua_pushinteger(L, stmt->nparams);
+	return 1;
+}
+
+static int pllua_stmt_argtypes(lua_State *L)
+{
+	pllua_spi_statement *stmt = *pllua_checkrefobject(L, 1, PLLUA_SPI_STMT_OBJECT);
+	int i;
+	int nparams = stmt->nparams;
+	lua_createtable(L, nparams, 0);
+	lua_getuservalue(L, 1);
+	for (i = 0; i < nparams; ++i)
+	{
+		lua_rawgeti(L, -1, i+1);
+		lua_rawseti(L, -3, i+1);
+	}
+	return 1;
+}
 
 static int pllua_stmt_gc(lua_State *L)
 {
@@ -898,6 +985,7 @@ static pllua_spi_cursor *pllua_newcursor(lua_State *L)
 	curs->L = L;
 	curs->portal = NULL;
 	curs->cb = NULL;
+	curs->fetch_count = 0;
 	curs->is_ours = false;
 	curs->is_private = false;
 	curs->is_live = false;
@@ -1158,13 +1246,43 @@ static int pllua_cursor_gc(lua_State *L)
  * rows iterator
  *
  * upvalue 1: cursor object
+ * upvalue 2: current queue pos
+ * upvalue 3: current queue size
  */
 static int pllua_spi_stmt_rows_iter(lua_State *L)
 {
-	lua_pushcfunction(L, pllua_spi_cursor_fetch);
-	lua_pushvalue(L, lua_upvalueindex(1));
-	lua_call(L, 1, 1);
-	if (lua_isnil(L,-1) || lua_geti(L, -1, 1) == LUA_TNIL)
+	pllua_spi_cursor *curs = pllua_checkobject(L, lua_upvalueindex(1), PLLUA_SPI_CURSOR_OBJECT);
+	int fetch_count = curs->is_private ? curs->fetch_count : 1;
+	int qpos = lua_tointeger(L, lua_upvalueindex(2));
+	int qlen = lua_tointeger(L, lua_upvalueindex(3));
+	if (fetch_count == 0)
+		fetch_count = DEFAULT_FETCH_COUNT;
+	if (fetch_count > 1 && qpos < qlen)
+	{
+		pllua_get_user_field(L, lua_upvalueindex(1), "q");
+		lua_geti(L, -1, ++qpos);
+		lua_remove(L, -2);
+	}
+	else
+	{
+		lua_pushcfunction(L, pllua_spi_cursor_fetch);
+		lua_pushvalue(L, lua_upvalueindex(1));
+		lua_pushinteger(L, fetch_count);
+		lua_call(L, 2, 1);
+		if (lua_isnil(L,-1))
+			luaL_error(L, "cursor fetch returned nil");
+		if (fetch_count > 1)
+		{
+			lua_pushvalue(L, -1);
+			pllua_set_user_field(L, lua_upvalueindex(1), "q");
+			qpos = 1;
+			lua_getfield(L, -1, "n");
+			qlen = lua_tointeger(L, -1);
+			lua_replace(L, lua_upvalueindex(3));
+		}
+		lua_geti(L, -1, 1);
+	}
+	if (lua_isnil(L, -1))
 	{
 		lua_pushcfunction(L, pllua_cursor_close);
 		lua_pushvalue(L, lua_upvalueindex(1));
@@ -1173,6 +1291,11 @@ static int pllua_spi_stmt_rows_iter(lua_State *L)
 		lua_replace(L, lua_upvalueindex(1));
 		lua_pushnil(L);
 		return 1;
+	}
+	if (fetch_count > 1)
+	{
+		lua_pushinteger(L, qpos);
+		lua_replace(L, lua_upvalueindex(2));
 	}
 	return 1;
 }
@@ -1183,14 +1306,24 @@ static int pllua_spi_stmt_rows_iter(lua_State *L)
  */
 static int pllua_spi_stmt_rows(lua_State *L)
 {
+	void **p = pllua_torefobject(L, 1, PLLUA_SPI_STMT_OBJECT);
 	pllua_spi_cursor *curs = pllua_newcursor(L);
+
+	if (p)
+	{
+		pllua_spi_statement *stmt = *p;
+		curs->fetch_count = stmt->fetch_count;
+	}
+
 	lua_insert(L, 1);
 	lua_pushcfunction(L, pllua_spi_cursor_open);
 	lua_insert(L, 1);
 	lua_call(L, lua_gettop(L) - 1, 1);
 
 	curs->is_private = 1;
-	lua_pushcclosure(L, pllua_spi_stmt_rows_iter, 1);
+	lua_pushinteger(L, 0);
+	lua_pushinteger(L, 0);
+	lua_pushcclosure(L, pllua_spi_stmt_rows_iter, 3);
 	lua_pushnil(L);
 	lua_pushnil(L);
 	return 3;
@@ -1199,6 +1332,7 @@ static int pllua_spi_stmt_rows(lua_State *L)
 
 static struct luaL_Reg spi_funcs[] = {
 	{ "execute", pllua_spi_execute },
+	{ "execute_count", pllua_spi_execute_count },
 	{ "prepare", pllua_spi_prepare },
 	{ "readonly", pllua_spi_is_readonly },
 	{ "findcursor", pllua_spi_findcursor },
@@ -1238,8 +1372,12 @@ static struct luaL_Reg spi_stmt_methods[] = {
 	{ "save", pllua_spi_noop },
 	{ "issaved", pllua_spi_noop_true },
 	{ "execute", pllua_spi_execute },
+	{ "execute_count", pllua_spi_execute_count },
 	{ "getcursor", pllua_spi_stmt_getcursor },
 	{ "rows", pllua_spi_stmt_rows },
+	{ "numargs", pllua_stmt_numargs },
+	{ "argtypes", pllua_stmt_argtypes },
+	{ "cursor_ok", pllua_stmt_cursor_ok },
 	{ NULL, NULL }
 };
 static struct luaL_Reg spi_stmt_mt[] = {

@@ -165,6 +165,48 @@ void *pllua_checkobject(lua_State *L, int nd, char *objtype)
 }
 
 /*
+ * make field "field" of the uservalue table of the object at nd
+ * contain the value at the top of the stack (which is popped).
+ *
+ * Install a table in the uservalue if it wasn't already one.
+ */
+void
+pllua_set_user_field(lua_State *L, int nd, const char *field)
+{
+	nd = lua_absindex(L, nd);
+	lua_getuservalue(L, nd);
+	if (lua_type(L, -1) != LUA_TTABLE)
+	{
+		lua_pop(L, 1);
+		lua_newtable(L);
+		lua_pushvalue(L, -1);
+		lua_setuservalue(L, nd);
+	}
+	lua_insert(L, -2);
+	lua_pushstring(L, field);
+	lua_insert(L, -2);
+	lua_rawset(L, -3);
+	lua_pop(L, 1);
+}
+
+int
+pllua_get_user_field(lua_State *L, int nd, const char *field)
+{
+	nd = lua_absindex(L, nd);
+	lua_getuservalue(L, nd);
+	if (lua_type(L, -1) != LUA_TTABLE)
+	{
+		lua_pop(L, 1);
+		lua_pushnil(L);
+		return LUA_TNIL;
+	}
+	lua_pushstring(L, field);
+	lua_rawget(L, -2);
+	lua_remove(L, -2);
+	return lua_type(L, -1);
+}
+
+/*
  * Activation objects represent a function call site (flinfo).
  *
  * We hang them off flinfo->fn_extra, and ensure that they aren't prematurely

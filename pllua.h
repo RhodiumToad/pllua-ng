@@ -632,6 +632,9 @@ void pllua_type_error(lua_State *L, char *expected);
 void **pllua_checkrefobject(lua_State *L, int nd, char *objtype);
 void *pllua_checkobject(lua_State *L, int nd, char *objtype);
 
+void pllua_set_user_field(lua_State *L, int nd, const char *field);
+int pllua_get_user_field(lua_State *L, int nd, const char *field);
+
 int pllua_newactivation(lua_State *L);
 int pllua_setactivation(lua_State *L);
 void pllua_getactivation(lua_State *L, pllua_func_activation *act);

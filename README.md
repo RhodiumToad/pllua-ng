@@ -34,9 +34,11 @@ SPI functionality is now in global table spi and has different calling
 conventions:
 
       spi.execute("query text", arg, arg, ...)
+      spi.execute_count("query text", maxrows, arg, arg, ...)
       spi.prepare("query text", {argtypes}, [{options}])
         - returns a statement object:
           s:execute(arg, arg, ...)  - returns a result table
+	  s:execute_count(maxrows, arg, arg, ...)  - returns a result table
           s:rows(arg, arg, ...) - returns iterator
       spi.rows("query text", args...)
         - returns iterator
@@ -44,6 +46,22 @@ conventions:
 Execution now returns a table with no number keys (#t == 0) in the
 event of no matching rows, whereas the old version returned nil. The
 result is also currently a plain table, not an object.
+
+spi.prepare takes an options table with these possible values:
+
+      scroll = true or false
+      no_scroll = true
+      fast_start = true
+      custom_plan = true
+      generic_plan = true
+      fetch_count = integer
+
+Note that "scroll" and "no_scroll" are independent options to the
+planner, but we treat { scroll = false } as if it were { no_scroll = true }
+because not doing so would be too confusing. The fetch_count value is
+used only by the :rows iterator, to determine how much prefetch to use;
+the default is 50. (Smaller values might be desirable for fetching very
+large rows, or a value of 1 disables prefetch entirely.)
 
 Cursors work:
 

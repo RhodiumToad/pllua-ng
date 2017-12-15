@@ -139,5 +139,23 @@ do language pllua_ng $$
   c:close()
 $$;
 
+-- check missing params are OK
+do language pllua_ng $$
+  local stmt = spi.prepare([[ select * from generate_series($1::integer, $3) i ]]);
+  local argtypes = stmt:argtypes()
+  print(argtypes[1]:name())
+  print(type(argtypes[2]))
+  print(argtypes[3]:name())
+$$;
 
---
+-- check execute_count
+do language pllua_ng $$
+  local q = [[ select * from generate_series($1::integer,$2) i ]]
+  local r1 = spi.execute_count(q, 2, 1, 5)
+  print(#r1)
+  local s = spi.prepare(q, {"integer","integer"})
+  r1 = s:execute_count(3,1,5)
+  print(#r1)
+$$;
+
+--end

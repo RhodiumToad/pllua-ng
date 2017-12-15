@@ -162,4 +162,26 @@ INFO:  3	(4,4,fred,2.34,04-01-2017)	(5,5,jim,2.34,05-01-2017)
 INFO:  <unnamed portal 3>	 select * from tsttab where id >= $1 order by id 	true
 INFO:  <unnamed portal 4>	true
 INFO:  <unnamed portal 4>	 select * from tsttab where id >= $1 order by id 	false
---
+-- check missing params are OK
+do language pllua_ng $$
+  local stmt = spi.prepare([[ select * from generate_series($1::integer, $3) i ]]);
+  local argtypes = stmt:argtypes()
+  print(argtypes[1]:name())
+  print(type(argtypes[2]))
+  print(argtypes[3]:name())
+$$;
+INFO:  integer
+INFO:  nil
+INFO:  integer
+-- check execute_count
+do language pllua_ng $$
+  local q = [[ select * from generate_series($1::integer,$2) i ]]
+  local r1 = spi.execute_count(q, 2, 1, 5)
+  print(#r1)
+  local s = spi.prepare(q, {"integer","integer"})
+  r1 = s:execute_count(3,1,5)
+  print(#r1)
+$$;
+INFO:  2
+INFO:  3
+--end
