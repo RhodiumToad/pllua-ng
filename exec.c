@@ -454,7 +454,6 @@ pllua_call_event_trigger(lua_State *L)
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
 	EventTriggerData *etd = (EventTriggerData *) fcinfo->context;
-	int			nstack;
 
 	pllua_common_lua_init(L, fcinfo);
 
@@ -463,10 +462,6 @@ pllua_call_event_trigger(lua_State *L)
 
 	/* pushes the activation on the stack */
 	pllua_validate_and_push(L, fcinfo, act->trusted);
-
-	/* stack mark for result processing */
-	nstack = lua_gettop(L);
-	Assert(nstack == 3);
 
 	/* get the function object from the activation and push that */
 	pllua_activation_getfunc(L);
