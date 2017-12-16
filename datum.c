@@ -18,6 +18,11 @@
 #include "utils/syscache.h"
 #include "utils/typcache.h"
 
+#if PG_VERSION_NUM < 110000
+#define DatumGetRangeTypeP(d_) DatumGetRangeType(d_)
+#define DatumGetAnyArrayP(d_) DatumGetAnyArray(d_)
+#endif
+
 /*
  * Basic plan of attack:
  *
