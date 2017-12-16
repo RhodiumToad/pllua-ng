@@ -3892,6 +3892,7 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 	{
 		int ct;
 		int curidx[MAXDIM];
+		int topidx;
 		/* construct a flat array of datum objects */
 		lua_createtable(L, nelems, 0);
 		ct = lua_gettop(L);
@@ -3899,41 +3900,37 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 		 * stack looks like:
 		 *  ct data data[i] data[i][j] ...
 		 * beware that the data elements may be nil!
+		 *
+		 * topidx is the 0..(ndim-1) index of the topmost item on the stack,
+		 * i.e. curidx[topidx] is the current index variable. (Or looked at
+		 * another way, topidx = depth - 1)
 		 */
 		lua_pushvalue(L, nd);
 		curidx[0] = 1;
-		for (i = 1; i < ndim; ++i)
+		for (topidx = 0, i = 1; i <= nelems; ++i)
 		{
+			while (topidx < ndim - 1)
+			{
+				if (!lua_isnil(L, -1))
+					lua_geti(L, -1, curidx[topidx]);
+				else
+					lua_pushnil(L);
+				curidx[++topidx] = 1;
+			}
+
 			if (!lua_isnil(L, -1))
-				lua_geti(L, -1, 1);
-			else
-				lua_pushnil(L);
-			curidx[i] = 1;
-		}
-		for (i = 1; i <= nelems; ++i)
-		{
-			int j = ndim - 1;
-			if (!lua_isnil(L, -1))
-				lua_geti(L, -1, curidx[j]);
+				lua_geti(L, -1, curidx[topidx]);
 			else
 				lua_pushnil(L);
 			lua_pushvalue(L, nte);
 			lua_insert(L, -2);
 			lua_call(L, 1, 1);
 			lua_seti(L, ct, i);
-			while (j >= 0 && (++(curidx[j])) > dims[j])
+
+			while (topidx >= 0 && (++(curidx[topidx])) > dims[topidx])
 			{
-				curidx[j] = 1;
-				--j;
+				--topidx;
 				lua_pop(L, 1);
-			}
-			while (j >= 0 && j < ndim - 1)
-			{
-				if (!lua_isnil(L, -1))
-					lua_geti(L, -1, curidx[j]);
-				else
-					lua_pushnil(L);
-				++j;
 			}
 		}
 		lua_settop(L, ct);
