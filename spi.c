@@ -569,8 +569,9 @@ static int pllua_spi_execute_count(lua_State *L)
 			paramLI->parserSetup = NULL;
 			paramLI->parserSetupArg = NULL;
 			paramLI->numParams = nargs;
+#if PG_VERSION_NUM >= 90600
 			paramLI->paramMask = NULL;
-
+#endif
 			for (i = 0; i < nargs; i++)
 			{
 				ParamExternData *prm = &paramLI->params[i];
@@ -739,8 +740,9 @@ static int pllua_spi_cursor_open(lua_State *L)
 			paramLI->parserSetup = NULL;
 			paramLI->parserSetupArg = NULL;
 			paramLI->numParams = nargs;
+#if PG_VERSION_NUM >= 90600
 			paramLI->paramMask = NULL;
-
+#endif
 			for (i = 0; i < nargs; i++)
 			{
 				ParamExternData *prm = &paramLI->params[i];

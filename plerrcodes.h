@@ -357,11 +357,11 @@
 {
 	"in_failed_sql_transaction", ERRCODE_IN_FAILED_SQL_TRANSACTION
 },
-
+#if PG_VERSION_NUM >= 90600
 {
 	"idle_in_transaction_session_timeout", ERRCODE_IDLE_IN_TRANSACTION_SESSION_TIMEOUT
 },
-
+#endif
 {
 	"invalid_sql_statement_name", ERRCODE_INVALID_SQL_STATEMENT_NAME
 },
@@ -765,11 +765,11 @@
 {
 	"duplicate_file", ERRCODE_DUPLICATE_FILE
 },
-
+#if PG_VERSION_NUM >= 90600
 {
 	"snapshot_too_old", ERRCODE_SNAPSHOT_TOO_OLD
 },
-
+#endif
 {
 	"config_file_error", ERRCODE_CONFIG_FILE_ERROR
 },

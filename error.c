@@ -897,7 +897,9 @@ pllua_push_severity(lua_State *L, int elevel, bool uppercase)
 		case DEBUG5:
 			lua_pushstring(L, uppercase ? "DEBUG" : "debug"); break;
 		case LOG:
+#ifdef LOG_SERVER_ONLY
 		case LOG_SERVER_ONLY:
+#endif
 			lua_pushstring(L, uppercase ? "LOG" : "log"); break;
 		case INFO:
 			lua_pushstring(L, uppercase ? "INFO" : "info"); break;
@@ -952,7 +954,9 @@ pllua_errobject_index(lua_State *L)
 			break;
 		case 'm':
 			if (strcmp(key,"message") == 0) PUSHSTR(e->message);
+#if PG_VERSION_NUM >= 90600
 			else if (strcmp(key,"message_id") == 0) PUSHSTR(e->message_id);
+#endif
 			else lua_pushnil(L);
 			break;
 		case 'p':

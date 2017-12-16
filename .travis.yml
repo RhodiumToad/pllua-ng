@@ -25,6 +25,7 @@ before_script:
 
 env:
   matrix:
+    - PGVERSION=9.5 LUA=lua5.3 LUA_DEV=liblua5.3-dev LUA_INCDIR=/usr/include/lua5.3 LUALIB=-llua5.3
     - PGVERSION=9.6 LUA=lua5.3 LUA_DEV=liblua5.3-dev LUA_INCDIR=/usr/include/lua5.3 LUALIB=-llua5.3
     - PGVERSION=10 LUA=lua5.3 LUA_DEV=liblua5.3-dev LUA_INCDIR=/usr/include/lua5.3 LUALIB=-llua5.3
 

@@ -22,8 +22,27 @@
 
 /* PG version cruft */
 
+#if PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 90510
+#error Older point releases are not supported; please build on 9.5.10 or later
+#endif
+#if PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 90606
+#error Older point releases are not supported; please build on 9.6.6 or later
+#endif
+#if PG_VERSION_NUM >= 100000 && PG_VERSION_NUM < 100100
+#error Older point releases are not supported; please build on 10.1 or later
+#endif
+
 #if PG_VERSION_NUM < 100000
 #define TupleDescAttr(tupdesc, i) ((tupdesc)->attrs[(i)])
+#endif
+
+#if PG_VERSION_NUM < 90600
+#define PG_INT64_MIN	(-INT64CONST(0x7FFFFFFFFFFFFFFF) - 1)
+#define PG_INT64_MAX	INT64CONST(0x7FFFFFFFFFFFFFFF)
+#define ALLOCSET_DEFAULT_SIZES \
+	ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
+#define ALLOCSET_SMALL_SIZES \
+	ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_MAXSIZE
 #endif
 
 /* Lua cruft */
