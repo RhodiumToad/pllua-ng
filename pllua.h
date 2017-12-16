@@ -28,7 +28,7 @@
 #if PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 90606
 #error Older point releases are not supported; please build on 9.6.6 or later
 #endif
-#if PG_VERSION_NUM >= 100000 && PG_VERSION_NUM < 100100
+#if PG_VERSION_NUM >= 100000 && PG_VERSION_NUM < 100001
 #error Older point releases are not supported; please build on 10.1 or later
 #endif
 
