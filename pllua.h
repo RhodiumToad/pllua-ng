@@ -594,6 +594,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 pllua_datum *pllua_todatum(lua_State *L, int nd, int td);
 int pllua_typeinfo_parsetype(lua_State *L);
+int pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t);
 
 /* elog.c */
 
@@ -641,6 +642,9 @@ int pllua_call_trigger(lua_State *L);
 int pllua_call_event_trigger(lua_State *L);
 int pllua_call_inline(lua_State *L);
 int pllua_validate(lua_State *L);
+
+/* jsonb.c */
+int pllua_open_jsonb(lua_State *L);
 
 /* numeric.c */
 int pllua_open_numeric(lua_State *L);

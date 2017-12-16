@@ -36,7 +36,7 @@ REGRESS = pllua pllua_old arrays numerics spi subxact types triggers event_trigg
 REGRESS_10 = triggers_10
 
 OBJS =	compile.o datum.o elog.o error.o exec.o globals.o init.o \
-	numeric.o objects.o pllua.o spi.o trigger.o trusted.o
+	jsonb.o numeric.o objects.o pllua.o spi.o trigger.o trusted.o
 
 EXTRA_CLEAN = pllua_functable.h
 

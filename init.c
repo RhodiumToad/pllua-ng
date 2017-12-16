@@ -449,6 +449,9 @@ pllua_init_state_phase2(lua_State *L)
 	luaL_requiref(L, "pllua.numeric", pllua_open_numeric, 0);
 	lua_pop(L, 1);
 
+	luaL_requiref(L, "pllua.jsonb", pllua_open_jsonb, 0);
+	lua_pop(L, 1);
+
 	/*
 	 * If in trusted mode, load the "trusted" module which allows the superuser
 	 * to control (in the init strings) what modules can be exposed to the user.

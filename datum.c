@@ -1379,7 +1379,7 @@ static struct luaL_Reg idxlist_mt[] = {
 	{ NULL, NULL }
 };
 
-static int
+int
 pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t)
 {
 	pllua_datum *nd;
@@ -1393,6 +1393,7 @@ pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo 
 	{
 		lua_pushvalue(L, nt);
 		nd = pllua_newdatum(L);
+		lua_remove(L, -2);
 
 		PLLUA_TRY();
 		{

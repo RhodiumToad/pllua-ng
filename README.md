@@ -36,6 +36,14 @@ cannot do any database access, and the only functions available from
 this module are the server.log/debug/error/etc. ones. (print() will
 do nothing useful.)
 
+NB.: because on_init is run before the sandbox environment is set up
+for trusted interpreters, it can't use trusted.require() or
+trusted.allow() and modules that it loads will not be visible inside
+the sandbox. To preload modules for use by trusted interpreters, you
+need to use on_init to require the module initially, and then use
+on_trusted_init to run trusted.allow or trusted.require to make it
+available.
+
 SPI functionality is now in global table spi and has different calling
 conventions:
 
@@ -211,26 +219,47 @@ The result is always in column order.
 ipairs() should NOT be used on a composite datum since it will stop at
 a null value or dropped column.
 
-Arrays and composite types support a mapping operation controlled by
-a configuration table:
+Arrays, composite types, and jsonb values support a mapping operation
+controlled by a configuration table:
 
       rowval{ mapfunc = function(colname,value,attno,row) ... end,
-               nullvalue = (any value),
-               noresult = (boolean)
-             }
+              nullvalue = (any value),
+              noresult = (boolean)
+            }
       arrayval{ mapfunc = function(elem,array,i,j,k...) ... end,
-                 nullvalue = (any value),
-                 noresult = (boolean)
-               }
+                nullvalue = (any value),
+                noresult = (boolean)
+              }
+      jsonbval{ mapfunc = function(key,val,...) ... return key,val end,
+                nullvalue = (any value),
+		noresult = (boolean),
+		keep_numeric = (boolean)
+              }
 
-The result in both cases is returned as a Lua table, not a datum,
+The result in all cases is returned as a Lua table, not a datum,
 unless the "noresult" option was given as true, in which case no
-result at all is returned. The mapfunc for arrays is passed as many
-indexes as the original array dimension. Substitution of null values
-happens BEFORE the mapping function is called; if that's not what you
-want, then do the substitution yourself before returning the result.
-(If the mapping function itself returns a Lua nil, then the entry will
-be omitted from the result.)
+result at all is returned.
+
+The mapfunc for arrays is passed as many indexes as the original array
+dimension.
+
+The mapfunc for jsonb values is passed the path leading up to the
+current key (not including the key) as separate additional parameters.
+The key is an integer if the current container is an array, a string
+if the container is an object, and nil if this is a single top-level
+scalar value (which I believe is not strictly allowed in the json
+spec, but pg allows it). The key/val returned by the mapfunc are used
+to store the result, but do not affect the path values passed to any
+other mapfunc call. If noresult is not specified, then the mapfunc is
+also called for completed containers (in which case val will be a
+table). If keep_numeric is not true, then numeric values are converted
+to Lua numbers, otherwise they remain as Datum values of numeric type
+(for which see below).
+
+Substitution of null values happens BEFORE the mapping function is
+called; if that's not what you want, then do the substitution yourself
+before returning the result. (If the mapping function itself returns a
+Lua nil, then the entry will be omitted from the result.)
 
 As a convenience shorthand, these work:
 
