@@ -1,0 +1,39 @@
+--
+\set VERBOSITY terse
+\set QUIET 0
+-- Test event triggers.
+create function evtrig() returns event_trigger language pllua_ng as $$
+  print(trigger.event, trigger.tag)
+$$;
+CREATE FUNCTION
+create event trigger et1 on ddl_command_start execute procedure evtrig();
+CREATE EVENT TRIGGER
+create event trigger et2 on ddl_command_end execute procedure evtrig();
+CREATE EVENT TRIGGER
+create event trigger et3 on sql_drop execute procedure evtrig();
+CREATE EVENT TRIGGER
+create event trigger et4 on table_rewrite execute procedure evtrig();
+CREATE EVENT TRIGGER
+create table evt1 (a text);
+INFO:  ddl_command_start	CREATE TABLE
+INFO:  ddl_command_end	CREATE TABLE
+CREATE TABLE
+alter table evt1 alter column a type integer using null;
+INFO:  ddl_command_start	ALTER TABLE
+INFO:  table_rewrite	ALTER TABLE
+INFO:  ddl_command_end	ALTER TABLE
+ALTER TABLE
+drop table evt1;
+INFO:  ddl_command_start	DROP TABLE
+INFO:  sql_drop	DROP TABLE
+INFO:  ddl_command_end	DROP TABLE
+DROP TABLE
+drop event trigger et1;
+DROP EVENT TRIGGER
+drop event trigger et2;
+DROP EVENT TRIGGER
+drop event trigger et3;
+DROP EVENT TRIGGER
+drop event trigger et4;
+DROP EVENT TRIGGER
+--end

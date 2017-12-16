@@ -308,6 +308,7 @@ typedef struct pllua_function_info
 	bool		retset;
 	bool		readonly;
 	bool		is_trigger;
+	bool		is_event_trigger;
 
 	int			nargs;
 	bool		variadic;
@@ -529,6 +530,7 @@ extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
 extern char PLLUA_TYPEINFO_PACKAGE_ARRAY_OBJECT[];
 extern char PLLUA_TUPCONV_OBJECT[];
 extern char PLLUA_TRIGGER_OBJECT[];
+extern char PLLUA_EVENT_TRIGGER_OBJECT[];
 extern char PLLUA_SPI_STMT_OBJECT[];
 extern char PLLUA_SPI_CURSOR_OBJECT[];
 extern char PLLUA_LAST_ERROR[];
@@ -681,10 +683,15 @@ int pllua_cursor_cleanup_portal(lua_State *L);
 
 /* trigger.c */
 struct TriggerData;
+struct EventTriggerData;
 void pllua_trigger_begin(lua_State *L, struct TriggerData *td);
 void pllua_trigger_end(lua_State *L, int nd);
 int pllua_push_trigger_args(lua_State *L, struct TriggerData *td);
 Datum pllua_return_trigger_result(lua_State *L, int nret, int nd);
+
+void pllua_evtrigger_begin(lua_State *L, struct EventTriggerData *td);
+void pllua_evtrigger_end(lua_State *L, int nd);
+
 int pllua_open_trigger(lua_State *L);
 
 /* trusted.c */

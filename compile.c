@@ -90,6 +90,10 @@ pllua_compile(lua_State *L)
 	{
 		luaL_addstring(&b, "trigger,old,new,...");
 	}
+	else if (func_info->is_event_trigger)
+	{
+		luaL_addstring(&b, "trigger");
+	}
 	else if (comp_info->nargs > 0)
 	{
 		int n = 0;
@@ -334,6 +338,7 @@ pllua_load_from_proctup(lua_State *L,
 	func_info->variadic_any = procStruct->provariadic == ANYOID;
 	func_info->readonly = (procStruct->provolatile != PROVOLATILE_VOLATILE);
 	func_info->is_trigger = (procStruct->prorettype == TRIGGEROID);
+	func_info->is_event_trigger = (procStruct->prorettype == EVTTRIGGEROID);
 	func_info->polymorphic = false;		/* set below */
 
 	Assert(func_info->nargs == procStruct->proargtypes.dim1);

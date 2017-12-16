@@ -5,6 +5,7 @@
 #include "access/htup_details.h"
 #include "catalog/pg_type.h"
 #include "commands/trigger.h"
+#include "commands/event_trigger.h"
 #include "utils/datum.h"
 
 
@@ -452,8 +453,37 @@ pllua_call_event_trigger(lua_State *L)
 {
 	pllua_activation_record *act = lua_touserdata(L, 1);
 	FunctionCallInfo fcinfo = act->fcinfo;
+	EventTriggerData *etd = (EventTriggerData *) fcinfo->context;
+	int			nstack;
 
 	pllua_common_lua_init(L, fcinfo);
+
+	/* push a trigger object on the stack (index 2) */
+	pllua_evtrigger_begin(L, etd);
+
+	/* pushes the activation on the stack */
+	pllua_validate_and_push(L, fcinfo, act->trusted);
+
+	/* stack mark for result processing */
+	nstack = lua_gettop(L);
+	Assert(nstack == 3);
+
+	/* get the function object from the activation and push that */
+	pllua_activation_getfunc(L);
+
+	/*
+	 * Event triggers have one fixed arg: the trigger object. There are
+	 * no additional args. The funcinfo will specify no args.
+	 *
+	 * There is also no result.
+	 */
+	lua_pushvalue(L, 2);
+	lua_call(L, 1, 0);
+
+	act->retval = PointerGetDatum(NULL);
+
+	/* mark the trigger object dead */
+	pllua_evtrigger_end(L, 2);
 
 	return 0;
 }

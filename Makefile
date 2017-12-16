@@ -31,7 +31,7 @@ MODULE_big = pllua_ng
 EXTENSION = pllua_ng
 DATA = pllua_ng--1.0.sql
 
-REGRESS = pllua pllua_old arrays numerics spi subxact types triggers
+REGRESS = pllua pllua_old arrays numerics spi subxact types triggers event_triggers
 # only on pg10+
 REGRESS_10 = triggers_10
 

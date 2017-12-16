@@ -3,6 +3,7 @@
 #include "pllua.h"
 
 #include "access/htup_details.h"
+#include "commands/event_trigger.h"
 #include "commands/trigger.h"
 #include "utils/reltrigger.h"
 #include "utils/rel.h"
@@ -13,6 +14,11 @@ typedef struct pllua_trigger
 	TriggerData *td;		/* NULLed out when trigger ends */
 	bool		modified;
 } pllua_trigger;
+
+typedef struct pllua_event_trigger
+{
+	EventTriggerData *etd;		/* NULLed out when trigger ends */
+} pllua_event_trigger;
 
 /*
  * Push a new trigger object on the stack
@@ -37,6 +43,32 @@ pllua_checktrigger(lua_State *L, int nd)
 	pllua_trigger *obj = pllua_checkobject(L, nd, PLLUA_TRIGGER_OBJECT);
 	if (!obj->td)
 		luaL_error(L, "cannot access dead trigger object");
+	return obj;
+}
+
+/*
+ * Push a new event trigger object on the stack
+ */
+void
+pllua_evtrigger_begin(lua_State *L, EventTriggerData *etd)
+{
+	pllua_event_trigger *obj = pllua_newobject(L, PLLUA_EVENT_TRIGGER_OBJECT, sizeof(pllua_event_trigger), 1);
+	obj->etd = etd;
+}
+
+void
+pllua_evtrigger_end(lua_State *L, int nd)
+{
+	pllua_event_trigger *obj = pllua_checkobject(L, nd, PLLUA_EVENT_TRIGGER_OBJECT);
+	obj->etd = NULL;
+}
+
+static pllua_event_trigger *
+pllua_checkevtrigger(lua_State *L, int nd)
+{
+	pllua_event_trigger *obj = pllua_checkobject(L, nd, PLLUA_EVENT_TRIGGER_OBJECT);
+	if (!obj->etd)
+		luaL_error(L, "cannot access dead event trigger object");
 	return obj;
 }
 
@@ -507,6 +539,30 @@ static struct luaL_Reg triggerobj_mt[] = {
 	{ NULL, NULL }
 };
 
+/*
+ * For event triggers we don't bother doing anything fancy
+ */
+static int
+pllua_evtrigger_index(lua_State *L)
+{
+	pllua_event_trigger *obj = pllua_checkevtrigger(L, 1);
+	const char *str = luaL_checkstring(L, 2);
+	lua_settop(L, 2);
+
+	if (strcmp(str, "event") == 0)
+		lua_pushstring(L, obj->etd->event);
+	else if (strcmp(str, "tag") == 0)
+		lua_pushstring(L, obj->etd->tag);
+	else
+		lua_pushnil(L);
+	return 1;
+}
+
+static struct luaL_Reg evtriggerobj_mt[] = {
+	{ "__index", pllua_evtrigger_index },
+	{ NULL, NULL }
+};
+
 int pllua_open_trigger(lua_State *L)
 {
 	pllua_newmetatable(L, PLLUA_TRIGGER_OBJECT, triggerobj_mt);
@@ -514,6 +570,10 @@ int pllua_open_trigger(lua_State *L)
 	luaL_setfuncs(L, triggerobj_keys, 0);
 	lua_setfield(L, -2, "_keys");
 	lua_pop(L,1);
+
+	pllua_newmetatable(L, PLLUA_EVENT_TRIGGER_OBJECT, evtriggerobj_mt);
+	lua_pop(L,1);
+
 	lua_pushboolean(L, 1);
 	return 1;
 }
