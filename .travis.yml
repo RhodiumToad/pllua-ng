@@ -24,7 +24,7 @@ before_install:
       (cd src && make SYSCFLAGS="-DLUA_USE_LINUX -ULUA_COMPAT_5_2" SYSLIBS="-Wl,-E -ldl -lreadline" LUA_A=liblua5.3.so MYCFLAGS="-fPIC" RANLIB=: AR="gcc -shared -ldl -o" liblua5.3.so) || exit 1
       sudo make INSTALL_TOP=/usr/ INSTALL_INC=${LUA_INCDIR} TO_LIB=liblua5.3.so linux install || exit 1
       cd ..
-    elif [[ "$LUA" == LuaJIT* ]]
+    elif [[ "$LUA" == LuaJIT* ]]; then
       mkdir "$LUA"
       wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUA}".tar.gz \
         | tar zx --strip-components=1 -C "$LUA"
