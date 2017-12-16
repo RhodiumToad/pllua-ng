@@ -5,6 +5,10 @@
 #include "catalog/pg_type.h"
 #include "utils/jsonb.h"
 
+#if PG_VERSION_NUM < 110000
+#define DatumGetJsonbP(d_) DatumGetJsonb(d_)
+#endif
+
 
 static int
 pllua_jsonb_map(lua_State *L)
