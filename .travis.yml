@@ -17,13 +17,13 @@ before_install:
   - sudo apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::="--force-confnew" install postgresql-${PGVERSION:?} postgresql-server-dev-${PGVERSION:?}
   - |
     if [[ "$LUA" == "lua5.3" ]]; then
+      export LUA_INCDIR=/usr/include/lua5.3 LUALIB=-llua5.3
       wget http://www.lua.org/ftp/lua-5.3.4.tar.gz -O lua.tar.gz
       tar -xvzf lua.tar.gz
       cd lua-*
       (cd src && make SYSCFLAGS="-DLUA_USE_LINUX -ULUA_COMPAT_5_2" SYSLIBS="-Wl,-E -ldl -lreadline" LUA_A=liblua5.3.so MYCFLAGS="-fPIC" RANLIB=: AR="gcc -shared -ldl -o" liblua5.3.so) || exit 1
       sudo make INSTALL_TOP=/usr/ INSTALL_INC=${LUA_INCDIR} TO_LIB=liblua5.3.so linux install || exit 1
       cd ..
-      export LUA_INCDIR=/usr/include/lua5.3 LUALIB=-llua5.3
     elif [[ "$LUA" == LuaJIT* ]]
       mkdir "$LUA"
       wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUA}".tar.gz \
