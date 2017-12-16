@@ -26,7 +26,7 @@ before_install:
       cd ..
     elif [[ "$LUA" == LuaJIT* ]]; then
       mkdir "$LUA"
-      wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUA}".tar.gz \
+      wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUA#LuaJIT-}".tar.gz \
         | tar zx --strip-components=1 -C "$LUA"
       make -C "$LUA"/src \
         XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
