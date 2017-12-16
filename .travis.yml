@@ -24,7 +24,7 @@ before_install:
       sudo make INSTALL_TOP=/usr/ INSTALL_INC=${LUA_INCDIR} TO_LIB=liblua5.3.so linux install || exit 1
       cd ..
       export LUA_INCDIR=/usr/include/lua5.3 LUALIB=-llua5.3
-    elsif [[ "$LUA" == LuaJIT* ]]
+    elif [[ "$LUA" == LuaJIT* ]]
       mkdir "$LUA"
       wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUA}".tar.gz \
         | tar zx --strip-components=1 -C "$LUA"
