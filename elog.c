@@ -524,6 +524,22 @@ pllua_init_error_functions(lua_State *L)
 		lua_setfield(L, -5, elevels[i].str);
 	}
 	lua_pushcclosure(L, pllua_p_elog, 3);
-	lua_setfield(L, -2, "elog");
+	lua_pushvalue(L, -1);
+	lua_setfield(L, -3, "elog");
+
+	/*
+	 * if we're in the postmaster, then preload the error table, by
+	 * outputting a debug message.
+	 */
+	if (!IsUnderPostmaster)
+	{
+		lua_pushstring(L, "debug");
+		lua_pushstring(L, "successful_completion");
+		lua_pushstring(L, "pl/lua preloaded in postmaster");
+		lua_call(L, 3, 0);
+	}
+	else
+		lua_pop(L, 1);
+
 	lua_pop(L, 1);
 }

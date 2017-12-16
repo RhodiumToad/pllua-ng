@@ -808,13 +808,19 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 int
 pllua_t_pcall(lua_State *L)
 {
-	return pllua_t_pcall_guts(L, false);
+	if (IsUnderPostmaster)
+		return pllua_t_pcall_guts(L, false);
+	else
+		return pllua_t_lpcall(L);
 }
 
 int
 pllua_t_xpcall(lua_State *L)
 {
-	return pllua_t_pcall_guts(L, true);
+	if (IsUnderPostmaster)
+		return pllua_t_pcall_guts(L, true);
+	else
+		return pllua_t_lxpcall(L);
 }
 
 /*

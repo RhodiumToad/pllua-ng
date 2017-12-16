@@ -672,8 +672,8 @@ int pllua_resetactivation(lua_State *L);
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
 
-void pllua_init_objects(lua_State *L, bool trusted);
-void pllua_init_functions(lua_State *L, bool trusted);
+void pllua_init_objects_phase1(lua_State *L);
+void pllua_init_objects_phase2(lua_State *L);
 
 /* spi.c */
 int pllua_open_spi(lua_State *L);

@@ -563,11 +563,6 @@ static struct luaL_Reg actobj_mt[] = {
 	{ NULL, NULL }
 };
 
-static struct luaL_Reg serverdebugfuncs[] = {
-	{ "act", pllua_get_cur_act },
-	{ NULL, NULL }
-};
-
 static struct luaL_Reg serverfuncs[] = {
 	{ NULL, NULL }
 };
@@ -577,23 +572,6 @@ static struct luaL_Reg globfuncs[] = {
 	{ NULL, NULL }
 };
 
-void pllua_init_objects(lua_State *L, bool trusted)
-{
-	pllua_newmetatable(L, PLLUA_FUNCTION_OBJECT, funcobj_mt);
-	pllua_newmetatable(L, PLLUA_ACTIVATION_OBJECT, actobj_mt);
-	lua_pop(L, 2);
-	luaL_requiref(L, "pllua.pgtype", pllua_open_pgtype, 0);
-	lua_pushvalue(L, -1);
-	lua_setglobal(L, "pgtype");
-}
-
-static int pllua_open_debugfuncs(lua_State *L)
-{
-	lua_newtable(L);
-	luaL_setfuncs(L, serverdebugfuncs, 0);
-	return 1;
-}
-
 static int pllua_open_serverfuncs(lua_State *L)
 {
 	lua_newtable(L);
@@ -601,18 +579,21 @@ static int pllua_open_serverfuncs(lua_State *L)
 	return 1;
 }
 
-void pllua_init_functions(lua_State *L, bool trusted)
+void pllua_init_objects_phase1(lua_State *L)
 {
+	luaL_requiref(L, "pllua.server", pllua_open_serverfuncs, 0);
+	lua_setglobal(L, "server");
+
+	pllua_init_error_functions(L);
+
 	lua_pushglobaltable(L);
 	luaL_setfuncs(L, globfuncs, 0);
 	lua_pop(L, 1);
+}
 
-	luaL_requiref(L, "pllua.dbg", pllua_open_debugfuncs, 0);
-	lua_pop(L, 1);
-	luaL_requiref(L, "pllua.server", pllua_open_serverfuncs, 0);
-	lua_setglobal(L, "server");
-	luaL_requiref(L, "pllua.trigger", pllua_open_trigger, 0);
-	lua_pop(L, 1);
-
-	pllua_init_error_functions(L);
+void pllua_init_objects_phase2(lua_State *L)
+{
+	pllua_newmetatable(L, PLLUA_FUNCTION_OBJECT, funcobj_mt);
+	pllua_newmetatable(L, PLLUA_ACTIVATION_OBJECT, actobj_mt);
+	lua_pop(L, 2);
 }

@@ -19,14 +19,20 @@ static bool simulate_memory_failure = false;
 
 static HTAB *pllua_interp_hash = NULL;
 
+static lua_State *held_state = NULL;
+
 static char *pllua_on_init = NULL;
 static char *pllua_on_trusted_init = NULL;
 static char *pllua_on_untrusted_init = NULL;
 static bool pllua_do_check_for_interrupts = true;
 
 
-static void pllua_newstate(bool trusted, Oid user_id, pllua_interpreter *interp_desc, pllua_activation_record *act);
-static int pllua_init_state(lua_State *L);
+static lua_State *pllua_newstate_phase1(void);
+static void pllua_newstate_phase2(lua_State *L,
+								  bool trusted,
+								  Oid user_id,
+								  pllua_interpreter *interp_desc,
+								  pllua_activation_record *act);
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
 
@@ -70,7 +76,17 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 	 * this can throw a pg error, but is required to ensure the interpreter is
 	 * removed from interp_desc first if it does.
 	 */
-	pllua_newstate(trusted, user_id, interp_desc, act);
+	if (held_state)
+	{
+		lua_State *L = held_state;
+		held_state = NULL;
+		pllua_newstate_phase2(L, trusted, user_id, interp_desc, act);
+	}
+	else
+	{
+		lua_State *L = pllua_newstate_phase1();
+		pllua_newstate_phase2(L, trusted, user_id, interp_desc, act);
+	}
 
 	return interp_desc;
 }
@@ -149,6 +165,10 @@ void _PG_init(void)
 									8,
 									&hash_ctl,
 									HASH_ELEM | HASH_BLOBS);
+
+	if (!IsUnderPostmaster)
+		held_state = pllua_newstate_phase1();
+
 	init_done = true;
 }
 
@@ -174,6 +194,21 @@ pllua_fini(int code, Datum arg)
 	{
 		elog(DEBUG2, "pllua_fini: skipped");
 		return;
+	}
+
+	/* zap a "held" interp if any */
+	if (held_state)
+	{
+		lua_State *L = held_state;
+		held_state = NULL;
+		/*
+		 * We intentionally do not worry about trying to rethrow any errors
+		 * happening here; we're trying to shut down, and ignoring an error
+		 * is probably less likely to crash us than rethrowing it.
+		 */
+		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		lua_close(L); /* can't throw, but has internal lua catch blocks */
+		pllua_setcontext(PLLUA_CONTEXT_PG);
 	}
 
 	/* Zap any fully-initialized interpreters */
@@ -305,7 +340,7 @@ pllua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 }
 
 /*
- * Hook function to check for interrupts. We have lua call this for every few
+ * Hook function to check for interrupts. We have lua call this for every
  * million opcodes executed.
  */
 static void
@@ -316,84 +351,6 @@ pllua_hook(lua_State *L, lua_Debug *ar)
 		CHECK_FOR_INTERRUPTS();
 	}
 	PLLUA_CATCH_RETHROW();
-}
-
-/*
- * Lua-environment part of interpreter setup.
- */
-static int
-pllua_init_state(lua_State *L)
-{
-	bool		trusted = lua_toboolean(L, 1);
-	lua_Integer	user_id = lua_tointeger(L, 2);
-	lua_Integer	lang_oid = lua_tointeger(L, 3);
-	MemoryContext *mcxt = lua_touserdata(L, 4);
-	MemoryContext *emcxt = lua_touserdata(L, 5);
-	pllua_interpreter *interp = lua_touserdata(L, 6);
-
-	lua_pushliteral(L, "0.1");
-	lua_setglobal(L, "_PLVERSION");
-	lua_pushlightuserdata(L, mcxt);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
-	lua_pushlightuserdata(L, emcxt);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
-	lua_pushlightuserdata(L, interp);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
-	lua_pushinteger(L, user_id);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_USERID);
-	lua_pushinteger(L, lang_oid);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LANG_OID);
-	lua_pushboolean(L, trusted);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED);
-
-	/* install our hack to push C functions without throwing error */
-#define PLLUA_DECL_CFUNC(f_) lua_pushcfunction(L, f_); lua_rawsetp(L, LUA_REGISTRYINDEX, f_);
-#include "pllua_functable.h"
-#undef PLLUA_DECL_CFUNC
-
-	/* require the base lib early so that we can overwrite bits */
-	luaL_requiref(L, "_G", luaopen_base, 1);
-
-	pllua_init_objects(L, trusted);
-	pllua_init_error(L);
-
-	luaL_openlibs(L);
-
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
-
-	pllua_init_functions(L, trusted);
-
-	/* Treat SPI as an actual module */
-	luaL_requiref(L, "pllua.spi", pllua_open_spi, 0);
-	lua_setglobal(L, "spi");
-
-	/* Treat the numeric handler as an actual module */
-	luaL_requiref(L, "pllua.numeric", pllua_open_numeric, 0);
-	lua_pop(L, 1);
-
-	/*
-	 * If in trusted mode, load the "trusted" module which allows the superuser
-	 * to control (in the init strings) what modules can be exposed to the user.
-	 */
-	if (trusted)
-	{
-		luaL_requiref(L, "pllua.trusted", pllua_open_trusted, 0);
-		lua_setglobal(L, "trusted");
-	}
-
-	/* enable interrupt checks */
-	if (pllua_do_check_for_interrupts)
-		lua_sethook(L, pllua_hook, LUA_MASKCOUNT, 10000000);
-
-	/* don't run user code yet. */
-	return 0;
 }
 
 /*
@@ -413,8 +370,109 @@ pllua_runstring(lua_State *L, const char *chunkname, const char *str)
 }
 
 /*
- * Execute the init strings. Note that they are executed outside any trusted
- * sandbox.
+ * Lua-environment part of interpreter setup.
+ *
+ * Phase 1 might be executed pre-fork; it can't know whether the interpreter
+ * will be trusted, what the language oid is, what the user id is or anything
+ * related to the database state. Nor does it have a pointer to the
+ * pllua_interpreter structure.
+ */
+static int
+pllua_init_state_phase1(lua_State *L)
+{
+	MemoryContext *mcxt = lua_touserdata(L, 1);
+	MemoryContext *emcxt = lua_touserdata(L, 2);
+
+	lua_pushliteral(L, "0.1");
+	lua_setglobal(L, "_PLVERSION");
+	lua_pushlightuserdata(L, mcxt);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
+	lua_pushlightuserdata(L, emcxt);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
+	lua_pushlightuserdata(L, 0);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
+
+	/* install our hack to push C functions without throwing error */
+#define PLLUA_DECL_CFUNC(f_) lua_pushcfunction(L, f_); lua_rawsetp(L, LUA_REGISTRYINDEX, f_);
+#include "pllua_functable.h"
+#undef PLLUA_DECL_CFUNC
+
+	/* require the base lib early so that we can overwrite bits */
+	luaL_requiref(L, "_G", luaopen_base, 1);
+
+	pllua_init_error(L);
+	pllua_init_objects_phase1(L);
+
+	luaL_openlibs(L);
+
+	pllua_runstring(L, "on_init", pllua_on_init);
+
+	return 0;
+}
+
+static int
+pllua_init_state_phase2(lua_State *L)
+{
+	bool		trusted = lua_toboolean(L, 1);
+	lua_Integer	user_id = lua_tointeger(L, 2);
+	lua_Integer	lang_oid = lua_tointeger(L, 3);
+	pllua_interpreter *interp = lua_touserdata(L, 4);
+
+	lua_pushlightuserdata(L, interp);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
+	lua_pushinteger(L, user_id);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_USERID);
+	lua_pushinteger(L, lang_oid);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LANG_OID);
+	lua_pushboolean(L, trusted);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED);
+
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
+
+	pllua_init_objects_phase2(L);
+
+	/* Treat these as actual modules */
+
+	luaL_requiref(L, "pllua.pgtype", pllua_open_pgtype, 0);
+	lua_setglobal(L, "pgtype");
+
+	luaL_requiref(L, "pllua.spi", pllua_open_spi, 0);
+	lua_setglobal(L, "spi");
+
+	luaL_requiref(L, "pllua.trigger", pllua_open_trigger, 0);
+	lua_pop(L, 1);
+
+	luaL_requiref(L, "pllua.numeric", pllua_open_numeric, 0);
+	lua_pop(L, 1);
+
+	/*
+	 * If in trusted mode, load the "trusted" module which allows the superuser
+	 * to control (in the init strings) what modules can be exposed to the user.
+	 */
+	if (trusted)
+	{
+		luaL_requiref(L, "pllua.trusted", pllua_open_trusted, 0);
+		lua_setglobal(L, "trusted");
+	}
+
+	/* enable interrupt checks */
+	if (pllua_do_check_for_interrupts)
+		lua_sethook(L, pllua_hook, LUA_MASKCOUNT, 1000000);
+
+	/* don't run user code yet */
+	return 0;
+}
+
+/*
+ * Execute the post-fork init strings. Note that they are executed outside any
+ * trusted sandbox.
  */
 int
 pllua_run_init_strings(lua_State *L)
@@ -427,7 +485,6 @@ pllua_run_init_strings(lua_State *L)
 
 	trusted = lua_toboolean(L, -1);
 
-	pllua_runstring(L, "on_init", pllua_on_init);
 	if (trusted)
 		pllua_runstring(L, "on_trusted_init", pllua_on_trusted_init);
 	else
@@ -438,36 +495,19 @@ pllua_run_init_strings(lua_State *L)
 
 /*
  * PG-environment part of interpreter setup.
+ *
+ * Phase 1 can run in postmaster, before we know anything about what the
+ * interp will be used for or by whom.
  */
-static void
-pllua_newstate(bool trusted,
-			   Oid user_id,
-			   pllua_interpreter *interp_desc,
-			   pllua_activation_record *act)
+static lua_State *
+pllua_newstate_phase1(void)
 {
-	static bool first_time = true;
-	MemoryContext mcxt = NULL;
-	MemoryContext emcxt = NULL;
-	MemoryContext oldcontext = CurrentMemoryContext;
-	lua_State  *L;
-	Oid			langoid;
+	MemoryContext	mcxt = NULL;
+	MemoryContext	emcxt = NULL;
+	MemoryContext	oldcontext = CurrentMemoryContext;
+	lua_State	   *L = NULL;
 
 	ASSERT_PG_CONTEXT;
-
-	/*
-	 * Get our own language oid; this is somewhat unnecessarily hard.
-	 */
-	if (act->cblock)
-		langoid = act->cblock->langOid;
-	else
-	{
-		Oid procoid = (act->fcinfo) ? act->fcinfo->flinfo->fn_oid : act->validate_func;
-		HeapTuple procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(procoid));
-		if (!HeapTupleIsValid(procTup))
-			elog(ERROR, "cache lookup failed for function %u", procoid);
-		langoid = ((Form_pg_proc) GETSTRUCT(procTup))->prolang;
-		ReleaseSysCache(procTup);
-	}
 
 	mcxt = AllocSetContextCreate(TopMemoryContext,
 								 "PL/Lua context",
@@ -492,8 +532,6 @@ pllua_newstate(bool trusted,
 
 	PG_TRY();
 	{
-		int		rc;
-
 		/*
 		 * Since we just created this interpreter, we know we're not in any
 		 * protected environment yet, so Lua errors outside of pcall will
@@ -505,14 +543,100 @@ pllua_newstate(bool trusted,
 		 */
 
 		/* note that pllua_pushcfunction is not available yet. */
-		lua_pushcfunction(L, pllua_init_state);
+		lua_pushcfunction(L, pllua_init_state_phase1);
+		lua_pushlightuserdata(L, mcxt);
+		lua_pushlightuserdata(L, emcxt);
+		pllua_pcall(L, 2, 0, 0);
+	}
+	PG_CATCH();
+	{
+		ErrorData *e;
+		Assert(pllua_context == PLLUA_CONTEXT_PG);
+
+		/*
+		 * If we got a lua error (which could be a caught pg error) during the
+		 * protected part of interpreter initialization, then we need to kill
+		 * the interpreter; but that could provoke further errors, so we exit
+		 * pg's error handling first. Since we need to kill off the lua memory
+		 * contexts too, we temporarily use the caller's memory (which should
+		 * be a transient context) to store the error data.
+		 */
+		MemoryContextSwitchTo(oldcontext);
+		e = CopyErrorData();
+		FlushErrorState();
+
+		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_ending = true;  /* we're ending _this_ interpreter at least */
+		lua_close(L); /* can't throw, but has internal lua catch blocks */
+		pllua_ending = false;
+		pllua_setcontext(PLLUA_CONTEXT_PG);
+
+		MemoryContextDelete(mcxt);
+
+		ReThrowError(e);
+	}
+	PG_END_TRY();
+
+	return L;
+}
+
+
+/*
+ * PG-environment part of interpreter setup.
+ */
+static void
+pllua_newstate_phase2(lua_State *L,
+					  bool trusted,
+					  Oid user_id,
+					  pllua_interpreter *interp_desc,
+					  pllua_activation_record *act)
+{
+	static bool first_time = true;
+	MemoryContext oldcontext = CurrentMemoryContext;
+	volatile MemoryContext mcxt = NULL;  /* L's mcxt if known */
+
+	ASSERT_PG_CONTEXT;
+
+	PG_TRY();
+	{
+		int		rc;
+		Oid		langoid;
+
+		/* can't throw */
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
+		mcxt = lua_touserdata(L, -1);
+		lua_pop(L, 1);
+
+		/*
+		 * Get our own language oid; this is somewhat unnecessarily hard.
+		 */
+		if (act->cblock)
+			langoid = act->cblock->langOid;
+		else
+		{
+			Oid procoid = (act->fcinfo) ? act->fcinfo->flinfo->fn_oid : act->validate_func;
+			HeapTuple procTup = SearchSysCache1(PROCOID, ObjectIdGetDatum(procoid));
+			if (!HeapTupleIsValid(procTup))
+				elog(ERROR, "cache lookup failed for function %u", procoid);
+			langoid = ((Form_pg_proc) GETSTRUCT(procTup))->prolang;
+			ReleaseSysCache(procTup);
+		}
+
+		/*
+		 * Since we just created this interpreter, we know we're not in any
+		 * protected environment yet, so Lua errors outside of pcall will
+		 * become pg errors via pllua_panic. In other contexts we must be more
+		 * cautious about Lua errors, because of this scenario: if a Lua
+		 * function calls into SPI which invokes another Lua function, then any
+		 * Lua error thrown in the nested invocation might longjmp back to the
+		 * outer interpreter...
+		 */
+		lua_pushcfunction(L, pllua_init_state_phase2);
 		lua_pushboolean(L, trusted);
 		lua_pushinteger(L, (lua_Integer) user_id);
 		lua_pushinteger(L, (lua_Integer) langoid);
-		lua_pushlightuserdata(L, mcxt);
-		lua_pushlightuserdata(L, emcxt);
 		lua_pushlightuserdata(L, interp_desc);
-		pllua_pcall(L, 6, 0, 0);
+		pllua_pcall(L, 4, 0, 0);
 
 		if (first_time)
 		{
@@ -536,7 +660,7 @@ pllua_newstate(bool trusted,
 
 		/*
 		 * Now that we have everything set up, it should finally be safe to run
-		 * some arbitrary code.
+		 * some arbitrary code that might access the db.
 		 */
 		rc = pllua_cpcall(L, pllua_run_init_strings, NULL);
 		if (rc)
