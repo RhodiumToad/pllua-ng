@@ -397,13 +397,10 @@ pllua_init_state_phase1(lua_State *L)
 #include "pllua_functable.h"
 #undef PLLUA_DECL_CFUNC
 
-	/* require the base lib early so that we can overwrite bits */
-	luaL_requiref(L, "_G", luaopen_base, 1);
+	luaL_openlibs(L);
 
 	pllua_init_error(L);
 	pllua_init_objects_phase1(L);
-
-	luaL_openlibs(L);
 
 	pllua_runstring(L, "on_init", pllua_on_init);
 

@@ -30,6 +30,12 @@ The old pllua.init table is gone. Instead we support three init
 strings (superuser-only): pllua_ng.on_init, pllua_ng.on_trusted_init,
 pllua_ng.on_untrusted_init.
 
+Note that the on_init string can be run in the postmaster process, by
+including pllua_ng in shared_preload_libraries. Accordingly, on_init
+cannot do any database access, and the only functions available from
+this module are the server.log/debug/error/etc. ones. (print() will
+do nothing useful.)
+
 SPI functionality is now in global table spi and has different calling
 conventions:
 

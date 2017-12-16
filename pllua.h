@@ -355,6 +355,8 @@ typedef struct pllua_function_compile_info
 typedef struct pllua_func_activation
 {
 	lua_State  *thread;		/* non-null for a running SRF */
+	bool		onstack;	/* needed for error handling */
+
 	pllua_interpreter *interp;		/* direct access for SRF resume */
 
 	pllua_function_info *func_info;

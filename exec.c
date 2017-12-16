@@ -255,7 +255,9 @@ pllua_resume_function(lua_State *L)
 	Assert(thr != NULL);
 	Assert(lua_gettop(L) == 1);
 
+	fact->onstack = true;
 	rc = lua_resume(thr, L, 0);
+	fact->onstack = false;
 
 	if (rc == LUA_OK)
 	{
@@ -327,7 +329,10 @@ pllua_call_function(lua_State *L)
 		 */
 		lua_State *thr = pllua_activate_thread(L, nstack, rsi->econtext);
 		lua_xmove(L, thr, nargs + 1);  /* args plus function */
+
+		fact->onstack = true;
 		rc = lua_resume(thr, L, nargs);
+		fact->onstack = false;
 
 		/*
 		 * If we got LUA_OK, the function returned without yielding. If it

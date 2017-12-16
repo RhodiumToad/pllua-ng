@@ -209,7 +209,7 @@ pllua_error_callback(void *arg)
 	thr = act->interp->L;
 	fcinfo = act->fcinfo;
 	if (fcinfo && fcinfo->flinfo && fcinfo->flinfo->fn_extra &&
-		((pllua_func_activation *)(fcinfo->flinfo->fn_extra))->thread)
+		((pllua_func_activation *)(fcinfo->flinfo->fn_extra))->onstack)
 	{
 		thr = ((pllua_func_activation *)(fcinfo->flinfo->fn_extra))->thread;
 		act->interp->update_errdepth = false;
