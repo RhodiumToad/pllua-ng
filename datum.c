@@ -1545,7 +1545,7 @@ static int pllua_datum_array_newindex(lua_State *L)
 	{
 		bool isnull = (nd == NULL);
 		Datum val = nd ? nd->value : (Datum)0;
-		Datum res;
+		Datum res PG_USED_FOR_ASSERTS_ONLY;
 
 		res = array_set_element(d->value,
 								idxlist->cur_dim, idxlist->idx,
@@ -2580,7 +2580,7 @@ static int pllua_typeinfo_package_index(lua_State *L)
 static int pllua_typeinfo_package_array_index(lua_State *L)
 {
 	pllua_typeinfo *et;
-	Oid oid;
+	Oid oid = InvalidOid;
 
 	lua_pushcfunction(L, pllua_typeinfo_package_index);
 	lua_insert(L, 1);
@@ -2642,8 +2642,8 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 {
 	HeapTuple	typeTuple;
 	Form_pg_type pt;
-	Oid funcoid;
-	FmgrInfo *flinfo;
+	Oid funcoid = InvalidOid;
+	FmgrInfo *flinfo = NULL;
 
 	ASSERT_PG_CONTEXT;
 
@@ -3708,7 +3708,7 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 static int pllua_typeinfo_range_call(lua_State *L)
 {
 	pllua_typeinfo *t = *pllua_torefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
-	pllua_typeinfo *et;
+	pllua_typeinfo *et PG_USED_FOR_ASSERTS_ONLY;
 	int nargs = lua_gettop(L) - 1;
 	RangeBound lo;
 	RangeBound hi;
