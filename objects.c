@@ -74,7 +74,8 @@ void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool userval
 	*p = value;
 	if (objtype)
 	{
-		int t = lua_rawgetp(L, LUA_REGISTRYINDEX, objtype);
+		int t PG_USED_FOR_ASSERTS_ONLY;
+		t = lua_rawgetp(L, LUA_REGISTRYINDEX, objtype);
 		Assert(t == LUA_TTABLE);
 		lua_setmetatable(L, -2);
 	}
@@ -114,7 +115,8 @@ void *pllua_newobject(lua_State *L, char *objtype, size_t sz, bool uservalue)
 	memset(p, 0, sz);
 	if (objtype)
 	{
-		int t = lua_rawgetp(L, LUA_REGISTRYINDEX, objtype);
+		int t PG_USED_FOR_ASSERTS_ONLY;
+		t = lua_rawgetp(L, LUA_REGISTRYINDEX, objtype);
 		Assert(t == LUA_TTABLE);
 		lua_setmetatable(L, -2);
 	}

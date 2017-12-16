@@ -57,7 +57,7 @@ pllua_numeric_guts(lua_State *L, pllua_datum *d, pllua_typeinfo *t,
 
 	PLLUA_TRY();
 	{
-		Datum res;
+		Datum res = (Datum)0;
 
 		switch (op)
 		{
