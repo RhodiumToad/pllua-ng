@@ -32,7 +32,7 @@ before_install:
         XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
         CFLAGS="-fPIC -O3" clean libluajit.a
       export LUA_INCDIR="$LUA/src"
-      export LUALIB="-L$LUA -lluajit"
+      export LUALIB="-L$LUA/src -lluajit"
     else
       sudo apt-get install $LUA
       sudo apt-get install $LUA_DEV
