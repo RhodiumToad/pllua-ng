@@ -438,7 +438,7 @@ pllua_jsonb_tosql(lua_State *L)
 				if (funcidx)
 				{
 					lua_pushvalue(L, funcidx);
-					lua_insert(L, -1);
+					lua_insert(L, -2);
 					lua_call(L, 1, 1);
 				}
 
