@@ -145,6 +145,50 @@ void *pllua_toobject(lua_State *L, int nd, char *objtype)
 	return NULL;
 }
 
+/*
+ * Create a memory context with the lifetime of a Lua object, useful for
+ * temporary contexts that might otherwise get leaked by errors.
+ *
+ * Normal use would be to reset the context on the normal exit path and
+ * leave the rest for GC to clean up.
+ */
+MemoryContext pllua_newmemcontext(lua_State *L,
+								  const char *name,
+								  Size minsz,
+								  Size initsz,
+								  Size maxsz)
+{
+	void **p = pllua_newrefobject(L, PLLUA_MCONTEXT_OBJECT, NULL, false);
+	MemoryContext parent = pllua_get_memory_cxt(L);
+	MemoryContext mcxt;
+	PLLUA_TRY();
+	{
+		mcxt = AllocSetContextCreate(parent, name, minsz, initsz, maxsz);
+		*p = mcxt;
+	}
+	PLLUA_CATCH_RETHROW();
+	return mcxt;
+}
+
+static int pllua_mcxtobject_gc(lua_State *L)
+{
+	void **p = pllua_torefobject(L, 1, PLLUA_MCONTEXT_OBJECT);
+	MemoryContext mcxt = p ? *p : NULL;
+	if (!p)
+		return 0;
+	ASSERT_LUA_CONTEXT;
+	*p = NULL;
+	if (mcxt)
+	{
+		PLLUA_TRY();
+		{
+			MemoryContextDelete(mcxt);
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+	return 0;
+}
+
 void pllua_type_error(lua_State *L, char *expected)
 {
 	luaL_error(L, "wrong parameter type (expected %s)", expected);
@@ -558,6 +602,11 @@ static struct luaL_Reg funcobj_mt[] = {
 	{ NULL, NULL }
 };
 
+static struct luaL_Reg mcxtobj_mt[] = {
+	{ "__gc", pllua_mcxtobject_gc },
+	{ NULL, NULL }
+};
+
 static struct luaL_Reg actobj_mt[] = {
 	{ "__tostring", pllua_dump_activation },
 	{ NULL, NULL }
@@ -595,5 +644,6 @@ void pllua_init_objects_phase2(lua_State *L)
 {
 	pllua_newmetatable(L, PLLUA_FUNCTION_OBJECT, funcobj_mt);
 	pllua_newmetatable(L, PLLUA_ACTIVATION_OBJECT, actobj_mt);
-	lua_pop(L, 2);
+	pllua_newmetatable(L, PLLUA_MCONTEXT_OBJECT, mcxtobj_mt);
+	lua_pop(L, 3);
 }

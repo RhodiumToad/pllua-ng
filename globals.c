@@ -28,6 +28,7 @@ char PLLUA_FUNCTION_OBJECT[] = "function object";
 char PLLUA_ERROR_OBJECT[] = "error object";
 char PLLUA_IDXLIST_OBJECT[] = "idxlist object";
 char PLLUA_ACTIVATION_OBJECT[] = "activation object";
+char PLLUA_MCONTEXT_OBJECT[] = "memory context object";
 char PLLUA_TYPEINFO_OBJECT[] = "typeinfo object";
 char PLLUA_TYPEINFO_PACKAGE_OBJECT[] = "typeinfo package object";
 char PLLUA_TYPEINFO_PACKAGE_ARRAY_OBJECT[] = "typeinfo package array object";

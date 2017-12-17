@@ -3322,10 +3322,29 @@ static bool pllua_datum_transform_tosql(lua_State *L, int nargs, int argbase, in
 										pllua_typeinfo *t)
 {
 	int i;
-	if (!OidIsValid(t->tosql))
-		return false;
-	luaL_checkstack(L, 10+nargs, NULL);
 	nt = lua_absindex(L, nt);
+	argbase = lua_absindex(L, argbase);
+	if (!OidIsValid(t->tosql))
+	{
+		/* no SQL-level transform? maybe we have a transform in the typeinfo. */
+		if (pllua_get_user_field(L, nt, "tosql") == LUA_TFUNCTION)
+		{
+			int base = lua_gettop(L) - 1;  /* -1 because func is on stack already */
+			luaL_checkstack(L, 10+nargs, NULL);
+			for (i = 0; i < nargs; ++i)
+				lua_pushvalue(L, argbase+i);
+			lua_call(L, nargs, LUA_MULTRET);
+			/* transform should return 1 value if it liked the input, no value if not */
+			if (lua_gettop(L) == base)
+				return false;
+			lua_settop(L, base+1);  /* clamp to 1 result */
+			return true;
+		}
+		else
+			lua_pop(L, 1);
+		return false;
+	}
+	luaL_checkstack(L, 10+nargs, NULL);
 	argbase = lua_absindex(L, argbase);
 	lua_pushvalue(L, nt);
 	pllua_newdatum(L);

@@ -527,6 +527,7 @@ extern char PLLUA_FUNCTION_OBJECT[];
 extern char PLLUA_ERROR_OBJECT[];
 extern char PLLUA_IDXLIST_OBJECT[];
 extern char PLLUA_ACTIVATION_OBJECT[];
+extern char PLLUA_MCONTEXT_OBJECT[];
 extern char PLLUA_TYPEINFO_OBJECT[];
 extern char PLLUA_TYPEINFO_PACKAGE_OBJECT[];
 extern char PLLUA_TYPEINFO_PACKAGE_ARRAY_OBJECT[];
@@ -661,6 +662,12 @@ void *pllua_toobject(lua_State *L, int nd, char *objtype);
 void pllua_type_error(lua_State *L, char *expected);
 void **pllua_checkrefobject(lua_State *L, int nd, char *objtype);
 void *pllua_checkobject(lua_State *L, int nd, char *objtype);
+
+MemoryContext pllua_newmemcontext(lua_State *L,
+								  const char *name,
+								  Size minsz,
+								  Size initsz,
+								  Size maxsz);
 
 void pllua_set_user_field(lua_State *L, int nd, const char *field);
 int pllua_get_user_field(lua_State *L, int nd, const char *field);
