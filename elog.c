@@ -152,7 +152,7 @@ pllua_error_callback_location(lua_State *L)
 	pllua_interpreter *interp = lua_touserdata(L, 1);
 	lua_Debug *ar = &interp->ar;
 	lua_CFunction fn;
-	int level = interp->update_errdepth ? interp->errdepth + 1 : 1;
+	int level = interp->update_errdepth ? interp->errdepth : 1;
 	bool found = false;
 
 	while (lua_getstack(L, level, ar))
@@ -172,7 +172,18 @@ pllua_error_callback_location(lua_State *L)
 			fn == pllua_call_inline)
 		{
 			if (interp->update_errdepth)
-				interp->errdepth = level;
+			{
+				/*
+				 * If the barrier is actually the bottom frame on the stack,
+				 * then we completed the traverse. Otherwise the next scan will
+				 * start just below it.
+				 */
+				++level;
+				if (!lua_getstack(L, level, ar))
+					interp->errdepth = 0;
+				else
+					interp->errdepth = level;
+			}
 			return 0;
 		}
 		if (!found && ar->currentline > 0)
