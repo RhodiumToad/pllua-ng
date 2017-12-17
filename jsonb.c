@@ -706,7 +706,14 @@ pllua_jsonb_map(lua_State *L)
 								lua_call(L, 2 + patht_len, 2);
 							}
 							if (!is_toplevel)
+							{
+								int isint = 0;
+								int idx = lua_tointegerx(L, -2, &isint);
 								lua_settable(L, -3);
+								/* if it was an integer key, we must be doing a table */
+								if (isint)
+									lua_pushinteger(L, idx+1);
+							}
 						}
 					}
 					break;
