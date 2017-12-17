@@ -20,6 +20,9 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
+#define PLLUA_VERSION_STR "0.2"
+#define PLLUA_VERSION_NUM 2
+
 /* PG version cruft */
 
 #if PG_VERSION_NUM >= 90500 && PG_VERSION_NUM < 90510
