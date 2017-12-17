@@ -1,0 +1,10 @@
+#
+test: pllua
+test: pllua_old
+test: arrays
+test: numerics
+test: spi
+test: subxact
+test: types
+test: triggers
+test: event_triggers

@@ -1,0 +1,7 @@
+#
+# this must be first since it installs the extension
+test: pllua
+# these should be independent
+test: pllua_old arrays numerics spi subxact types triggers
+# this must run alone because it messes up output from DDL
+test: event_triggers

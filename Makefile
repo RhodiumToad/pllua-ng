@@ -31,7 +31,8 @@ MODULE_big = pllua_ng
 EXTENSION = pllua_ng
 DATA = pllua_ng--1.0.sql
 
-REGRESS = pllua pllua_old arrays numerics spi subxact types triggers event_triggers
+REGRESS = --schedule=$(srcdir)/serial_schedule
+REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule
 # only on pg10+
 REGRESS_10 = triggers_10
 
@@ -51,6 +52,7 @@ $(error unsupported PostgreSQL version)
 endif
 ifneq ($(filter-out 9.%, $(MAJORVERSION)),)
 REGRESS += $(REGRESS_10)
+REGRESS_PARALLEL += $(REGRESS_10)
 endif
 
 $(OBJS): pllua.h
@@ -59,3 +61,6 @@ init.o: pllua_functable.h
 
 pllua_functable.h: $(OBJS:.o=.c)
 	cat $(OBJS:.o=.c) | perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call)\(\s*([\w.]+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | sort -u >pllua_functable.h
+
+installcheck-parallel: submake $(REGRESS_PREP)
+	$(pg_regress_installcheck) $(REGRESS_OPTS) $(REGRESS_PARALLEL)
