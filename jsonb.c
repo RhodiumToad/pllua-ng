@@ -81,12 +81,13 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 		switch (lua_type(L, -1))
 		{
 			case LUA_TUSERDATA:
+			case LUA_TTABLE:
 				if (luaL_getmetafield(L, -1, "__tostring") == LUA_TNIL)
-					luaL_error(L, "cannot serialize userdata which lacks __tostring as a key");
+					luaL_error(L, "cannot serialize userdata or table which lacks __tostring as a key");
 				lua_insert(L, -2);
 				lua_call(L, 1, 1);
 				if (lua_type(L, -1) != LUA_TSTRING)
-					luaL_error(L, "tostring on userdata object did not return a string");
+					luaL_error(L, "tostring on table or userdata object did not return a string");
 				break;
 			case LUA_TSTRING:
 				break;
@@ -247,7 +248,7 @@ pllua_jsonb_tosql(lua_State *L)
 
 	if (!lua_isnil(L, 2))
 	{
-		if (lua_getfield(L, 2, "mapfunc") == LUA_TFUNCTION)
+		if (lua_getfield(L, 2, "map") == LUA_TFUNCTION)
 		{
 			funcidx = lua_absindex(L, -1);
 			/* leave on stack */
@@ -266,7 +267,7 @@ pllua_jsonb_tosql(lua_State *L)
 		if (lua_isinteger(L, -1))
 			array_frac = lua_tointeger(L, -1);
 		lua_pop(L, 1);
-		lua_getfield(L, 2, "nullvalue");
+		lua_getfield(L, 2, "null");
 		nullvalue = lua_absindex(L, -1);
 	}
 
@@ -493,22 +494,22 @@ pllua_jsonb_map(lua_State *L)
 	switch (lua_type(L, 2))
 	{
 		case LUA_TTABLE:
-			if (lua_getfield(L, 2, "mapfunc") == LUA_TFUNCTION)
+			if (lua_getfield(L, 2, "map") == LUA_TFUNCTION)
 			{
 				funcidx = lua_absindex(L, -1);
 				/* leave on stack */
 			}
 			else
 				lua_pop(L, 1);
-			if (lua_getfield(L, 2, "noresult") &&
+			if (lua_getfield(L, 2, "discard") &&
 				lua_toboolean(L, -1))
 				noresult = true;
 			lua_pop(L, 1);
-			if (lua_getfield(L, 2, "keep_numeric") &&
+			if (lua_getfield(L, 2, "pg_numeric") &&
 				lua_toboolean(L, -1))
 				keep_numeric = true;
 			lua_pop(L, 1);
-			lua_getfield(L, 2, "nullvalue");
+			lua_getfield(L, 2, "null");
 			nullvalue = lua_absindex(L, -1);
 			break;
 		case LUA_TFUNCTION:

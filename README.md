@@ -222,37 +222,37 @@ a null value or dropped column.
 Arrays, composite types, and jsonb values support a mapping operation
 controlled by a configuration table:
 
-      rowval{ mapfunc = function(colname,value,attno,row) ... end,
-              nullvalue = (any value),
-              noresult = (boolean)
+      rowval{ map = function(colname,value,attno,row) ... return value end,
+              null = (any value, default nil),
+              discard = (boolean, default false)
             }
-      arrayval{ mapfunc = function(elem,array,i,j,k...) ... end,
-                nullvalue = (any value),
-                noresult = (boolean)
+      arrayval{ map = function(elem,array,i,j,k...) ... return elem end,
+                null = (any value, default nil),
+                discard = (boolean, default false)
               }
-      jsonbval{ mapfunc = function(key,val,...) ... return key,val end,
-                nullvalue = (any value),
-		noresult = (boolean),
-		keep_numeric = (boolean)
+      jsonbval{ map = function(key,val,...) ... return key,val end,
+                null = (any value, default nil),
+                discard = (boolean, default false),
+                pg_numeric = (boolean, default false)
               }
 
 The result in all cases is returned as a Lua table, not a datum,
-unless the "noresult" option was given as true, in which case no
+unless the "discard" option was given as true, in which case no
 result at all is returned.
 
-The mapfunc for arrays is passed as many indexes as the original array
-dimension.
+The map function for arrays is passed as many indexes as the original
+array dimension.
 
-The mapfunc for jsonb values is passed the path leading up to the
+The map function for jsonb values is passed the path leading up to the
 current key (not including the key) as separate additional parameters.
 The key is an integer if the current container is an array, a string
 if the container is an object, and nil if this is a single top-level
 scalar value (which I believe is not strictly allowed in the json
-spec, but pg allows it). The key/val returned by the mapfunc are used
+spec, but pg allows it). The key/val returned by the function are used
 to store the result, but do not affect the path values passed to any
-other mapfunc call. If noresult is not specified, then the mapfunc is
+other function call. If discard is not specified, then the function is
 also called for completed containers (in which case val will be a
-table). If keep_numeric is not true, then numeric values are converted
+table). If pg_numeric is not true, then numeric values are converted
 to Lua numbers, otherwise they remain as Datum values of numeric type
 (for which see below).
 
@@ -266,6 +266,49 @@ As a convenience shorthand, these work:
       d(nvl)   -> d{nullvalue = nvl}
       d(func)  -> d{mapfunc = func}
       d()      -> d{}
+
+Jsonb supports an inverse mapping operation for construction of json
+values from lua data:
+
+      pgtype.jsonb(value,
+                   { map = function(val) ... return val end,
+                     null = (any value, default nil),
+                     empty_object = (boolean, default false)
+                     array_thresh = (integer, default 1000)
+                     array_frac = (integer, default 1000)
+                   }
+
+"value" can be composed of any combination of (where "collection"
+means a value which is either a table or possesses a __pairs
+metamethod):
+
+ + Empty collections, which will convert to empty json arrays unless
+   empty_object=true in which case they become empty objects
+
+ + Collections with only integer keys >= 1, which will convert to json
+   arrays (with lua index 1 becoming json index 0) unless either more
+   than array_thresh initial null values would have to be inserted, or
+   the total size of the array would be more than array_frac times the
+   number of table keys.
+
+ + Collections with keys which can be stringified: strings or numbers, or
+   tables or userdata with __tostring methods, will convert to json
+   objects.
+
+ + Values which compare raw-equal to the "null" parameter are converted
+   to json nulls
+
+ + Values of type nil, boolean, number, string are converted to
+   corresponding json values
+
+ + Datum values of type pgtype.numeric convert to json numbers
+
+ + Values of other types that possess a __tostring metamethod are
+   converted to strings
+
+Unlike the other mapping functions, the map function for this
+operation is called only for values (including collections), not keys,
+and is not passed any path information.
 
 Range types support the following pseudo-columns (immutable):
 

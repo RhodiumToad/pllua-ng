@@ -1234,18 +1234,18 @@ pllua_datum_row_map(lua_State *L)
 	switch (lua_type(L, 2))
 	{
 		case LUA_TTABLE:
-			if (lua_getfield(L, 2, "mapfunc") == LUA_TFUNCTION)
+			if (lua_getfield(L, 2, "map") == LUA_TFUNCTION)
 			{
 				funcidx = lua_absindex(L, -1);
 				/* leave on stack */
 			}
 			else
 				lua_pop(L, 1);
-			if (lua_getfield(L, 2, "noresult") &&
+			if (lua_getfield(L, 2, "discard") &&
 				lua_toboolean(L, -1))
 				noresult = true;
 			lua_pop(L, 1);
-			lua_getfield(L, 2, "nullvalue");
+			lua_getfield(L, 2, "null");
 			nullvalue = lua_absindex(L, -1);
 			break;
 		case LUA_TFUNCTION:
@@ -1650,18 +1650,18 @@ pllua_datum_array_map(lua_State *L)
 	switch (lua_type(L, 2))
 	{
 		case LUA_TTABLE:
-			if (lua_getfield(L, 2, "mapfunc") == LUA_TFUNCTION)
+			if (lua_getfield(L, 2, "map") == LUA_TFUNCTION)
 			{
 				funcidx = lua_absindex(L, -1);
 				/* leave on stack */
 			}
 			else
 				lua_pop(L, 1);
-			if (lua_getfield(L, 2, "noresult") &&
+			if (lua_getfield(L, 2, "discard") &&
 				lua_toboolean(L, -1))
 				noresult = true;
 			lua_pop(L, 1);
-			lua_getfield(L, 2, "nullvalue");
+			lua_getfield(L, 2, "null");
 			nullvalue = lua_absindex(L, -1);
 			break;
 		case LUA_TFUNCTION:
