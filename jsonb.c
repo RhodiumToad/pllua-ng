@@ -677,9 +677,12 @@ pllua_jsonb_map(lua_State *L)
 							lua_call(L, 2 + patht_len, 2);
 						}
 						if (!is_scalar && !noresult)
-							lua_settable(L, -3);
+							lua_seti(L, -3, idx+1);
 						if (!is_scalar)
+						{
+							lua_pop(L, 1);
 							lua_pushinteger(L, idx+1);
+						}
 					}
 					break;
 				case WJB_END_ARRAY:
@@ -709,10 +712,15 @@ pllua_jsonb_map(lua_State *L)
 							{
 								int isint = 0;
 								int idx = lua_tointegerx(L, -2, &isint);
-								lua_settable(L, -3);
-								/* if it was an integer key, we must be doing a table */
 								if (isint)
+								{
+									/* if it was an integer key, we must be doing a table */
+									lua_seti(L, -3, idx+1);
+									lua_pop(L, 1);
 									lua_pushinteger(L, idx+1);
+								}
+								else
+									lua_settable(L, -3);
 							}
 						}
 					}
