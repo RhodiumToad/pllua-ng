@@ -17,7 +17,7 @@ pllua_jsonb_map(lua_State *L)
 	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *numt = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
 	int funcidx = 0;
-	int nullvalue = 0;
+	int nullvalue;
 	bool keep_numeric = false;
 	bool noresult = false;
 	Jsonb	   *jb;
@@ -54,7 +54,6 @@ pllua_jsonb_map(lua_State *L)
 			funcidx = 2;
 			break;
 		case LUA_TNIL:
-			break;
 		default:
 			nullvalue = 2;
 			break;
