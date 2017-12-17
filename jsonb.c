@@ -3,6 +3,7 @@
 #include "pllua.h"
 
 #include "catalog/pg_type.h"
+#include "mb/pg_wchar.h"
 #include "utils/datum.h"
 #include "utils/jsonb.h"
 
@@ -22,6 +23,15 @@ pllua_jsonb_is_container(lua_State *L, int nd)
 		return true;
 	}
 	return false;
+}
+
+static int do_next (lua_State *L)
+{
+	lua_settop(L, 2);
+	if (lua_next(L, 1))
+		return 2;
+	lua_pushnil(L);
+    return 1;
 }
 
 /*
@@ -50,9 +60,19 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 
 	lua_newtable(L);
 	lua_newtable(L);
-	lua_getglobal(L, "pairs");
-	lua_pushvalue(L, -4);
-	lua_call(L, 1, 3);  /* stack: keytable, numkeytab, iter, state, key */
+
+	if (luaL_getmetafield(L, -3, "__pairs") == LUA_TNIL)
+	{
+		lua_pushcfunction(L, do_next);
+		lua_pushvalue(L, -4);
+		lua_pushnil(L);
+	}
+	else
+	{
+		lua_pushvalue(L, -4);
+		lua_call(L, 1, 3);
+	}
+	/* stack: keytable, numkeytab, iter, state, key */
 
 	for (;;)
 	{
@@ -188,6 +208,7 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 				MemoryContext oldcontext = tmpcxt;
 				char *newstr = palloc(len);
 				memcpy(newstr, ptr, len);
+				pg_verifymbstr(newstr, len, false);
 				pval->type = jbvString;
 				pval->val.string.val = newstr;
 				pval->val.string.len = len;
@@ -398,6 +419,7 @@ pllua_jsonb_tosql(lua_State *L)
 						curval.val.string.val = palloc(len);
 						curval.val.string.len = len;
 						memcpy(curval.val.string.val, ptr, len);
+						pg_verifymbstr(curval.val.string.val, len, false);
 						pushJsonbValue(&pstate, WJB_KEY, &curval);
 						tok = WJB_VALUE;
 					}
