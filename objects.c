@@ -540,7 +540,7 @@ static int pllua_funcobject_gc(lua_State *L)
 {
 	void **p = pllua_torefobject(L, 1, PLLUA_FUNCTION_OBJECT);
 	void *obj = p ? *p : NULL;
-	if (p)
+	if (!p)
 		return 0;
 	ASSERT_LUA_CONTEXT;
 	*p = NULL;
