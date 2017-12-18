@@ -566,7 +566,7 @@ pllua_jsonb_map(lua_State *L)
 		int patht;
 		int patht_len = 0;
 		int i = 0;
-		bool is_scalar = JB_ROOT_IS_SCALAR(jb);
+		bool is_scalar = (JB_ROOT_IS_SCALAR(jb)) ? true : false;
 
 		PLLUA_TRY();
 		{
