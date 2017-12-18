@@ -88,4 +88,14 @@ do language pllua $$
   print(pi())
 $$;
 
---
+-- check sanity of maxinteger/mininteger
+
+do language pllua $$
+  local num = require 'pllua.numeric'
+  local maxi = num.maxinteger
+  local mini = num.mininteger
+  print(type(num.tointeger(maxi)), type(num.tointeger(maxi+1)))
+  print(type(num.tointeger(mini)), type(num.tointeger(mini-1)))
+$$
+
+--end

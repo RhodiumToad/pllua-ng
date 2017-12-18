@@ -177,8 +177,8 @@ void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int 
 #endif
 #define LUA_OK 0
 /* these are probably wrong but will do for now */
-#define LUA_MAXINTEGER (INT64CONST(900719925474099))
-#define LUA_MININTEGER (-INT64CONST(900719925474099))
+#define LUA_MAXINTEGER (INT64CONST(9007199254740991))
+#define LUA_MININTEGER (-INT64CONST(9007199254740991))
 #define pllua_set_environment(L_,i_) lua_setfenv(L, i_)
 #else
 #define pllua_set_environment(L_,i_) lua_setupvalue(L_, i_, 1)
