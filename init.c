@@ -124,28 +124,28 @@ void _PG_init(void)
 	/*
 	 * Initialize GUCs. These are SUSET for security reasons!
 	 */
-	DefineCustomStringVariable("pllua_ng.on_init",
+	DefineCustomStringVariable("pllua.on_init",
 							   gettext_noop("Code to execute when a Lua interpreter is initialized."),
 							   NULL,
 							   &pllua_on_init,
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
-	DefineCustomStringVariable("pllua_ng.on_trusted_init",
+	DefineCustomStringVariable("pllua.on_trusted_init",
 							   gettext_noop("Code to execute when a Lua interpreter is initialized."),
 							   NULL,
 							   &pllua_on_trusted_init,
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
-	DefineCustomStringVariable("pllua_ng.on_untrusted_init",
+	DefineCustomStringVariable("pllua.on_untrusted_init",
 							   gettext_noop("Code to execute when a Lua interpreter is initialized."),
 							   NULL,
 							   &pllua_on_untrusted_init,
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
-	DefineCustomBoolVariable("pllua_ng.check_for_interrupts",
+	DefineCustomBoolVariable("pllua.check_for_interrupts",
 							 gettext_noop("Check for query cancels while running the Lua interpreter."),
 							 NULL,
 							 &pllua_do_check_for_interrupts,
@@ -153,7 +153,7 @@ void _PG_init(void)
 							 PGC_SUSET, 0,
 							 NULL, NULL, NULL);
 
-	EmitWarningsOnPlaceholders("pllua_ng");
+	EmitWarningsOnPlaceholders("pllua");
 
 	/*
 	 * Create hash table for interpreters.

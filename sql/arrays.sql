@@ -34,7 +34,7 @@ insert into adata(d) values
   (array[date '2017-12-11', '1968-05-10', '1983-09-26', '1962-10-27']),
   (array(select date '2017-01-01' + i from generate_series(0,364,18) i));
 
-do language pllua_ng $$
+do language pllua $$
 package.preload['myutil'] = function()
   local expect_next =
     { string = function(s)
@@ -92,7 +92,7 @@ package.preload['myutil'] = function()
 end
 $$;
 
-do language pllua_ng $$
+do language pllua $$
 local u = require 'myutil'
 for r in spi.rows([[ select a, b,
                             array_append(a, -1) as xa,
@@ -124,7 +124,7 @@ $$;
 
 create function af1(a anyarray)
   returns text
-  language pllua_ng
+  language pllua
   stable
   as $$
     return tostring(_U.summarize(a))

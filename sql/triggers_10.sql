@@ -13,21 +13,21 @@ create table trigtst2 (
   weight numeric
 );
 
-create function ttrig1() returns trigger language pllua_ng
+create function ttrig1() returns trigger language pllua
 as $$
   print(trigger.name,...)
   print(trigger.when, trigger.level, trigger.operation, trigger.relation.name)
   for r in spi.rows([[ select * from newtab ]]) do print(r) end
 $$;
 
-create function ttrig2() returns trigger language pllua_ng
+create function ttrig2() returns trigger language pllua
 as $$
   print(trigger.name,...)
   print(trigger.when, trigger.level, trigger.operation, trigger.relation.name)
   for r in spi.rows([[ select 'old', * from oldtab union all select 'new', * from newtab ]]) do print(r) end
 $$;
 
-create function ttrig3() returns trigger language pllua_ng
+create function ttrig3() returns trigger language pllua
 as $$
   print(trigger.name,...)
   print(trigger.when, trigger.level, trigger.operation, trigger.relation.name)

@@ -23,7 +23,7 @@ insert into tsttab(id, a,b,c,d)
 
 -- basics
 
-do language pllua_ng $$
+do language pllua $$
   local tbl
   tbl = spi.execute([[ select 1 as a, 'foo'::text as b ]])
   print(#tbl,tbl[1],type(tbl[1]))
@@ -36,7 +36,7 @@ $$;
 
 -- statements
 
-do language pllua_ng $$
+do language pllua $$
   local stmt,tbl
   stmt = spi.prepare([[ select * from tsttab where id=$1 ]], {"integer"})
   tbl = stmt:execute(1)
@@ -55,7 +55,7 @@ $$;
 
 -- iterators
 
-do language pllua_ng $$
+do language pllua $$
   for r in spi.rows([[ select * from tsttab order by id ]]) do
     print(r)
   end
@@ -70,7 +70,7 @@ $$;
 
 begin;
 declare foo scroll cursor for select * from tsttab order by id;
-do language pllua_ng $$
+do language pllua $$
   local c = spi.findcursor("foo")
   local tbl
   tbl = c:fetch(1,'next')
@@ -91,7 +91,7 @@ do language pllua_ng $$
 $$;
 commit;
 
-do language pllua_ng $$
+do language pllua $$
   local c = spi.newcursor("bar")
   c:open([[ select * from tsttab where id >= $1 order by id ]], 3)
   local tbl
@@ -114,7 +114,7 @@ do language pllua_ng $$
 $$;
 
 -- cursor options on statement
-do language pllua_ng $$
+do language pllua $$
   local stmt = spi.prepare([[ select * from tsttab where id >= $1 order by id ]],
                            {"integer"}, { scroll = true, fast_start = true, generic_plan = true })
   local stmt2 = spi.prepare([[ select * from tsttab where id >= $1 order by id ]],
@@ -140,7 +140,7 @@ do language pllua_ng $$
 $$;
 
 -- check missing params are OK
-do language pllua_ng $$
+do language pllua $$
   local stmt = spi.prepare([[ select * from generate_series($1::integer, $3) i ]]);
   local argtypes = stmt:argtypes()
   print(argtypes[1]:name())
@@ -149,7 +149,7 @@ do language pllua_ng $$
 $$;
 
 -- check execute_count
-do language pllua_ng $$
+do language pllua $$
   local q = [[ select * from generate_series($1::integer,$2) i ]]
   local r1 = spi.execute_count(q, 2, 1, 5)
   print(#r1)

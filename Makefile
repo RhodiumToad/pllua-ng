@@ -27,9 +27,9 @@ LUALIB ?= -L/usr/local/lib -llua-5.3
 #LUALIB = -LC:/PROGRA~1/Lua/5.1/lib -llua5.1
 
 # no need to edit below here
-MODULE_big = pllua_ng
-EXTENSION = pllua_ng
-DATA = pllua_ng--1.0.sql
+MODULE_big = pllua
+EXTENSION = pllua plluau
+DATA = pllua--1.0.sql plluau--1.0.sql
 
 REGRESS = --schedule=$(srcdir)/serial_schedule
 REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule

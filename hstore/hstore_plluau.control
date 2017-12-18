@@ -1,0 +1,6 @@
+# hstore_plluau extension
+default_version = '1.0'
+comment = 'Hstore transform for untrusted Lua'
+module_pathname = '$libdir/hstore_pllua'
+relocatable = true
+requires = 'hstore, plluau'

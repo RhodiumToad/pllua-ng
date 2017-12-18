@@ -3,7 +3,7 @@
 \set VERBOSITY terse
 
 -- old-pllua compat shims
-do language pllua_ng $$
+do language pllua $$
   function fromstring(t,s) return pgtype(nil,t):fromstring(s) end
   function setshared(k,v) _G[k] = v end
   server.execute = spi.execute
@@ -18,7 +18,7 @@ $$;
 CREATE FUNCTION hello(name text)
 RETURNS text AS $$
   return string.format("Hello, %s!", name)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT hello('PostgreSQL');
 
 -- null handling
@@ -26,7 +26,7 @@ CREATE FUNCTION max(a integer, b integer) RETURNS integer AS $$
   if a == nil then return b end -- first arg is NULL?
   if b == nil then return a end -- second arg is NULL?
   return a > b and a or b -- return max(a, b)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT max(1,2), max(2,1), max(2,null), max(null, 2), max(null, null);
 
 -- plain recursive
@@ -36,7 +36,7 @@ CREATE FUNCTION fib(n int) RETURNS int AS $$
   else
     return fib(n - 1) + fib(n - 2)
   end
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT fib(4);
 
 -- memoized
@@ -52,7 +52,7 @@ CREATE FUNCTION fibm(n integer) RETURNS integer AS $$
   end
 end
 do _U = {}
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT fibm(4);
 
 -- tail recursive
@@ -62,7 +62,7 @@ end
 _U = function(n, a, b)
   if n < 1 then return b
   else return _U(n - 1, b, a + b) end
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT fibt(4);
 
 -- iterator
@@ -75,7 +75,7 @@ end
 do
   _U = {curr = 0, next = 1}
   fibi = coroutine.wrap(fibi)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT fibi(), fibi(), fibi(), fibi(), fibi();
 SELECT fibi(), fibi(), fibi(), fibi(), fibi();
 
@@ -89,7 +89,7 @@ end
 do
   _U = 0 -- counter
   counter = coroutine.wrap(counter)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT counter();
 SELECT counter();
 SELECT counter();
@@ -98,7 +98,7 @@ SELECT counter();
 CREATE TYPE greeting AS (how text, who text);
 CREATE FUNCTION makegreeting (g greeting, f text) RETURNS text AS $$
   return string.format(f, g.how, g.who)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT makegreeting(('how', 'who'), '%s, %s!');
 
 -- no worky yet
@@ -109,7 +109,7 @@ RETURNS SETOF greeting AS $$
   for i = 1,#who do
     coroutine.yield{how=how, who=who[i]}
   end
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT makegreeting(greetingset, '%s, %s!') FROM
   (SELECT greetingset('Hello', ARRAY['foo', 'bar', 'psql'])) AS q;
 
@@ -129,7 +129,7 @@ do
       end
     end
   end
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT * FROM perm(array['1', '2', '3']);
 
 -- shared variables
@@ -138,14 +138,14 @@ CREATE FUNCTION getcounter() RETURNS integer AS $$
     setshared("counter", 0)
   end
   return counter -- _G.counter == shared.counter
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 CREATE FUNCTION setcounter(c integer) RETURNS void AS $$
   if shared.counter == nil then -- not cached?
     setshared("counter", c)
   else
     counter = c -- _G.counter == shared.counter
   end
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT getcounter();
 SELECT setcounter(5);
 SELECT getcounter();
@@ -168,7 +168,7 @@ CREATE FUNCTION get_rows (i_name text) RETURNS SETOF sometable AS $$
     coroutine.yield{sid=r.sid, sname=r.sname, sdata=r.sdata}
   end
   c:close()
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 
 SELECT * FROM get_rows('name');
 
@@ -184,7 +184,7 @@ CREATE FUNCTION filltree (t text, n int) RETURNS void AS $$
     local lchild, rchild = 2 * i, 2 * i + 1 -- siblings
     p:execute(i, lchild, rchild) -- insert values
   end
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT filltree('tree', 10);
 
 CREATE FUNCTION preorder (t text, s int) RETURNS SETOF int AS $$
@@ -195,7 +195,7 @@ CREATE FUNCTION preorder (t text, s int) RETURNS SETOF int AS $$
     if lchild ~= nil then preorder(t, lchild) end
     if rchild ~= nil then preorder(t, rchild) end
   end
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT * from preorder('tree', 1);
 
 CREATE FUNCTION postorder (t text, s int) RETURNS SETOF int AS $$
@@ -215,7 +215,7 @@ CREATE FUNCTION postorder (t text, s int) RETURNS SETOF int AS $$
   coroutine.yield(s)
 end
 do _U = {} -- plan cache
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT * FROM postorder('tree', 1);
 
 
@@ -258,7 +258,7 @@ do
       .. "except select ti.id from tree ti join tree tl on ti.lchild=tl.id "
       .. "join tree tr on ti.rchild=tr.id) as q where lp=$1", "int4")
   }
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 
 CREATE TRIGGER tree_trigger BEFORE INSERT OR UPDATE OR DELETE ON tree
   FOR EACH ROW EXECUTE PROCEDURE treetrigger();
@@ -270,36 +270,36 @@ DELETE FROM tree where id = 10;
 DELETE FROM tree where id = 1;
 
 -- passthru types
-CREATE FUNCTION echo_int2(arg int2) RETURNS int2 AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_int2(arg int2) RETURNS int2 AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_int2('12345');
-CREATE FUNCTION echo_int4(arg int4) RETURNS int4 AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_int4(arg int4) RETURNS int4 AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_int4('1234567890');
-CREATE FUNCTION echo_int8(arg int8) RETURNS int8 AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_int8(arg int8) RETURNS int8 AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_int8('1234567890');
 SELECT echo_int8('12345678901236789');
 SELECT echo_int8('1234567890123456789');
-CREATE FUNCTION echo_text(arg text) RETURNS text AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_text(arg text) RETURNS text AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_text('qwe''qwe');
-CREATE FUNCTION echo_bytea(arg bytea) RETURNS bytea AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_bytea(arg bytea) RETURNS bytea AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_bytea('qwe''qwe');
 SELECT echo_bytea(E'q\\000w\\001e''q\\\\we');
-CREATE FUNCTION echo_timestamptz(arg timestamptz) RETURNS timestamptz AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_timestamptz(arg timestamptz) RETURNS timestamptz AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_timestamptz('2007-01-06 11:11 UTC') AT TIME ZONE 'UTC';
-CREATE FUNCTION echo_timestamp(arg timestamp) RETURNS timestamp AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_timestamp(arg timestamp) RETURNS timestamp AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_timestamp('2007-01-06 11:11');
-CREATE FUNCTION echo_date(arg date) RETURNS date AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_date(arg date) RETURNS date AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_date('2007-01-06');
-CREATE FUNCTION echo_time(arg time) RETURNS time AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_time(arg time) RETURNS time AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_time('11:11');
-CREATE FUNCTION echo_arr(arg text[]) RETURNS text[] AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_arr(arg text[]) RETURNS text[] AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_arr(array['a', 'b', 'c']);
 
 CREATE DOMAIN mynum AS numeric(6,3);
-CREATE FUNCTION echo_mynum(arg mynum) RETURNS mynum AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_mynum(arg mynum) RETURNS mynum AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_mynum(666.777);
 
 CREATE TYPE mytype AS (id int2, val mynum, val_list numeric[]);
-CREATE FUNCTION echo_mytype(arg mytype) RETURNS mytype AS $$ return arg $$ LANGUAGE pllua_ng;
+CREATE FUNCTION echo_mytype(arg mytype) RETURNS mytype AS $$ return arg $$ LANGUAGE pllua;
 SELECT echo_mytype((1::int2, 666.777, array[1.0, 2.0]) );
 
 CREATE FUNCTION nested_server_rows () RETURNS SETOF text as
@@ -311,7 +311,7 @@ for right in server.rows('select generate_series as right from generate_series(5
 end
 end
 $$
-language pllua_ng;
+language pllua;
 select nested_server_rows();
 
 CREATE OR REPLACE FUNCTION pg_temp.srf()
@@ -319,7 +319,7 @@ RETURNS SETOF integer AS $$
   coroutine.yield(1)
   coroutine.yield(nil)
   coroutine.yield(2)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 
 select quote_nullable(pg_temp.srf());
 
@@ -328,7 +328,7 @@ RETURNS SETOF integer AS $$
   coroutine.yield(1)
   coroutine.yield()
   coroutine.yield(2)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 
 select quote_nullable(pg_temp.srf());
 
@@ -346,13 +346,13 @@ local a = server.execute("SELECT pg_temp.inoutf(5, 'ABC', 'd') as val ");
 local r = a[1].val
 print(r.b)
 print(r.c)
-$$ language pllua_ng;
+$$ language pllua;
 
 -- body reload
 SELECT hello('PostgreSQL');
 CREATE OR REPLACE FUNCTION hello(name text)
 RETURNS text AS $$
   return string.format("Bye, %s!", name)
-$$ LANGUAGE pllua_ng;
+$$ LANGUAGE pllua;
 SELECT hello('PostgreSQL');
 --

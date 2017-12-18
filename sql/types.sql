@@ -30,7 +30,7 @@ values (1, 'row 1', 'padded with blanks', 'not padded', ('x',('y',1111),(111,11.
        (2, 'row 2', 'padded with blanks', 'not padded', ('x',('y',2222),(222,22.2)), (22,2.2)),
        (3, 'row 3', 'padded with blanks', 'not padded', ('x',('y',3333),(333,33.3)), (33,3.3));
 
-create function tf1() returns setof tdata language pllua_ng as $f$
+create function tf1() returns setof tdata language pllua as $f$
   for i = 1,4 do
     coroutine.yield({ intcol = i,
                       textcol = "row "..i,
@@ -51,17 +51,17 @@ select * from tf1();
 -- various checks of type handling
 --
 
-do language pllua_ng $$ print(pgtype(nil,'ctype3')(1,2)) $$;
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({1,2})) $$;
-do language pllua_ng $$ print(pgtype(nil,'ctype3')(true,true)) $$;
-do language pllua_ng $$ print(pgtype(nil,'ctype3')("1","2")) $$;
-do language pllua_ng $$ print(pgtype(nil,'ctype3')("fred","jim")) $$;
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim=2})) $$;
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim={}})) $$;
-do language pllua_ng $$ print(pgtype(nil,'ctype3')({fred=1,jim=nil})) $$;
---do language pllua_ng $$ print(pgtype(nil,'dtype')({fred=1,jim=nil})) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')(1,2)) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')({1,2})) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')(true,true)) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')("1","2")) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')("fred","jim")) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim=2})) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim={}})) $$;
+do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim=nil})) $$;
+--do language pllua $$ print(pgtype(nil,'dtype')({fred=1,jim=nil})) $$;
 
-create function tf2() returns setof tdata language pllua_ng as $f$
+create function tf2() returns setof tdata language pllua as $f$
   local t = spi.execute("select * from tdata")
   for i,v in ipairs(t) do coroutine.yield(v) end
 $f$;
@@ -70,25 +70,25 @@ select * from tf2();
 
 -- ensure detoasting of nested composites works right
 
-do language pllua_ng $f$
+do language pllua $f$
   for r in spi.rows("select * from tdata") do
     print(r.intcol, r.compcol.foo, r.compcol.bar.wotsit, r.dcompcol.jim)
   end
 $f$;
 
-do language pllua_ng $$ a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2) print(a) $$;
-do language pllua_ng $$ print(#a,#(a[1]),#(a[1][1])) $$;
-do language pllua_ng $$ print(a[3][1][2],a[1][1][1]) $$;
+do language pllua $$ a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2) print(a) $$;
+do language pllua $$ print(#a,#(a[1]),#(a[1][1])) $$;
+do language pllua $$ print(a[3][1][2],a[1][1][1]) $$;
 
-do language pllua_ng $$ print(pgtype.int4range(123,456)) $$;
-do language pllua_ng $$ print(pgtype.int4range()) $$;
-do language pllua_ng $$ print(pgtype.int4range(123,456,'(]')) $$;
-do language pllua_ng $$ print(pgtype.int4range(nil,456,'(]')) $$;
-do language pllua_ng $$ print(pgtype.int4range(nil,nil)) $$;
-do language pllua_ng $$ print(pgtype.int4range(123,nil)) $$;
-do language pllua_ng $$ print(pgtype.int4range('[12,56]')) $$;
+do language pllua $$ print(pgtype.int4range(123,456)) $$;
+do language pllua $$ print(pgtype.int4range()) $$;
+do language pllua $$ print(pgtype.int4range(123,456,'(]')) $$;
+do language pllua $$ print(pgtype.int4range(nil,456,'(]')) $$;
+do language pllua $$ print(pgtype.int4range(nil,nil)) $$;
+do language pllua $$ print(pgtype.int4range(123,nil)) $$;
+do language pllua $$ print(pgtype.int4range('[12,56]')) $$;
 
-do language pllua_ng $$
+do language pllua $$
   local r1,r2,r3 = pgtype.numrange('[12,56]'),
                    pgtype.numrange('empty'),
                    pgtype.numrange('(12,)')
@@ -99,10 +99,10 @@ $$;
 
 create type myenum as enum ('TRUE', 'FALSE', 'FILE_NOT_FOUND');
 
-create function pg_temp.f1(a myenum) returns text language pllua_ng as $$ print(a,type(a)) return a $$;
+create function pg_temp.f1(a myenum) returns text language pllua as $$ print(a,type(a)) return a $$;
 select pg_temp.f1(x) from unnest(enum_range(null::myenum)) x;
 
-create function pg_temp.f2() returns myenum language pllua_ng as $$ return 'FILE_NOT_FOUND' $$;
+create function pg_temp.f2() returns myenum language pllua as $$ return 'FILE_NOT_FOUND' $$;
 select pg_temp.f2();
 
 -- domains
@@ -112,12 +112,12 @@ create domain mydom2 as varchar(3) check (value in ('foo','bar','baz'));
 create domain mydom3 as varchar(3) not null;
 create domain mydom4 as varchar(3) not null check (value in ('foo','bar','baz'));
 
-create function pg_temp.f3(a mydom1) returns void language pllua_ng as $$
+create function pg_temp.f3(a mydom1) returns void language pllua as $$
   print(pgtype(nil,1):name(), type(a), #a)
 $$;
 select pg_temp.f3('foo') union all select pg_temp.f3('bar   ');
 
-create function pg_temp.f4d1(a text) returns mydom1 language pllua_ng as $$
+create function pg_temp.f4d1(a text) returns mydom1 language pllua as $$
   return a
 $$;
 select pg_temp.f4d1('foo');
@@ -125,7 +125,7 @@ select pg_temp.f4d1('bar   ');
 select pg_temp.f4d1('toolong');
 select pg_temp.f4d1(null);
 
-create function pg_temp.f4d2(a text) returns mydom2 language pllua_ng as $$
+create function pg_temp.f4d2(a text) returns mydom2 language pllua as $$
   return a
 $$;
 select pg_temp.f4d2('bar   ');
@@ -133,14 +133,14 @@ select pg_temp.f4d2('bad');
 select pg_temp.f4d1('toolong');
 select pg_temp.f4d2(null);
 
-create function pg_temp.f4d3(a text) returns mydom3 language pllua_ng as $$
+create function pg_temp.f4d3(a text) returns mydom3 language pllua as $$
   return a
 $$;
 select pg_temp.f4d3('bar   ');
 select pg_temp.f4d1('toolong');
 select pg_temp.f4d3(null);
 
-create function pg_temp.f4d4(a text) returns mydom4 language pllua_ng as $$
+create function pg_temp.f4d4(a text) returns mydom4 language pllua as $$
   return a
 $$;
 select pg_temp.f4d3('bar   ');
@@ -151,11 +151,11 @@ select pg_temp.f4d3(null);
 -- array typmod coercions
 
 create temp table atc (a varchar(10)[], b char(10)[]);
-do language pllua_ng $$
+do language pllua $$
   local a = pgtype.array.varchar('foo','bar','value_too_long_for_type')
   local b = pgtype.atc(a,nil)
 $$;
-do language pllua_ng $$
+do language pllua $$
   local a = pgtype.array.varchar('foo','bar','value            ')
   local b = pgtype.atc(nil,a)
   print(b)

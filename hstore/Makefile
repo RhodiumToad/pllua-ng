@@ -31,9 +31,9 @@ LUALIB ?= -L/usr/local/lib -llua-5.3
 #LUALIB = -LC:/PROGRA~1/Lua/5.1/lib -llua5.1
 
 # no need to edit below here
-MODULE_big = hstore_pllua_ng
-EXTENSION = hstore_pllua_ng
-DATA = hstore_pllua_ng--1.0.sql
+MODULE_big = hstore_pllua
+EXTENSION = hstore_pllua hstore_plluau
+DATA = hstore_pllua--1.0.sql hstore_plluau--1.0.sql
 
 OBJS =	hstore_pllua.o
 

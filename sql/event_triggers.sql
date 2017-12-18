@@ -5,7 +5,7 @@
 
 -- Test event triggers.
 
-create function evtrig() returns event_trigger language pllua_ng as $$
+create function evtrig() returns event_trigger language pllua as $$
   print(trigger.event, trigger.tag)
 $$;
 

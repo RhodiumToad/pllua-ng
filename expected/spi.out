@@ -17,7 +17,7 @@ insert into tsttab(id, a,b,c,d)
 	 (5, 5,'jim',2.34,'2017-05-01'),
 	 (6, 6,'sheila',2.34,'2017-06-01');
 -- basics
-do language pllua_ng $$
+do language pllua $$
   local tbl
   tbl = spi.execute([[ select 1 as a, 'foo'::text as b ]])
   print(#tbl,tbl[1],type(tbl[1]))
@@ -37,7 +37,7 @@ INFO:  (4,4,fred,2.34,04-01-2017)
 INFO:  (5,5,jim,2.34,05-01-2017)
 INFO:  (6,6,sheila,2.34,06-01-2017)
 -- statements
-do language pllua_ng $$
+do language pllua $$
   local stmt,tbl
   stmt = spi.prepare([[ select * from tsttab where id=$1 ]], {"integer"})
   tbl = stmt:execute(1)
@@ -58,7 +58,7 @@ INFO:  (6,6,sheila,2.34,06-01-2017)
 INFO:  2	(1,1,foo,2.34,01-01-2017)	(3,3,baz,2.34,03-01-2017)
 INFO:  1	(2,integer)
 -- iterators
-do language pllua_ng $$
+do language pllua $$
   for r in spi.rows([[ select * from tsttab order by id ]]) do
     print(r)
   end
@@ -79,7 +79,7 @@ INFO:  (3,3,baz,2.34,03-01-2017)
 -- cursors
 begin;
 declare foo scroll cursor for select * from tsttab order by id;
-do language pllua_ng $$
+do language pllua $$
   local c = spi.findcursor("foo")
   local tbl
   tbl = c:fetch(1,'next')
@@ -107,7 +107,7 @@ INFO:  1	(3,3,baz,2.34,03-01-2017)
 INFO:  true
 INFO:  false
 commit;
-do language pllua_ng $$
+do language pllua $$
   local c = spi.newcursor("bar")
   c:open([[ select * from tsttab where id >= $1 order by id ]], 3)
   local tbl
@@ -133,7 +133,7 @@ INFO:  bar	 select * from tsttab where id >= $1 order by id
 INFO:  2	(2,2,bar,2.34,02-01-2017)	(1,1,foo,2.34,01-01-2017)
 INFO:  bar	 select * from tsttab where id < $1 order by id desc 
 -- cursor options on statement
-do language pllua_ng $$
+do language pllua $$
   local stmt = spi.prepare([[ select * from tsttab where id >= $1 order by id ]],
                            {"integer"}, { scroll = true, fast_start = true, generic_plan = true })
   local stmt2 = spi.prepare([[ select * from tsttab where id >= $1 order by id ]],
@@ -163,7 +163,7 @@ INFO:  <unnamed portal 3>	 select * from tsttab where id >= $1 order by id 	true
 INFO:  <unnamed portal 4>	true
 INFO:  <unnamed portal 4>	 select * from tsttab where id >= $1 order by id 	false
 -- check missing params are OK
-do language pllua_ng $$
+do language pllua $$
   local stmt = spi.prepare([[ select * from generate_series($1::integer, $3) i ]]);
   local argtypes = stmt:argtypes()
   print(argtypes[1]:name())
@@ -174,7 +174,7 @@ INFO:  integer
 INFO:  nil
 INFO:  integer
 -- check execute_count
-do language pllua_ng $$
+do language pllua $$
   local q = [[ select * from generate_series($1::integer,$2) i ]]
   local r1 = spi.execute_count(q, 2, 1, 5)
   print(#r1)

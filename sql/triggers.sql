@@ -15,7 +15,7 @@ create table trigtst (
   weight numeric
 );
 
-create function misctrig() returns trigger language pllua_ng
+create function misctrig() returns trigger language pllua
 as $$
   print(trigger.name,...)
   print(trigger.when, trigger.level, trigger.operation, trigger.relation.name)
@@ -67,7 +67,7 @@ drop trigger t3 on trigtst;
 drop trigger t4 on trigtst;
 
 -- compatible mode: assign to row fields
-create function modtrig1() returns trigger language pllua_ng
+create function modtrig1() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   trigger.row.weight = 10 * trigger.row.qty
@@ -87,7 +87,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- compatible mode: assign to row wholesale
-create function modtrig2() returns trigger language pllua_ng
+create function modtrig2() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   local id,name,flag,qty,weight = new.id, new.name, new.flag, new.qty, new.weight
@@ -110,7 +110,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- compatible mode: assign to row wholesale with new datum row
-create function modtrig3() returns trigger language pllua_ng
+create function modtrig3() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   local id,name,flag,qty,weight = new.id, new.name, new.flag, new.qty, new.weight
@@ -133,7 +133,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- return value mode
-create function modtrig4() returns trigger language pllua_ng
+create function modtrig4() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   local id,name,flag,qty,weight = new.id, new.name, new.flag, new.qty, new.weight
@@ -156,7 +156,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- return value mode
-create function modtrig5() returns trigger language pllua_ng
+create function modtrig5() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   local id,name,flag,qty,weight = new.id, new.name, new.flag, new.qty, new.weight
@@ -179,7 +179,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- throw error from trigger
-create function modtrig6() returns trigger language pllua_ng
+create function modtrig6() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   if new.flag ~= old.flag then error("no changing flags") end
@@ -196,7 +196,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- throw error from trigger
-create function modtrig7() returns trigger language pllua_ng
+create function modtrig7() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   if new.flag ~= old.flag then error("no changing flags") end
@@ -213,7 +213,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- suppress action 1
-create function modtrig8() returns trigger language pllua_ng
+create function modtrig8() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   if new.flag ~= old.flag then return nil end
@@ -230,7 +230,7 @@ select * from trigtst order by id;
 drop trigger t1 on trigtst;
 
 -- suppress action 2
-create function modtrig9() returns trigger language pllua_ng
+create function modtrig9() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   if new.flag ~= old.flag then trigger.row = nil end

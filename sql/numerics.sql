@@ -6,7 +6,7 @@
 
 create function lua_numexec(code text, n1 numeric, n2 numeric)
   returns text
-  language pllua_ng
+  language pllua
   as $$
     local f,e = load("return function(n1,n2) return "..code.." end")
     assert(f,e)
@@ -29,7 +29,7 @@ create function pg_numexec(code text, n1 numeric, n2 numeric)
     end;
 $$;
 
-do language pllua_ng $$ num = require "pllua.numeric" $$;
+do language pllua $$ num = require "pllua.numeric" $$;
 with
   t as (select code,
                lua_numexec(code, 5439.123456, -1.9) as lua,
@@ -66,7 +66,7 @@ select (lua = pg) as ok, * from t;
 
 -- calculate pi to 40 places
 
-do language pllua_ng $$
+do language pllua $$
   -- Chudnovsky formula; ~14 digits per round, we use 4 rounds
   local num = require 'pllua.numeric'
   local prec = 100  -- precision of intermediate values

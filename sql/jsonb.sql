@@ -4,7 +4,7 @@
 
 --
 
-do language pllua_ng $$
+do language pllua $$
 
   a = { json_test = "This is only a test.",
         foo = "If this were real data, it would make more sense.",
@@ -53,7 +53,7 @@ insert into jt2(a) values ('[10,20,30]');
 insert into jt2(a) values ('{"foo":[2,4,6]}');
 insert into jt2(a) values ('[{"foo":"bar"},{"baz":"foo"},123,null]');
 
-do language pllua_ng $$
+do language pllua $$
   s = spi.prepare([[ select a from jt2 order by id ]])
   for r in s:rows() do
     print(r.a)
@@ -82,7 +82,7 @@ create temp table jt3(id integer, a jsonb);
 -- first row should be plain, then a couple with compressed values,
 -- then a couple with external toast
 insert into jt3 select i, ('[' || repeat('"foo",',10*(10^i)::integer) || i || ']')::jsonb from generate_series(1,5) i;
-do language pllua_ng $$
+do language pllua $$
   s = spi.prepare([[ select a from jt3 where id = $1 ]])
   for i = 1,5 do
     local r = (s:execute(i))[1]

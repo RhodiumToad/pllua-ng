@@ -1,37 +1,44 @@
 
-pllua_ng
-========
+pllua
+=====
 
 Embeds Lua into PostgreSQL as a procedural language module.
 
-This code is still under development and probably contains bugs and
-missing functionality. However, all the basic stuff should work.
+Please report any remaining bugs or missing functionality on github.
 
-WARNING: interfaces are not stable and are subject to change.
+This is not yet a "stable" release from the point of view of
+interfaces; I'm still debating whether to rename many of the tables
+and functions. However, it should be stable in the sense of "doesn't
+crash".
 
-Currently it should build against pg 9.6 and pg10 (and 11devel). It
-is known that this module will never work on pg versions before 9.5
-(we rely critically on memory context callbacks, which were introduced
-in that version).
+Currently it should build against pg versions 9.5, 9.6 and 10 (and
+11devel). It is known that this module will never work on pg versions
+before 9.5 (we rely critically on memory context callbacks, which were
+introduced in that version).
 
 Only Lua 5.3 is fully supported at this time, though it also is
-believed to mostly work if built against LuaJIT with the COMPAT52
-option.
-
-Bugs can be reported by opening issues on github.
+believed to work if built against LuaJIT with the COMPAT52 option
+(this is included in the Travis-ci test matrix).
 
 
 CHANGES
 -------
 
+*NOTE:* the name of the module is now just "pllua", and its extension
+packaging is split into two according to usual practice for pl modules
+(in this case "pllua" for the trusted language and "plluau" for the
+untrusted language).
+
+(Compared to the old pllua project:)
+
 Some names and locations have been changed.
 
 The old pllua.init table is gone. Instead we support three init
-strings (superuser-only): pllua_ng.on_init, pllua_ng.on_trusted_init,
-pllua_ng.on_untrusted_init.
+strings (superuser-only): pllua.on_init, pllua.on_trusted_init,
+pllua.on_untrusted_init.
 
 Note that the on_init string can be run in the postmaster process, by
-including pllua_ng in shared_preload_libraries. Accordingly, on_init
+including pllua in shared_preload_libraries. Accordingly, on_init
 cannot do any database access, and the only functions available from
 this module are the server.log/debug/error/etc. ones. (print() will
 do nothing useful.)
@@ -348,7 +355,7 @@ environment, allowing package.preload and package.searchers to work
 (the user can install their own function into package.searchers to
 load modules from database queries if they so wish).
 
-pllua_ng.on_trusted_init is run in trusted interpreters in the global
+pllua.on_trusted_init is run in trusted interpreters in the global
 env (not the sandbox env). It can do:
 
       trusted.allow('module' [,'newname'])

@@ -1,0 +1,6 @@
+# plluau extension
+default_version = '1.0'
+comment = 'Lua as an untrusted procedural language'
+module_pathname = '$libdir/pllua'
+relocatable = false
+schema = 'pg_catalog'
