@@ -77,6 +77,39 @@ do language pllua $$
   print(xpcall(f2,f))
 $$;
 
+-- tricky error-in-error cases:
+--
+-- pg error inside xpcall handler func needs to abort out to the
+-- parent of the xpcall, not the xpcall itself.
+begin;
+-- we get (harmless) warnings with lua53 but not with luajit for this
+-- case. suppress them.
+set local client_min_messages = error;
+do language pllua $$
+  local function f(e) server.error("nested") end
+  local function f2() error("foo") end
+  print("outer pcall",
+        pcall(function()
+                print("entering xpcall");
+                print("inner xpcall", xpcall(f2,f))
+		print("should not be reached")
+              end))
+$$;
+commit;
+
+do language pllua $$
+  local level = 0
+  local function f(e) level = level + 1 if level==1 then print("in error handler",level,e) server.error("nested") end end
+  local function f2() error("foo") end
+  print("outer pcall",
+        pcall(function()
+                print("entering xpcall");
+                print("inner xpcall", xpcall(f2,f))
+		print("should not be reached")
+              end))
+$$;
+
+
 do language pllua $$
   print(lpcall(function() error("caught") end))
 $$;

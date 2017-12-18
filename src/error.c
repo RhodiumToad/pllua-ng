@@ -696,6 +696,7 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 	volatile pllua_subxact xa;
 	MemoryContext oldcontext = CurrentMemoryContext;
 	volatile int rc;
+	volatile bool rethrow = false;
 
 	luaL_checkany(L, 1);
 
@@ -757,6 +758,15 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 		}
 		else if (xa.onstack)
 			pllua_subxact_abort(L);
+		else
+		{
+			/*
+			 * error handler must have intercepted and done the abort already.
+			 * But this implies that we need to check the registry for a
+			 * rethrow, rather than clearing it out.
+			 */
+			rethrow = true;
+		}
 	}
 	PG_CATCH();
 	{
@@ -797,8 +807,18 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 		return lua_gettop(L) - (is_xpcall ? 2 : 0);
 	}
 
-	lua_pushnil(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+	if (rethrow)
+	{
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+		if (!lua_isnil(L, -1))
+			lua_error(L);
+		lua_pop(L, 1);
+	}
+	else
+	{
+		lua_pushnil(L);
+		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+	}
 
 	lua_pushboolean(L, 0);
 	lua_insert(L, -2);
