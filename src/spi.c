@@ -432,7 +432,7 @@ static int pllua_spi_prepare(lua_State *L)
 }
 
 /*
- * args: light[values] light[isnull] light[argtypes] arg...
+ * args: light[values] light[isnull] light[argtypes] argtable arg...
  *
  * argtypes are as determined by the parser, may not match the actual type of
  * arg.
@@ -442,8 +442,8 @@ int pllua_spi_convert_args(lua_State *L)
 	Datum *values = lua_touserdata(L, 1);
 	bool *isnull = lua_touserdata(L, 2);
 	Oid *argtypes = lua_touserdata(L, 3);
-	int nargs = lua_gettop(L) - 3;
-	int argbase = 4;
+	int nargs = lua_gettop(L) - 4;
+	int argbase = 5;
 	int i;
 
 	for (i = 0; i < nargs; ++i)
@@ -457,6 +457,8 @@ int pllua_spi_convert_args(lua_State *L)
 			lua_call(L, 1, 1);
 			lua_pushvalue(L, argbase+i);
 			lua_call(L, 1, 1);
+			lua_pushvalue(L, -1);
+			lua_rawseti(L, 4, i+1);
 			d = pllua_checkanydatum(L, -1, &dt);
 			if (dt->typeoid != argtypes[i])
 				luaL_error(L, "inconsistent value type in SPI parameter list");
@@ -535,6 +537,7 @@ static int pllua_spi_execute_count(lua_State *L)
 
 	/* we're going to re-push all the args, better have space */
 	luaL_checkstack(L, 40+nargs, NULL);
+	lua_createtable(L, nargs, 0);  /* table to hold refs to arg datums */
 
 	PLLUA_TRY();
 	{
@@ -553,11 +556,12 @@ static int pllua_spi_execute_count(lua_State *L)
 		lua_pushlightuserdata(L, values);
 		lua_pushlightuserdata(L, isnull);
 		lua_pushlightuserdata(L, stmt->param_types);
+		lua_pushvalue(L, -5);
 		for (i = 0; i < nargs; ++i)
 		{
 			lua_pushvalue(L, argbase+i);
 		}
-		pllua_pcall(L, 3+nargs, 0, 0);
+		pllua_pcall(L, 4+nargs, 0, 0);
 
 		if (nargs > 0)
 		{
@@ -704,6 +708,7 @@ static int pllua_spi_cursor_open(lua_State *L)
 
 	/* we're going to re-push all the args, better have space */
 	luaL_checkstack(L, 40+nargs, NULL);
+	lua_createtable(L, nargs, 0);
 
 	PLLUA_TRY();
 	{
@@ -724,11 +729,12 @@ static int pllua_spi_cursor_open(lua_State *L)
 		lua_pushlightuserdata(L, values);
 		lua_pushlightuserdata(L, isnull);
 		lua_pushlightuserdata(L, stmt->param_types);
+		lua_pushvalue(L, -5);
 		for (i = 0; i < nargs; ++i)
 		{
 			lua_pushvalue(L, argbase+i);
 		}
-		pllua_pcall(L, 3+nargs, 0, 0);
+		pllua_pcall(L, 4+nargs, 0, 0);
 
 		if (nargs > 0)
 		{
