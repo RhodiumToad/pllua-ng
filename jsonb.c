@@ -501,11 +501,11 @@ pllua_jsonb_map(lua_State *L)
 	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *numt = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
 	int funcidx = 0;
-	int nullvalue;
+	int nullvalue = 2;
 	bool keep_numeric = false;
 	bool noresult = false;
 	Jsonb	   *volatile jb;
-	JsonbIterator *volatile it;
+	JsonbIterator *it;
 	JsonbIteratorToken r;
 
 	lua_settop(L, 2);
