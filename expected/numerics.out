@@ -131,4 +131,14 @@ do language pllua $$
   print(pi())
 $$;
 INFO:  3.1415926535897932384626433832795028841972
---
+-- check sanity of maxinteger/mininteger
+do language pllua $$
+  local num = require 'pllua.numeric'
+  local maxi = num.maxinteger
+  local mini = num.mininteger
+  print(type(num.tointeger(maxi)), type(num.tointeger(maxi+1)))
+  print(type(num.tointeger(mini)), type(num.tointeger(mini-1)))
+$$
+--end
+INFO:  number	nil
+INFO:  number	nil
