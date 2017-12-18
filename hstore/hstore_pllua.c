@@ -57,10 +57,10 @@ _PG_init(void)
 
 	AssertVariableIsOfType(&pllua_pcall, pllua_pcall_t);
 	pllua_pcall_p = (pllua_pcall_t)
-		load_external_function("$libdir/pllua_ng", "pllua_pcall",
+		load_external_function("$libdir/pllua", "pllua_pcall",
 							   true, NULL);
 	pllua_trampoline_p = (lua_CFunction)
-		load_external_function("$libdir/pllua_ng", "pllua_trampoline",
+		load_external_function("$libdir/pllua", "pllua_trampoline",
 							   true, NULL);
 }
 

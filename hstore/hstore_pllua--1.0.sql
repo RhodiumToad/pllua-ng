@@ -11,7 +11,7 @@ CREATE FUNCTION pllua_to_hstore(val internal) RETURNS hstore
 LANGUAGE C STRICT IMMUTABLE
 AS 'MODULE_PATHNAME';
 
-CREATE TRANSFORM FOR hstore LANGUAGE pllua_ng (
+CREATE TRANSFORM FOR hstore LANGUAGE pllua (
     FROM SQL WITH FUNCTION hstore_to_pllua(internal),
     TO SQL WITH FUNCTION pllua_to_hstore(internal)
 );
