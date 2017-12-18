@@ -9,6 +9,7 @@
 
 #include "access/htup_details.h"
 #include "catalog/pg_proc.h"
+#include "nodes/pg_list.h"
 #include "storage/ipc.h"
 #include "utils/inval.h"
 #include "utils/syscache.h"
@@ -19,13 +20,13 @@ static bool simulate_memory_failure = false;
 
 static HTAB *pllua_interp_hash = NULL;
 
-static lua_State *held_state = NULL;
+static List *held_states = NIL;
 
 static char *pllua_on_init = NULL;
 static char *pllua_on_trusted_init = NULL;
 static char *pllua_on_untrusted_init = NULL;
 static bool pllua_do_check_for_interrupts = true;
-
+static int pllua_num_held_interpreters = 1;
 
 static lua_State *pllua_newstate_phase1(void);
 static void pllua_newstate_phase2(lua_State *L,
@@ -76,10 +77,10 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 	 * this can throw a pg error, but is required to ensure the interpreter is
 	 * removed from interp_desc first if it does.
 	 */
-	if (held_state)
+	if (held_states != NIL)
 	{
-		lua_State *L = held_state;
-		held_state = NULL;
+		lua_State *L = linitial(held_states);
+		held_states = list_delete_first(held_states);
 		pllua_newstate_phase2(L, trusted, user_id, interp_desc, act);
 	}
 	else
@@ -152,6 +153,15 @@ void _PG_init(void)
 							 true,
 							 PGC_SUSET, 0,
 							 NULL, NULL, NULL);
+	DefineCustomIntVariable("pllua.prebuilt_interpreters",
+							gettext_noop("Number of interpreters to prebuild if preloaded"),
+							NULL,
+							&pllua_num_held_interpreters,
+							1,
+							0,
+							10,
+							PGC_SUSET, 0,
+							NULL, NULL, NULL);
 
 	EmitWarningsOnPlaceholders("pllua");
 
@@ -167,7 +177,16 @@ void _PG_init(void)
 									HASH_ELEM | HASH_BLOBS);
 
 	if (!IsUnderPostmaster)
-		held_state = pllua_newstate_phase1();
+	{
+		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+		int i;
+		for (i = 0; i < pllua_num_held_interpreters; ++i)
+		{
+			lua_State *L = pllua_newstate_phase1();
+			held_states = lcons(L, held_states);
+		}
+		MemoryContextSwitchTo(oldcontext);
+	}
 
 	init_done = true;
 }
@@ -197,10 +216,10 @@ pllua_fini(int code, Datum arg)
 	}
 
 	/* zap a "held" interp if any */
-	if (held_state)
+	while (held_states != NIL)
 	{
-		lua_State *L = held_state;
-		held_state = NULL;
+		lua_State *L = linitial(held_states);
+		held_states = list_delete_first(held_states);
 		/*
 		 * We intentionally do not worry about trying to rethrow any errors
 		 * happening here; we're trying to shut down, and ignoring an error
