@@ -716,10 +716,10 @@ pllua_jsonb_map(lua_State *L)
 							}
 							if (!is_toplevel)
 							{
-								int isint = 0;
-								int idx = lua_tointegerx(L, -2, &isint);
+								int isint = lua_isinteger(L, -2);  /* NOT tointegerx */
 								if (isint)
 								{
+									int idx = lua_tointeger(L, -2);
 									/* if it was an integer key, we must be doing a table */
 									lua_seti(L, -3, idx+1);
 									lua_pop(L, 1);
