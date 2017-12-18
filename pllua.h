@@ -145,11 +145,16 @@ static inline bool lua_isinteger(lua_State *L, int nd)
 	}
 	return 0;
 }
-static inline lua_Integer lua_tointegerx(lua_State *L, int i, int *isnum)
+static inline lua_Integer lua_tointegerx(lua_State *L, int i, int *isint)
 {
 	lua_Integer n = lua_tointeger(L, i);
-	if (isnum != NULL) {
-		*isnum = (n == lua_tonumber(L, i));
+	if (isint != NULL) {
+		int isnum = 0;
+		/* be careful, it might not be a number at all */
+		if (n == lua_tonumberx(L, i, &isnum))
+			*isint = isnum;
+		else
+			*isint = 0;
 	}
 	return n;
 }
