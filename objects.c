@@ -160,7 +160,7 @@ MemoryContext pllua_newmemcontext(lua_State *L,
 {
 	void **p = pllua_newrefobject(L, PLLUA_MCONTEXT_OBJECT, NULL, false);
 	MemoryContext parent = pllua_get_memory_cxt(L);
-	MemoryContext mcxt;
+	volatile MemoryContext mcxt;
 	PLLUA_TRY();
 	{
 		mcxt = AllocSetContextCreate(parent, name, minsz, initsz, maxsz);

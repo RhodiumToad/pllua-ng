@@ -245,8 +245,8 @@ pllua_jsonb_tosql(lua_State *L)
 	JsonbValue nullval;
 	JsonbValue curval;
 	MemoryContext tmpcxt;
-	JsonbValue *result;
-	Datum datum;
+	JsonbValue *volatile result;
+	volatile Datum datum;
 	pllua_datum *nd;
 
 	nullval.type = jbvNull;
@@ -504,8 +504,8 @@ pllua_jsonb_map(lua_State *L)
 	int nullvalue;
 	bool keep_numeric = false;
 	bool noresult = false;
-	Jsonb	   *jb;
-	JsonbIterator *it;
+	Jsonb	   *volatile jb;
+	JsonbIterator *volatile it;
 	JsonbIteratorToken r;
 
 	lua_settop(L, 2);
@@ -578,14 +578,17 @@ pllua_jsonb_map(lua_State *L)
 		for (;;)
 		{
 			JsonbValue	v;
+			volatile JsonbIteratorToken vr;
 
 			luaL_checkstack(L, patht_len + 10, NULL);
 
 			PLLUA_TRY();
 			{
-				r = JsonbIteratorNext(&it, &v, false);
+				vr = JsonbIteratorNext(&it, &v, false);
 			}
 			PLLUA_CATCH_RETHROW();
+
+			r = vr;
 
 			if (r == WJB_DONE)
 				break;
