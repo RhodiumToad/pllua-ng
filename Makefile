@@ -36,8 +36,10 @@ REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule
 # only on pg10+
 REGRESS_10 = triggers_10
 
-OBJS =	compile.o datum.o elog.o error.o exec.o globals.o init.o \
+SRCOBJS=compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	jsonb.o numeric.o objects.o pllua.o spi.o trigger.o trusted.o
+
+OBJS = $(addprefix src/, $(SRCOBJS))
 
 EXTRA_CLEAN = pllua_functable.h
 
@@ -55,9 +57,9 @@ REGRESS += $(REGRESS_10)
 REGRESS_PARALLEL += $(REGRESS_10)
 endif
 
-$(OBJS): pllua.h
+$(OBJS): src/pllua.h
 
-init.o: pllua_functable.h
+src/init.o: pllua_functable.h
 
 pllua_functable.h: $(OBJS:.o=.c)
 	cat $(OBJS:.o=.c) | perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call)\(\s*([\w.]+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | sort -u >pllua_functable.h
