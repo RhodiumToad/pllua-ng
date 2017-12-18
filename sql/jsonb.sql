@@ -69,15 +69,6 @@ do language pllua $$
 	      return k,v
 	    end)
     print(type(b))
-    if type(b)=="table" then
-      for k,v in pairs(b) do
-        if type(v)=="table" then
-	  for k2,v2 in pairs(v) do print("result",k,k2,v2) end
-	else
-	  print("result",k,v)
-	end
-      end
-    end
   end
 $$;
 

@@ -73,15 +73,6 @@ do language pllua $$
 	      return k,v
 	    end)
     print(type(b))
-    if type(b)=="table" then
-      for k,v in pairs(b) do
-        if type(v)=="table" then
-	  for k2,v2 in pairs(v) do print("result",k,k2,v2) end
-	else
-	  print("result",k,v)
-	end
-      end
-    end
   end
 $$;
 INFO:  1
@@ -100,7 +91,6 @@ INFO:  {"foo": 123}
 INFO:  mapfunc	string	foo	123
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  result	foo	123
 INFO:  {"foo": null}
 INFO:  mapfunc	string	foo	nil
 INFO:  mapfunc	nil	nil	table
@@ -111,9 +101,6 @@ INFO:  mapfunc	number	1	20
 INFO:  mapfunc	number	2	30
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  result	1	10
-INFO:  result	2	20
-INFO:  result	3	30
 INFO:  {"foo": [2, 4, 6]}
 INFO:  mapfunc	number	0	2	foo
 INFO:  mapfunc	number	1	4	foo
@@ -121,9 +108,6 @@ INFO:  mapfunc	number	2	6	foo
 INFO:  mapfunc	string	foo	table
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  result	foo	1	2
-INFO:  result	foo	2	4
-INFO:  result	foo	3	6
 INFO:  [{"foo": "bar"}, {"baz": "foo"}, 123, null]
 INFO:  mapfunc	string	foo	bar	0
 INFO:  mapfunc	number	0	table
@@ -133,9 +117,6 @@ INFO:  mapfunc	number	2	123
 INFO:  mapfunc	number	3	nil
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  result	1	foo	bar
-INFO:  result	2	baz	foo
-INFO:  result	3	123
 INFO:  {"1": "foo", "2": [false, true], "foo": {}}
 INFO:  mapfunc	string	1	foo
 INFO:  mapfunc	number	0	false	2
@@ -144,9 +125,6 @@ INFO:  mapfunc	string	2	table
 INFO:  mapfunc	string	foo	table
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  result	2	1	false
-INFO:  result	2	2	true
-INFO:  result	1	foo
 INFO:  {"1": "foo", "2": [false, true]}
 INFO:  mapfunc	string	1	foo
 INFO:  mapfunc	number	0	false	2
@@ -154,9 +132,6 @@ INFO:  mapfunc	number	1	true	2
 INFO:  mapfunc	string	2	table
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  result	1	foo
-INFO:  result	2	1	false
-INFO:  result	2	2	true
 create temp table jt3(id integer, a jsonb);
 -- first row should be plain, then a couple with compressed values,
 -- then a couple with external toast
