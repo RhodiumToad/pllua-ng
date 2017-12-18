@@ -104,6 +104,16 @@ hstore_to_pllua_real(lua_State *L)
 	return 1;
 }
 
+
+static int do_next (lua_State *L)
+{
+	lua_settop(L, 2);
+	if (lua_next(L, 1))
+		return 2;
+	lua_pushnil(L);
+    return 1;
+}
+
 /*
  * equivalent to:
  *
@@ -130,9 +140,18 @@ pllua_to_hstore_real(lua_State *L)
 	lua_newtable(L); /* index 2: keys */
 	lua_newtable(L); /* index 3: vals */
 
-	lua_getglobal(L, "pairs");
-	lua_pushvalue(L, 1);
-	lua_call(L, 1, 3);  /* index 4-6: iter, state, key */
+	if (luaL_getmetafield(L, 1, "__pairs") == LUA_TNIL)
+	{
+		lua_pushcfunction(L, do_next);
+		lua_pushvalue(L, 1);
+		lua_pushnil(L);
+	}
+	else
+	{
+		lua_pushvalue(L, 1);
+		lua_call(L, 1, 3);
+	}
+	/* index 4-6: iter, state, key */
 
 	for (;;)
 	{
