@@ -39,7 +39,7 @@ pllua_return_result(lua_State *L,
 	pllua_typeinfo *ti;
 	pllua_datum *d;
 
-	if (nret == 0)
+	if (nret == 0 || act->rettype == VOIDOID)
 	{
 		*isnull = true;
 		return (Datum)0;
