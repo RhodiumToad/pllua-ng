@@ -501,7 +501,7 @@ pllua_jsonb_map(lua_State *L)
 	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_typeinfo *numt = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
 	int funcidx = 0;
-	int nullvalue = 2;
+	int nullvalue;
 	bool keep_numeric = false;
 	bool noresult = false;
 	Jsonb	   *volatile jb;
@@ -535,10 +535,13 @@ pllua_jsonb_map(lua_State *L)
 			nullvalue = lua_absindex(L, -1);
 			break;
 		case LUA_TFUNCTION:
+			lua_pushnil(L);
+			nullvalue = lua_absindex(L, -1);
 			funcidx = 2;
 			break;
 		case LUA_TNIL:
 		default:
+			/* if it's not a table or function, then it's the nullval. */
 			nullvalue = 2;
 			break;
 	}
