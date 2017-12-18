@@ -399,8 +399,22 @@ pllua_init_state_phase1(lua_State *L)
 
 	luaL_openlibs(L);
 
+	/*
+	 * Initialize our error handling, which replaces many base functions
+	 * (pcall, xpcall, error, assert). Must be done after openlibs but before
+	 * anything might throw a pg error.
+	 */
 	pllua_init_error(L);
-	pllua_init_objects_phase1(L);
+
+	/*
+	 * Default print() is not useful (can't rely on stdout/stderr going
+	 * anywhere safe). Replace with our version.
+	 */
+	lua_pushcfunction(L, pllua_p_print);
+	lua_setglobal(L, "print");
+
+	luaL_requiref(L, "pllua.elog", pllua_open_elog, 0);
+	lua_setglobal(L, "server");  /* XXX fixme: needs a better name/location */
 
 	pllua_runstring(L, "on_init", pllua_on_init);
 
@@ -424,18 +438,10 @@ pllua_init_state_phase2(lua_State *L)
 	lua_pushboolean(L, trusted);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED);
 
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
-	lua_newtable(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
-
-	pllua_init_objects_phase2(L);
-
 	/* Treat these as actual modules */
+
+	luaL_requiref(L, "pllua.funcmgr", pllua_open_funcmgr, 0);
+	lua_pop(L, 1);
 
 	luaL_requiref(L, "pllua.pgtype", pllua_open_pgtype, 0);
 	lua_setglobal(L, "pgtype");
@@ -474,7 +480,7 @@ pllua_init_state_phase2(lua_State *L)
  * Execute the post-fork init strings. Note that they are executed outside any
  * trusted sandbox.
  */
-int
+static int
 pllua_run_init_strings(lua_State *L)
 {
 	bool	trusted;
@@ -599,7 +605,6 @@ pllua_newstate_phase2(lua_State *L,
 
 	PG_TRY();
 	{
-		int		rc;
 		Oid		langoid;
 
 		/* can't throw */
@@ -662,9 +667,8 @@ pllua_newstate_phase2(lua_State *L,
 		 * Now that we have everything set up, it should finally be safe to run
 		 * some arbitrary code that might access the db.
 		 */
-		rc = pllua_cpcall(L, pllua_run_init_strings, NULL);
-		if (rc)
-			pllua_rethrow_from_lua(L, rc);
+		lua_pushcfunction(L, pllua_run_init_strings);
+		pllua_pcall(L, 0, 0, 0);
 	}
 	PG_CATCH();
 	{

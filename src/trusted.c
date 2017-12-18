@@ -271,7 +271,7 @@ static struct namepair sandbox_packages[] = {
 	{ "math", NULL },
 	{ "pllua.spi", "spi" },
 	{ "pllua.pgtype", "pgtype" },
-	{ "pllua.server", "server" },
+	{ "pllua.elog", "server" },   /* XXX fixme: needs better name */
 	{ NULL, NULL }
 };
 static struct namepair sandbox_allow_packages[] = {

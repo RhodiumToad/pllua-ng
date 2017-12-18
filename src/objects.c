@@ -612,38 +612,18 @@ static struct luaL_Reg actobj_mt[] = {
 	{ NULL, NULL }
 };
 
-static struct luaL_Reg serverfuncs[] = {
-	{ NULL, NULL }
-};
-
-static struct luaL_Reg globfuncs[] = {
-	{ "print", pllua_p_print },
-	{ NULL, NULL }
-};
-
-static int pllua_open_serverfuncs(lua_State *L)
+int pllua_open_funcmgr(lua_State *L)
 {
 	lua_newtable(L);
-	luaL_setfuncs(L, serverfuncs, 0);
-	return 1;
-}
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_FUNCS);
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 
-void pllua_init_objects_phase1(lua_State *L)
-{
-	luaL_requiref(L, "pllua.server", pllua_open_serverfuncs, 0);
-	lua_setglobal(L, "server");
-
-	pllua_init_error_functions(L);
-
-	lua_pushglobaltable(L);
-	luaL_setfuncs(L, globfuncs, 0);
-	lua_pop(L, 1);
-}
-
-void pllua_init_objects_phase2(lua_State *L)
-{
 	pllua_newmetatable(L, PLLUA_FUNCTION_OBJECT, funcobj_mt);
 	pllua_newmetatable(L, PLLUA_ACTIVATION_OBJECT, actobj_mt);
 	pllua_newmetatable(L, PLLUA_MCONTEXT_OBJECT, mcxtobj_mt);
 	lua_pop(L, 3);
+
+	lua_pushboolean(L, 1);
+	return 1;
 }

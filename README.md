@@ -40,8 +40,8 @@ pllua.on_untrusted_init.
 Note that the on_init string can be run in the postmaster process, by
 including pllua in shared_preload_libraries. Accordingly, on_init
 cannot do any database access, and the only functions available from
-this module are the server.log/debug/error/etc. ones. (print() will
-do nothing useful.)
+this module are the server.log/debug/error/etc. ones. print() in this
+environment will output to the server log as LOG: messages.
 
 NB.: because on_init is run before the sandbox environment is set up
 for trusted interpreters, it can't use trusted.require() or

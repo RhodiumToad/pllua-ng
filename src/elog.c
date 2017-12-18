@@ -233,43 +233,6 @@ pllua_error_callback(void *arg)
 				   act->interp->ar.short_src, act->interp->ar.currentline);
 }
 
-/*
- * User-visible global "print" function.
- *
- * This is installed in place of _G.print
- */
-int
-pllua_p_print(lua_State *L)
-{
-	int			nargs = lua_gettop(L); /* nargs */
-	int			fidx;
-	const char *s;
-	luaL_Buffer b;
-	int			i;
-
-	lua_getglobal(L, "tostring");
-	fidx = lua_absindex(L, -1);
-
-	luaL_buffinit(L, &b);
-
-	for (i = 1; i <= nargs; i++)
-	{
-		if (i > 1) luaL_addchar(&b, '\t');
-		lua_pushvalue(L, fidx); /* tostring */
-		lua_pushvalue(L, i); /* arg */
-		lua_call(L, 1, 1);
-		s = lua_tostring(L, -1);
-		if (s == NULL)
-			return luaL_error(L, "cannot convert to string");
-		luaL_addvalue(&b);
-	}
-	luaL_pushresult(&b);
-	s = lua_tostring(L, -1);
-	pllua_elog(L, INFO, true, 0, s,
-			   NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-	return 0;
-}
-
 static struct { const char *str; int val; } ecodes[] = {
 #include "plerrcodes.h"
 	{ NULL, 0 }
@@ -366,6 +329,35 @@ static const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
   return lua_tolstring(L, -1, len);
 }
 #endif
+
+/*
+ * User-visible global "print" function.
+ *
+ * This is installed in place of _G.print
+ */
+int
+pllua_p_print(lua_State *L)
+{
+	int			nargs = lua_gettop(L); /* nargs */
+	int			elevel = IsUnderPostmaster ? INFO : LOG;
+	const char *s;
+	luaL_Buffer b;
+	int			i;
+
+	luaL_buffinit(L, &b);
+
+	for (i = 1; i <= nargs; i++)
+	{
+		if (i > 1) luaL_addchar(&b, '\t');
+		luaL_tolstring(L, i, NULL);
+		luaL_addvalue(&b);
+	}
+	luaL_pushresult(&b);
+	s = lua_tostring(L, -1);
+	pllua_elog(L, elevel, true, 0, s,
+			   NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+	return 0;
+}
 
 /*
  * we accept:
@@ -509,14 +501,15 @@ static struct { const char *str; int val; } elevels[] = {
 	{ "error", ERROR }
 };
 
-void
-pllua_init_error_functions(lua_State *L)
+int
+pllua_open_elog(lua_State *L)
 {
 	int i;
 	int nlevels = sizeof(elevels)/sizeof(elevels[0]);
 	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
 
-	lua_getglobal(L, "server");
+	lua_newtable(L);
+
 	lua_pushnil(L);
 	lua_createtable(L, 0, nlevels);
 	for (i = 0; i < nlevels; ++i)
@@ -552,5 +545,5 @@ pllua_init_error_functions(lua_State *L)
 	else
 		lua_pop(L, 1);
 
-	lua_pop(L, 1);
+	return 1;
 }

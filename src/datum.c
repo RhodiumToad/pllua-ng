@@ -4161,6 +4161,11 @@ static struct luaL_Reg typeinfo_package_array_mt[] = {
 
 int pllua_open_pgtype(lua_State *L)
 {
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
+	lua_newtable(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
+
 	pllua_newmetatable(L, PLLUA_IDXLIST_OBJECT, idxlist_mt);
 	lua_pop(L, 1);
 

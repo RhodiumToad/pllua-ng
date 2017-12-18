@@ -561,7 +561,6 @@ extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 
 pllua_interpreter *pllua_getstate(bool trusted, pllua_activation_record *act);
 pllua_interpreter *pllua_getinterpreter(lua_State *L);
-int pllua_run_init_strings(lua_State *L);
 
 /* compile.c */
 
@@ -571,13 +570,13 @@ int pllua_intern_function(lua_State *L);
 void pllua_validate_function(lua_State *L, Oid fn_oid, bool trusted);
 
 /* datum.c */
+int pllua_open_pgtype(lua_State *L);
 
 void pllua_verify_encoding(lua_State *L, const char *str);
 bool pllua_verify_encoding_noerror(lua_State *L, const char *str);
 void *pllua_palloc(lua_State *L, size_t sz);
 pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td);
-int pllua_open_pgtype(lua_State *L);
 int pllua_typeinfo_invalidate(lua_State *L);
 struct pllua_datum;
 struct pllua_typeinfo;
@@ -608,9 +607,9 @@ int pllua_typeinfo_parsetype(lua_State *L);
 int pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t);
 
 /* elog.c */
+int pllua_open_elog(lua_State *L);
 
 int pllua_p_print (lua_State *L);
-void pllua_init_error_functions(lua_State *L);
 void pllua_debug_lua(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
 void pllua_error(lua_State *L, const char *msg, ...) pg_attribute_noreturn();
 void pllua_warning(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
@@ -619,6 +618,8 @@ int pllua_error_callback_location(lua_State *L);
 void pllua_get_errcodes(lua_State *L, int nidx);
 
 /* error.c */
+void pllua_init_error(lua_State *L);
+
 int pllua_panic(lua_State *L);
 void pllua_poperror(lua_State *L);
 int pllua_newerror(lua_State *L);
@@ -634,12 +635,8 @@ PGDLLEXPORT int pllua_trampoline(lua_State *L);
 void pllua_initial_protected_call(pllua_interpreter *interp,
 								  lua_CFunction func,
 								  pllua_activation_record *arg);
-
-void pllua_init_error(lua_State *L);
-
 int pllua_t_assert(lua_State *L);
 int pllua_t_error(lua_State *L);
-
 int pllua_t_pcall(lua_State *L);
 int pllua_t_xpcall(lua_State *L);
 int pllua_t_lpcall(lua_State *L);
@@ -661,6 +658,7 @@ int pllua_open_jsonb(lua_State *L);
 int pllua_open_numeric(lua_State *L);
 
 /* objects.c */
+int pllua_open_funcmgr(lua_State *L);
 
 bool pllua_isobject(lua_State *L, int nd, char *objtype);
 void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt);
@@ -695,16 +693,16 @@ int pllua_resetactivation(lua_State *L);
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
 
-void pllua_init_objects_phase1(lua_State *L);
-void pllua_init_objects_phase2(lua_State *L);
-
 /* spi.c */
 int pllua_open_spi(lua_State *L);
+
 int pllua_spi_convert_args(lua_State *L);
 int pllua_spi_prepare_result(lua_State *L);
 int pllua_cursor_cleanup_portal(lua_State *L);
 
 /* trigger.c */
+int pllua_open_trigger(lua_State *L);
+
 struct TriggerData;
 struct EventTriggerData;
 void pllua_trigger_begin(lua_State *L, struct TriggerData *td);
@@ -714,8 +712,6 @@ Datum pllua_return_trigger_result(lua_State *L, int nret, int nd);
 
 void pllua_evtrigger_begin(lua_State *L, struct EventTriggerData *td);
 void pllua_evtrigger_end(lua_State *L, int nd);
-
-int pllua_open_trigger(lua_State *L);
 
 /* trusted.c */
 int pllua_open_trusted(lua_State *L);
