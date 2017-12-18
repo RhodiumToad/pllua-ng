@@ -86,6 +86,10 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 			break;
 		lua_pushvalue(L, -1);    /* keytable numkeytab iter state key key */
 		++numkeys;
+		/*
+		 * this is the input table's key: here, we accept strings containing
+		 * integer values as integers
+		 */
 		intval = lua_tointegerx(L, -1, &isint);
 		if (isint)
 		{

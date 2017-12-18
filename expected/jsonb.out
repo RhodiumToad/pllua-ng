@@ -57,15 +57,18 @@ insert into jt2(a) values ('{"foo":null}');
 insert into jt2(a) values ('[10,20,30]');
 insert into jt2(a) values ('{"foo":[2,4,6]}');
 insert into jt2(a) values ('[{"foo":"bar"},{"baz":"foo"},123,null]');
+-- check objects with keys that look like numbers
+insert into jt2(a) values ('{"1":"foo", "2":[false,true], "foo":{}}');
+insert into jt2(a) values ('{"1":"foo", "2":[false,true]}');
 do language pllua $$
   s = spi.prepare([[ select a from jt2 order by id ]])
   for r in s:rows() do
     print(r.a)
     b = r.a(function(k,v,...)
               if type(v)~="table" then
-	        print("mapfunc",k,v,...)
+	        print("mapfunc",type(k),k,v,...)
 	      else
-	        print("mapfunc",k,type(v),...)
+	        print("mapfunc",type(k),k,type(v),...)
 	      end
 	      return k,v
 	    end)
@@ -82,57 +85,78 @@ do language pllua $$
   end
 $$;
 INFO:  1
-INFO:  mapfunc	nil	1
+INFO:  mapfunc	nil	nil	1
 INFO:  number
 INFO:  "foo"
-INFO:  mapfunc	nil	foo
+INFO:  mapfunc	nil	nil	foo
 INFO:  string
 INFO:  true
-INFO:  mapfunc	nil	true
+INFO:  mapfunc	nil	nil	true
 INFO:  boolean
 INFO:  null
-INFO:  mapfunc	nil	nil
+INFO:  mapfunc	nil	nil	nil
 INFO:  nil
 INFO:  {"foo": 123}
-INFO:  mapfunc	foo	123
-INFO:  mapfunc	nil	table
+INFO:  mapfunc	string	foo	123
+INFO:  mapfunc	nil	nil	table
 INFO:  table
 INFO:  result	foo	123
 INFO:  {"foo": null}
-INFO:  mapfunc	foo	nil
-INFO:  mapfunc	nil	table
+INFO:  mapfunc	string	foo	nil
+INFO:  mapfunc	nil	nil	table
 INFO:  table
 INFO:  [10, 20, 30]
-INFO:  mapfunc	0	10
-INFO:  mapfunc	1	20
-INFO:  mapfunc	2	30
-INFO:  mapfunc	nil	table
+INFO:  mapfunc	number	0	10
+INFO:  mapfunc	number	1	20
+INFO:  mapfunc	number	2	30
+INFO:  mapfunc	nil	nil	table
 INFO:  table
 INFO:  result	1	10
 INFO:  result	2	20
 INFO:  result	3	30
 INFO:  {"foo": [2, 4, 6]}
-INFO:  mapfunc	0	2	foo
-INFO:  mapfunc	1	4	foo
-INFO:  mapfunc	2	6	foo
-INFO:  mapfunc	foo	table
-INFO:  mapfunc	nil	table
+INFO:  mapfunc	number	0	2	foo
+INFO:  mapfunc	number	1	4	foo
+INFO:  mapfunc	number	2	6	foo
+INFO:  mapfunc	string	foo	table
+INFO:  mapfunc	nil	nil	table
 INFO:  table
 INFO:  result	foo	1	2
 INFO:  result	foo	2	4
 INFO:  result	foo	3	6
 INFO:  [{"foo": "bar"}, {"baz": "foo"}, 123, null]
-INFO:  mapfunc	foo	bar	0
-INFO:  mapfunc	0	table
-INFO:  mapfunc	baz	foo	1
-INFO:  mapfunc	1	table
-INFO:  mapfunc	2	123
-INFO:  mapfunc	3	nil
-INFO:  mapfunc	nil	table
+INFO:  mapfunc	string	foo	bar	0
+INFO:  mapfunc	number	0	table
+INFO:  mapfunc	string	baz	foo	1
+INFO:  mapfunc	number	1	table
+INFO:  mapfunc	number	2	123
+INFO:  mapfunc	number	3	nil
+INFO:  mapfunc	nil	nil	table
 INFO:  table
 INFO:  result	1	foo	bar
 INFO:  result	2	baz	foo
 INFO:  result	3	123
+INFO:  {"1": "foo", "2": [false, true], "foo": {}}
+INFO:  mapfunc	string	1	foo
+INFO:  mapfunc	number	0	false	2
+INFO:  mapfunc	number	1	true	2
+INFO:  mapfunc	string	2	table
+INFO:  mapfunc	string	foo	table
+INFO:  mapfunc	nil	nil	table
+INFO:  table
+INFO:  result	2	1	false
+INFO:  result	2	2	true
+INFO:  result	1	foo
+INFO:  {"1": "foo", "2": [false, true]}
+INFO:  mapfunc	string	1	foo
+INFO:  mapfunc	number	0	false	2
+INFO:  mapfunc	number	1	true	2
+INFO:  mapfunc	string	2	table
+INFO:  mapfunc	nil	nil	table
+INFO:  table
+INFO:  result	1	foo
+INFO:  result	2	1	false
+INFO:  result	2	2	true
 create temp table jt3(id integer, a jsonb);
 -- first row should be plain, then a couple with compressed values,
 -- then a couple with external toast

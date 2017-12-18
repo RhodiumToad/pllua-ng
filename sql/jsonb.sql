@@ -52,6 +52,9 @@ insert into jt2(a) values ('{"foo":null}');
 insert into jt2(a) values ('[10,20,30]');
 insert into jt2(a) values ('{"foo":[2,4,6]}');
 insert into jt2(a) values ('[{"foo":"bar"},{"baz":"foo"},123,null]');
+-- check objects with keys that look like numbers
+insert into jt2(a) values ('{"1":"foo", "2":[false,true], "foo":{}}');
+insert into jt2(a) values ('{"1":"foo", "2":[false,true]}');
 
 do language pllua $$
   s = spi.prepare([[ select a from jt2 order by id ]])
@@ -59,9 +62,9 @@ do language pllua $$
     print(r.a)
     b = r.a(function(k,v,...)
               if type(v)~="table" then
-	        print("mapfunc",k,v,...)
+	        print("mapfunc",type(k),k,v,...)
 	      else
-	        print("mapfunc",k,type(v),...)
+	        print("mapfunc",type(k),k,type(v),...)
 	      end
 	      return k,v
 	    end)
