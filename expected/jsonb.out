@@ -1,0 +1,153 @@
+--
+\set VERBOSITY terse
+--
+do language pllua_ng $$
+
+  a = { json_test = "This is only a test.",
+        foo = "If this were real data, it would make more sense.",
+	piem = [[
+Now I, even I, would celebrate
+In rhymes unapt the great
+Immortal Syracusan rivaled nevermore,
+Who in his wondrous lore,
+Passed on before,
+Left men his guidance
+How to circles mensurate.
+]],
+        names = { "Dougal", "Florence", "Ermintrude", "Zebedee",
+	          "Brian", "Dylan" },
+	mixed = { nil, nil, 123, "foo", nil, true, false, [23] = "fred" },
+	empty = {},
+	empty2 = {{},{}},
+	nested = { "arrayelem", { ["object key"] = "object val",
+	                          subobject = { subarray = { { { 123 } } } } } }
+      }
+  b = pgtype.jsonb(a)
+  print(b)
+  c = pgtype.jsonb(a, { null = false })
+  print(c)
+  d = pgtype.jsonb(a, { map = function(v) if type(v) == "boolean" then v = tostring(v) end return v end })
+  print(d)
+  e = pgtype.jsonb(a, { array_thresh = 1 })
+  print(e)
+  f = pgtype.jsonb(a, { empty_object = true })
+  print(f)
+
+  spi.execute([[ create temp table jt1 as select $1 as a ]], b)
+
+$$;
+INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": [], "mixed": [null, null, 123, "foo", null, true, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"], "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [[], []], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
+INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": [], "mixed": [null, null, 123, "foo", null, true, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"], "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [[], []], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
+INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": [], "mixed": [null, null, 123, "foo", null, "true", "false", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"], "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [[], []], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
+INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": [], "mixed": {"3": null, "4": null, "6": null, "7": null, "23": null}, "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [[], []], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
+INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": {}, "mixed": [null, null, 123, "foo", null, true, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"], "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [{}, {}], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
+select a, pg_typeof(a) from jt1;
+                                                                                                                                                                                                                                                                                                                                         a                                                                                                                                                                                                                                                                                                                                         | pg_typeof 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------
+ {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": [], "mixed": [null, null, 123, "foo", null, true, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"], "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [[], []], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."} | jsonb
+(1 row)
+
+create temp table jt2(id serial, a jsonb);
+insert into jt2(a) values ('1');
+insert into jt2(a) values ('"foo"');
+insert into jt2(a) values ('true');
+insert into jt2(a) values ('null');
+insert into jt2(a) values ('{"foo":123}');
+insert into jt2(a) values ('{"foo":null}');
+insert into jt2(a) values ('[10,20,30]');
+insert into jt2(a) values ('{"foo":[2,4,6]}');
+insert into jt2(a) values ('[{"foo":"bar"},{"baz":"foo"},123,null]');
+do language pllua_ng $$
+  s = spi.prepare([[ select a from jt2 order by id ]])
+  for r in s:rows() do
+    print(r.a)
+    b = r.a(function(k,v,...)
+              if type(v)~="table" then
+	        print("mapfunc",k,v,...)
+	      else
+	        print("mapfunc",k,type(v),...)
+	      end
+	      return k,v
+	    end)
+    print(type(b))
+    if type(b)=="table" then
+      for k,v in pairs(b) do
+        if type(v)=="table" then
+	  for k2,v2 in pairs(v) do print("result",k,k2,v2) end
+	else
+	  print("result",k,v)
+	end
+      end
+    end
+  end
+$$;
+INFO:  1
+INFO:  mapfunc	nil	1
+INFO:  number
+INFO:  "foo"
+INFO:  mapfunc	nil	foo
+INFO:  string
+INFO:  true
+INFO:  mapfunc	nil	true
+INFO:  boolean
+INFO:  null
+INFO:  mapfunc	nil	nil
+INFO:  nil
+INFO:  {"foo": 123}
+INFO:  mapfunc	foo	123
+INFO:  mapfunc	nil	table
+INFO:  table
+INFO:  result	foo	123
+INFO:  {"foo": null}
+INFO:  mapfunc	foo	nil
+INFO:  mapfunc	nil	table
+INFO:  table
+INFO:  [10, 20, 30]
+INFO:  mapfunc	0	10
+INFO:  mapfunc	1	20
+INFO:  mapfunc	2	30
+INFO:  mapfunc	nil	table
+INFO:  table
+INFO:  result	1	10
+INFO:  result	2	20
+INFO:  result	3	30
+INFO:  {"foo": [2, 4, 6]}
+INFO:  mapfunc	0	2	foo
+INFO:  mapfunc	1	4	foo
+INFO:  mapfunc	2	6	foo
+INFO:  mapfunc	foo	table
+INFO:  mapfunc	nil	table
+INFO:  table
+INFO:  result	foo	1	2
+INFO:  result	foo	2	4
+INFO:  result	foo	3	6
+INFO:  [{"foo": "bar"}, {"baz": "foo"}, 123, null]
+INFO:  mapfunc	foo	bar	0
+INFO:  mapfunc	0	table
+INFO:  mapfunc	baz	foo	1
+INFO:  mapfunc	1	table
+INFO:  mapfunc	2	123
+INFO:  mapfunc	3	nil
+INFO:  mapfunc	nil	table
+INFO:  table
+INFO:  result	1	foo	bar
+INFO:  result	2	baz	foo
+INFO:  result	3	123
+create temp table jt3(id integer, a jsonb);
+-- first row should be plain, then a couple with compressed values,
+-- then a couple with external toast
+insert into jt3 select i, ('[' || repeat('"foo",',10*(10^i)::integer) || i || ']')::jsonb from generate_series(1,5) i;
+do language pllua_ng $$
+  s = spi.prepare([[ select a from jt3 where id = $1 ]])
+  for i = 1,5 do
+    local r = (s:execute(i))[1]
+    local a = r.a()
+    print(#a,a[#a])
+  end
+$$;
+INFO:  101	1
+INFO:  1001	2
+INFO:  10001	3
+INFO:  100001	4
+INFO:  1000001	5
+--end

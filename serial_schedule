@@ -2,6 +2,7 @@
 test: pllua
 test: pllua_old
 test: arrays
+test: jsonb
 test: numerics
 test: spi
 test: subxact
