@@ -134,6 +134,9 @@ static inline lua_Number lua_tonumberx(lua_State *L, int i, int *isnum)
 #define lua_isinteger pllua_isinteger
 #define lua_tointegerx pllua_tointegerx
 #endif
+/* no luajit version of these is usable: */
+#define luaL_checkinteger pllua_checkinteger
+#define luaL_optinteger pllua_optinteger
 static inline bool lua_isinteger(lua_State *L, int nd)
 {
 	if (lua_type(L, nd) == LUA_TNUMBER)
@@ -157,6 +160,21 @@ static inline lua_Integer lua_tointegerx(lua_State *L, int i, int *isint)
 			*isint = 0;
 	}
 	return n;
+}
+static inline lua_Integer luaL_checkinteger(lua_State *L, int i)
+{
+	int isint = 0;
+	lua_Integer res = lua_tointegerx(L, i, &isint);
+	if (!isint)
+		luaL_argerror(L, i, "integer");
+	return res;
+}
+static inline lua_Integer luaL_optinteger(lua_State *L, int i, lua_Integer def)
+{
+	if (lua_isnoneornil(L, i))
+		return def;
+	else
+		return luaL_checkinteger(L, i);
 }
 #define lua_getuservalue(L_,nd_) (lua_getfenv(L_,nd_), lua_type(L_,-1))
 #define lua_setuservalue(L_,nd_) lua_setfenv(L_,nd_)
