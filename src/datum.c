@@ -2089,6 +2089,8 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 			t->tosql = get_transform_tosql(oid, langoid, l);
 		}
 
+		t->tojsonb_func.fn_oid = InvalidOid;
+
 		MemoryContextSwitchTo(oldcontext);
 		MemoryContextSetParent(mcxt, pllua_get_memory_cxt(L));
 
@@ -3483,13 +3485,15 @@ static int pllua_typeinfo_nonrow_call_datum(lua_State *L, int nd, int nt, int nd
 			return 1;
 		}
 	}
+	else if (t->typeoid != dt->typeoid)
+		luaL_error(L, "datum is wrong type for conversion");
 
 	/*
 	 * If it's an RW expanded datum, take the RO value instead to force making
 	 * a copy rather than owning the original (which wouldn't help since we
 	 * already own it).
 	 */
-	if (t->typlen == -1
+	if (dt->typlen == -1
 		&& VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(val)))
 	{
 		val = EOHPGetRODatum(DatumGetEOHP(val));

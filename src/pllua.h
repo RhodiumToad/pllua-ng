@@ -485,6 +485,8 @@ typedef struct pllua_typeinfo
 	FmgrInfo	fromsql_func;
 	FmgrInfo	tosql_func;
 
+	FmgrInfo	tojsonb_func;
+
 	/*
 	 * we give this its own context, because we can't control what fmgr will
 	 * dangle off the FmgrInfo structs

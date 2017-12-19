@@ -156,7 +156,7 @@ do language pllua $$
   local b = pgtype.atc(a,nil)
 $$;
 do language pllua $$
-  local a = pgtype.array.varchar('foo','bar','value            ')
+  local a = pgtype.array.bpchar('foo','bar','value            ')
   local b = pgtype.atc(nil,a)
   print(b)
 $$;
