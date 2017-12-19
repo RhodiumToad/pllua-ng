@@ -409,6 +409,8 @@ bool pllua_datum_from_value(lua_State *L, int nd,
  */
 static void pllua_datum_reference(lua_State *L, int nd)
 {
+	ASSERT_LUA_CONTEXT;
+
 	pllua_set_user_field(L, nd, ".datumref");
 }
 
@@ -937,6 +939,10 @@ static void pllua_datum_explode_tuple_recurse(lua_State *L, pllua_datum *d, pllu
  */
 static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t)
 {
+	volatile bool deref_tuple = false;
+	int i;
+	int natts = t->natts;  /* must include dropped cols */
+
 	if (d->value == (Datum)0)
 		return;
 
@@ -967,8 +973,6 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 	PLLUA_TRY();
 	{
 		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
-		int natts = t->natts;  /* must include dropped cols */
-		int i;
 
 		for (i = 1; i <= natts; ++i)
 		{
@@ -981,11 +985,10 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 				{
 					/*
 					 * nested child datums must have already been handled in
-					 * recursion above.
+					 * recursion above. Can't do the deref here since we're in
+					 * pg context; do that below.
 					 */
 					pllua_savedatum(L, ed, et);
-					lua_pushnil(L);
-					pllua_datum_reference(L, -3);
 				}
 				lua_pop(L, 1);
 			}
@@ -1004,12 +1007,27 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 		{
 			d->modified = true;
 			d->value = (Datum)0;
-			lua_pushnil(L);
-			pllua_datum_reference(L, nd);
+			deref_tuple = true;
 		}
 		MemoryContextSwitchTo(oldcontext);
 	}
 	PLLUA_CATCH_RETHROW();
+
+	for (i = 1; i <= natts; ++i)
+	{
+		if (lua_rawgeti(L, -1, i) == LUA_TUSERDATA)
+		{
+			lua_pushnil(L);
+			pllua_datum_reference(L, -2);
+		}
+		lua_pop(L, 1);
+	}
+
+	if (deref_tuple)
+	{
+		lua_pushnil(L);
+		pllua_datum_reference(L, nd);
+	}
 }
 
 static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
