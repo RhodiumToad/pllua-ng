@@ -4161,17 +4161,22 @@ static int pllua_typeinfo_row_call(lua_State *L)
 		if (lua_type(L, 2) == LUA_TTABLE
 			|| lua_type(L, 2) == LUA_TUSERDATA)
 		{
-			/*
-			 * If it's not a datum, but it is a table or object, we assume it's
-			 * something we can index by field name. (If the caller wants
-			 * matching by number, they can do t(table.unpack(val)) instead.)
-			 *
-			 * We push the source values on the stack in the correct order and
-			 * fall out to handle it below. typeinfo_push_from_table checks the
-			 * stack depth.
-			 */
-			argbase = lua_gettop(L);
-			nargs = pllua_typeinfo_push_from_table(L, 2, t);
+			if (!pllua_toanydatum(L, 2, NULL))
+			{
+				/*
+				 * If it's not a datum, but it is a table or object, we assume it's
+				 * something we can index by field name. (If the caller wants
+				 * matching by number, they can do t(table.unpack(val)) instead.)
+				 *
+				 * We push the source values on the stack in the correct order and
+				 * fall out to handle it below. typeinfo_push_from_table checks the
+				 * stack depth.
+				 */
+				argbase = lua_gettop(L);
+				nargs = pllua_typeinfo_push_from_table(L, 2, t);
+			}
+			else
+				lua_pop(L, 1);
 		}
 	}
 
