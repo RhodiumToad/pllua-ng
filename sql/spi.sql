@@ -157,4 +157,30 @@ do language pllua $$
   print(#r1)
 $$;
 
+-- cursors as parameters and return values
+
+create function do_fetch(c refcursor) returns void language pllua as $$
+  while true do
+    local r = (c:fetch())[1]
+    if r==nil then break end
+    print(r)
+  end
+$$;
+
+create function do_exec(q text, n text) returns refcursor language pllua as $$
+  local s = spi.prepare(q)
+  local c = spi.newcursor(n)
+  return c:open(s)
+$$;
+
+begin;
+declare mycur cursor for select * from tsttab order by id;
+select do_fetch('mycur');
+commit;
+
+begin;
+select do_exec('select * from tsttab order by id desc', 'mycur2');
+fetch all from mycur2;
+commit;
+
 --end

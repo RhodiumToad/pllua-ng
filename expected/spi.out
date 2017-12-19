@@ -183,4 +183,51 @@ do language pllua $$
 $$;
 INFO:  2
 INFO:  3
+-- cursors as parameters and return values
+create function do_fetch(c refcursor) returns void language pllua as $$
+  while true do
+    local r = (c:fetch())[1]
+    if r==nil then break end
+    print(r)
+  end
+$$;
+create function do_exec(q text, n text) returns refcursor language pllua as $$
+  local s = spi.prepare(q)
+  local c = spi.newcursor(n)
+  return c:open(s)
+$$;
+begin;
+declare mycur cursor for select * from tsttab order by id;
+select do_fetch('mycur');
+INFO:  (1,1,foo,2.34,01-01-2017)
+INFO:  (2,2,bar,2.34,02-01-2017)
+INFO:  (3,3,baz,2.34,03-01-2017)
+INFO:  (4,4,fred,2.34,04-01-2017)
+INFO:  (5,5,jim,2.34,05-01-2017)
+INFO:  (6,6,sheila,2.34,06-01-2017)
+ do_fetch 
+----------
+ 
+(1 row)
+
+commit;
+begin;
+select do_exec('select * from tsttab order by id desc', 'mycur2');
+ do_exec 
+---------
+ 
+(1 row)
+
+fetch all from mycur2;
+ id | a |   b    |  c   |     d      
+----+---+--------+------+------------
+  6 | 6 | sheila | 2.34 | 06-01-2017
+  5 | 5 | jim    | 2.34 | 05-01-2017
+  4 | 4 | fred   | 2.34 | 04-01-2017
+  3 | 3 | baz    | 2.34 | 03-01-2017
+  2 | 2 | bar    | 2.34 | 02-01-2017
+  1 | 1 | foo    | 2.34 | 01-01-2017
+(6 rows)
+
+commit;
 --end

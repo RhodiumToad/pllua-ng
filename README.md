@@ -107,6 +107,9 @@ external code (or transaction end), then the :isopen() state will be
 automatically updated (this happens when the portal is actually
 dropped). Cursor options are set on the statement object.
 
+Refcursor parameters and results are transparently converted to and
+from SPI cursor objects.
+
 :save on a statement is now a no-op - all statements seen by lua code
 have been passed through SPI_keepplan and are managed by Lua garbage
 collection. (It was never safe to do otherwise.)
@@ -272,8 +275,8 @@ Lua nil, then the entry will be omitted from the result.)
 
 As a convenience shorthand, these work:
 
-      d(nvl)   -> d{nullvalue = nvl}
-      d(func)  -> d{mapfunc = func}
+      d(nvl)   -> d{null = nvl}
+      d(func)  -> d{map = func}
       d()      -> d{}
 
 Jsonb supports an inverse mapping operation for construction of json
@@ -348,6 +351,9 @@ Function arguments are converted to simple Lua values in the case of:
  + boolean  -- passed as boolean
  
  + nulls of any type  -- passed as nil
+
+ + refcursor values are converted to or from SPI cursor objects
+   (whether or not they correspond to open portals)
 
  + domains over any of the above are treated as the base types
 

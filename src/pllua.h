@@ -721,6 +721,9 @@ int pllua_spi_convert_args(lua_State *L);
 int pllua_spi_prepare_result(lua_State *L);
 int pllua_cursor_cleanup_portal(lua_State *L);
 
+int pllua_spi_newcursor(lua_State *L);
+int pllua_cursor_name(lua_State *L);
+
 /* trigger.c */
 int pllua_open_trigger(lua_State *L);
 

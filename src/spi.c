@@ -1135,7 +1135,7 @@ static int pllua_spi_findcursor(lua_State *L)
  * was not specified or no portal exists with the given name, returns an
  * unopened cursor.
  */
-static int pllua_spi_newcursor(lua_State *L)
+int pllua_spi_newcursor(lua_State *L)
 {
 	const char *name = luaL_optstring(L, 1, NULL);
 
@@ -1233,7 +1233,7 @@ static int pllua_cursor_isowned(lua_State *L)
 /*
  * s:name
  */
-static int pllua_cursor_name(lua_State *L)
+int pllua_cursor_name(lua_State *L)
 {
 	pllua_spi_cursor *curs = pllua_checkobject(L, 1, PLLUA_SPI_CURSOR_OBJECT);
 

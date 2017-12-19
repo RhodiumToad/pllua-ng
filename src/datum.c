@@ -193,6 +193,14 @@ int pllua_value_from_datum(lua_State *L,
 			lua_pushinteger(L, (lua_Integer) DatumGetInt64(value));
 			return LUA_TNUMBER;
 #endif
+		case REFCURSOROID:
+			lua_pushcfunction(L, pllua_spi_newcursor);
+			{
+				Datum v = pllua_detoast_light(L, value);
+				lua_pushlstring(L, VARDATA_ANY(v), VARSIZE_ANY_EXHDR(v));
+			}
+			lua_call(L, 1, 1);
+			return LUA_TUSERDATA;
 		default:
 			return LUA_TNONE;
 	}
@@ -257,6 +265,7 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 				{
 					case TEXTOID:
 					case VARCHAROID:
+					case REFCURSOROID:
 						{
 							text *t;
 							if (len != strlen(str))
@@ -364,6 +373,28 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 							*result = DirectFunctionCall1(float8_numeric, Float8GetDatumFast(floatval));
 						return true;
 				}
+			}
+			return false;
+
+		case LUA_TUSERDATA:
+			if (typeid == REFCURSOROID &&
+				pllua_toobject(L, nd, PLLUA_SPI_CURSOR_OBJECT))
+			{
+				text *t;
+				size_t len;
+				const char *str;
+
+				lua_pushcfunction(L, pllua_cursor_name);
+				lua_pushvalue(L, nd);
+				lua_call(L, 1, 1);
+
+				/* cursor name is already checked for encoding correctness */
+				str = lua_tolstring(L, nd, &len);
+				t = pllua_palloc(L, len + VARHDRSZ);
+				memcpy(VARDATA(t), str, len);
+				SET_VARSIZE(t, len + VARHDRSZ);
+				*result = PointerGetDatum(t);
+				return true;
 			}
 			return false;
 
