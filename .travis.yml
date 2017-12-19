@@ -45,7 +45,7 @@ before_script:
   - sudo -u postgres createuser -s "$USER"
 
 script:
-  - make && sudo make install && make installcheck
+  - make && sudo make install && time make installcheck
 
 after_script:
   - cat regression.diffs || true
