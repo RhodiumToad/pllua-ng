@@ -312,6 +312,11 @@ metamethod):
 
  + Datum values of type pgtype.numeric convert to json numbers
 
+ + Datum values of other types convert to json in the same way as they
+   do in SQL; in particular, jsonb and json values are included
+   directly, and values with casts to jsonb have those casts
+   respected
+
  + Values of other types that possess a __tostring metamethod are
    converted to strings
 
