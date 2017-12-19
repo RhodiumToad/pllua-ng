@@ -448,20 +448,35 @@ int pllua_spi_convert_args(lua_State *L)
 
 	for (i = 0; i < nargs; ++i)
 	{
-		if (!lua_isnil(L, argbase+i))
+		if (!lua_isnil(L, argbase+i) && OidIsValid(argtypes[i]))
 		{
 			pllua_typeinfo *dt;
 			pllua_datum *d;
-			lua_pushcfunction(L, pllua_typeinfo_lookup);
-			lua_pushinteger(L, (lua_Integer) argtypes[i]);
-			lua_call(L, 1, 1);
 			lua_pushvalue(L, argbase+i);
-			lua_call(L, 1, 1);
-			lua_pushvalue(L, -1);
-			lua_rawseti(L, 4, i+1);
-			d = pllua_checkanydatum(L, -1, &dt);
-			if (dt->typeoid != argtypes[i])
+			d = pllua_toanydatum(L, -1, &dt);
+			/* not already an unexploded datum of correct type? */
+			if (!d ||
+				dt->typeoid != argtypes[i] ||
+				d->modified)
+			{
+				if (d)
+					lua_pop(L, 1);  /* discard typeinfo */
+				lua_pushcfunction(L, pllua_typeinfo_lookup);
+				lua_pushinteger(L, (lua_Integer) argtypes[i]);
+				lua_call(L, 1, 1);
+				lua_insert(L, -2);
+				lua_call(L, 1, 1);
+				d = pllua_toanydatum(L, -1, &dt);
+			}
+			/* it better be the right type now */
+			if (!d || dt->typeoid != argtypes[i])
 				luaL_error(L, "inconsistent value type in SPI parameter list");
+			lua_pop(L, 1); /* discard typeinfo */
+			/*
+			 * holding a reference here means that d remains valid even though
+			 * it's no longer on the stack
+			 */
+			lua_rawseti(L, 4, i+1);
 			values[i] = d->value;
 			isnull[i] = false;
 		}
@@ -903,18 +918,15 @@ static int pllua_stmt_numargs(lua_State *L)
 	return 1;
 }
 
-static int pllua_stmt_argtypes(lua_State *L)
+static int pllua_stmt_argtype(lua_State *L)
 {
 	pllua_spi_statement *stmt = *pllua_checkrefobject(L, 1, PLLUA_SPI_STMT_OBJECT);
-	int i;
+	int i = luaL_checkinteger(L, 2);
 	int nparams = stmt->nparams;
-	lua_createtable(L, nparams, 0);
+	if (i < 1 || i > nparams)
+		luaL_error(L, "parameter %d out of range", i);
 	lua_getuservalue(L, 1);
-	for (i = 0; i < nparams; ++i)
-	{
-		lua_rawgeti(L, -1, i+1);
-		lua_rawseti(L, -3, i+1);
-	}
+	lua_rawgeti(L, -1, i);
 	return 1;
 }
 
@@ -1384,7 +1396,7 @@ static struct luaL_Reg spi_stmt_methods[] = {
 	{ "getcursor", pllua_spi_stmt_getcursor },
 	{ "rows", pllua_spi_stmt_rows },
 	{ "numargs", pllua_stmt_numargs },
-	{ "argtypes", pllua_stmt_argtypes },
+	{ "argtype", pllua_stmt_argtype },
 	{ "cursor_ok", pllua_stmt_cursor_ok },
 	{ NULL, NULL }
 };

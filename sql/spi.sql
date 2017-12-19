@@ -142,10 +142,9 @@ $$;
 -- check missing params are OK
 do language pllua $$
   local stmt = spi.prepare([[ select * from generate_series($1::integer, $3) i ]]);
-  local argtypes = stmt:argtypes()
-  print(argtypes[1]:name())
-  print(type(argtypes[2]))
-  print(argtypes[3]:name())
+  print(stmt:argtype(1):name())
+  print(type(stmt:argtype(2)))
+  print(stmt:argtype(3):name())
 $$;
 
 -- check execute_count

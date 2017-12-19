@@ -1925,7 +1925,12 @@ static struct luaL_Reg datumobj_array_mt[] = {
 
 
 /*
- * This entry point allows constructing a typeinfo for an anonymous tupdesc.
+ * This entry point allows constructing a typeinfo for an anonymous tupdesc, if
+ * that turns out to be useful.
+ *
+ * If oid==RECORDOID and typmod==-1 and tupdesc==NULL then we need to construct
+ * a typeinfo that works for all record types but does not allow them to be
+ * indexed into.
  */
 pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc)
 {
@@ -1976,6 +1981,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		t->elemtype = elemtype;
 		t->rangetype = InvalidOid;
 		t->is_enum = (typtype == TYPTYPE_ENUM);
+		t->is_anonymous_record = false;
 
 		/*
 		 * Must look at the base type for typmod coercions
@@ -2006,6 +2012,10 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 			t->tupdesc = CreateTupleDescCopy(tupdesc);
 			t->natts = tupdesc->natts;
 			t->hasoid = tupdesc->tdhasoid;
+		}
+		else if (oid == RECORDOID && typmod == -1)
+		{
+			t->is_anonymous_record = true;
 		}
 		else if ((tupdesc = lookup_rowtype_tupdesc_noerror(t->basetype, typmod, true)))
 		{
@@ -2180,8 +2190,6 @@ static int pllua_newtypeinfo(lua_State *L)
 
 	if (typmod != -1 && oid != RECORDOID)
 		luaL_error(L, "cannot specify typmod for non-RECORD typeinfo");
-	if (oid == RECORDOID && typmod == -1)
-		luaL_error(L, "must specify typmod for RECORD typeinfo");
 
 	pllua_newtypeinfo_raw(L, oid, typmod, NULL);
 	return 1;
@@ -2237,16 +2245,16 @@ int pllua_typeinfo_lookup(lua_State *L)
 	void **np = NULL;
 	pllua_typeinfo *nobj;
 
-	if (lua_isnone(L, 2))
-		lua_pushinteger(L, -1);
+	lua_settop(L, 1);
+	lua_pushinteger(L, typmod);
 
-	if (!OidIsValid(oid) || (oid == RECORDOID && typmod == -1))
+	if (!OidIsValid(oid))
 	{
-		/* safety check so we never intern an entry for InvalidOid or unblessed record */
+		/* safety check so we never intern an entry for InvalidOid */
 		lua_pushnil(L);
 		return 1;
 	}
-	else if (oid == RECORDOID)
+	else if (oid == RECORDOID && typmod >= 0)
 	{
 		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
 		lua_rawgeti(L, -1, typmod);
@@ -2300,7 +2308,7 @@ int pllua_typeinfo_lookup(lua_State *L)
 	/* stack: oid typmod table oldobject-or-nil newobject */
 	lua_remove(L, -2);
 	lua_pushvalue(L, -1);
-	if (oid == RECORDOID)
+	if (oid == RECORDOID && typmod >= 0)
 		lua_rawseti(L, -3, typmod);
 	else
 		lua_rawseti(L, -3, oid);
@@ -3548,7 +3556,7 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt, int ndt,
 			 * child datum of some other row). Otherwise, we have to make a new
 			 * imploded copy.
 			 */
-			lua_pushvalue(L, 1);
+			lua_pushvalue(L, nt);
 			newd = pllua_newdatum(L);
 			lua_remove(L, -2);
 
@@ -3607,6 +3615,71 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt, int ndt,
 	return 1;
 }
 
+/*
+ * Try and convert an existing datum to an anonymous record.
+ *
+ * We can do this if:
+ *  - the input is already an anonymous record, which we just copy;
+ *  - the input is an unmodified row of any type, which we just copy;
+ *  - the input is a modified row of any type, which we reform into a
+ *    new unmodified row of its own type and then adopt
+ *
+ * Any other input is an error, since without a tupdesc we can't know anything
+ * about the intended structure.
+ */
+static int pllua_typeinfo_anonrec_call_datum(lua_State *L, int nd, int nt, int ndt,
+											 pllua_typeinfo *t, pllua_datum *d, pllua_typeinfo *dt)
+{
+	nd = lua_absindex(L, nd);   /* source datum */
+	nt = lua_absindex(L, nt);   /* target typeinfo */
+	ndt = lua_absindex(L, ndt); /* source datum's typeinfo */
+
+	if (dt->natts >= 0)
+	{
+		pllua_datum *tmpd;
+		pllua_datum *newd;
+		
+		/* Use the source datum's own typeinfo to make a copy of it; this
+		 * ensures we have a new unexploded record which we can just steal the
+		 * storage for.
+		 */
+		lua_pushvalue(L, ndt);
+		lua_pushvalue(L, nd);
+		lua_call(L, 1, 1);
+		tmpd = pllua_todatum(L, -1, ndt);
+		Assert(tmpd);
+		Assert(!tmpd->modified);
+		lua_pushvalue(L, nt);
+		newd = pllua_newdatum(L);
+		/* transfer ownership of storage to new datum */
+		tmpd->need_gc = false;
+		newd->value = tmpd->value;
+		newd->need_gc = true;
+		return 1;
+	}
+	else if (dt->is_anonymous_record)
+	{
+		pllua_datum *newd;
+
+		lua_pushvalue(L, nt);
+		newd = pllua_newdatum(L);
+		lua_remove(L, -2);
+
+		PLLUA_TRY();
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+			newd->value = d->value;
+			pllua_savedatum(L, newd, t);
+			MemoryContextSwitchTo(oldcontext);
+		}
+		PLLUA_CATCH_RETHROW();
+
+		return 1;
+	}
+	else
+		return luaL_error(L, "anonymous record can only accept input of existing row datum");
+}
+
 static int pllua_typeinfo_call(lua_State *L)
 {
 	pllua_typeinfo *t = *pllua_checkrefobject(L, 1, PLLUA_TYPEINFO_OBJECT);
@@ -3619,9 +3692,10 @@ static int pllua_typeinfo_call(lua_State *L)
 		if (t->natts >= 0 && dt->natts >= 0
 			&& (t->arity > 1 || t->typeoid == dt->typeoid))
 			return pllua_typeinfo_row_call_datum(L, 2, 1, -1, t, d, dt);
+		else if (t->is_anonymous_record)
+			return pllua_typeinfo_anonrec_call_datum(L, 2, 1, -1, t, d, dt);
 		else
 			return pllua_typeinfo_nonrow_call_datum(L, 2, 1, -1, t, d, dt);
-		lua_pop(L,1);
 	}
 
 	if (t->is_array)
@@ -3630,6 +3704,8 @@ static int pllua_typeinfo_call(lua_State *L)
 		lua_pushcfunction(L, pllua_typeinfo_range_call);
 	else if (t->natts >= 0)
 		lua_pushcfunction(L, pllua_typeinfo_row_call);
+	else if (t->is_anonymous_record)
+		luaL_error(L, "anonymous record can only accept input of existing row datum");
 	else
 		lua_pushcfunction(L, pllua_typeinfo_scalar_call);
 	lua_insert(L, 1);

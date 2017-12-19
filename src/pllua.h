@@ -429,6 +429,7 @@ typedef struct pllua_typeinfo
 	bool		is_array;
 	bool		is_range;
 	bool		is_enum;
+	bool		is_anonymous_record;
 
 	bool		revalidate;
 

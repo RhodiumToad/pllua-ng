@@ -11,14 +11,14 @@ interfaces; I'm still debating whether to rename many of the tables
 and functions. However, it should be stable in the sense of "doesn't
 crash".
 
-Currently it should build against pg versions 9.5, 9.6 and 10 (and
-11devel). It is known that this module will never work on pg versions
-before 9.5 (we rely critically on memory context callbacks, which were
-introduced in that version).
+Currently it should build against (recent point releases of) pg
+versions 9.5, 9.6 and 10 (and 11devel). It is known that this module
+will never work on pg versions before 9.5 (we rely critically on
+memory context callbacks, which were introduced in that version).
 
 Only Lua 5.3 is fully supported at this time, though it also is
 believed to work if built against LuaJIT with the COMPAT52 option
-(this is included in the Travis-ci test matrix).
+(this is included in the Travis-CI test matrix).
 
 
 CHANGES
@@ -61,6 +61,8 @@ conventions:
           s:execute(arg, arg, ...)  - returns a result table
           s:execute_count(maxrows, arg, arg, ...)  - returns a result table
           s:rows(arg, arg, ...) - returns iterator
+          s:numargs() - returns integer
+          s:argtype(argnum) - returns typeinfo
       spi.rows("query text", args...)
         - returns iterator
 
