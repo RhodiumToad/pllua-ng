@@ -149,4 +149,14 @@ INFO:  1001	2
 INFO:  10001	3
 INFO:  100001	4
 INFO:  1000001	5
+-- test jsonb in jsonb and similar paths
+do language pllua $$
+  local jtst1 = pgtype.jsonb('"foo"')   -- json scalar
+  local jtst2 = pgtype.jsonb('{"foo":true,"bar":[1,2,false]}')   -- json container
+  local ts1 = pgtype.timestamp('2017-12-19 12:00:00')
+  print(pgtype.jsonb({ v1 = jtst1,
+                       v2 = jtst2,
+		       v3 = ts1 }))
+$$;
+INFO:  {"v1": "foo", "v2": {"bar": [1, 2, false], "foo": true}, "v3": "2017-12-19T12:00:00"}
 --end

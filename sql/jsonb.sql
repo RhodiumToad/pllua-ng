@@ -85,4 +85,15 @@ do language pllua $$
   end
 $$;
 
+-- test jsonb in jsonb and similar paths
+
+do language pllua $$
+  local jtst1 = pgtype.jsonb('"foo"')   -- json scalar
+  local jtst2 = pgtype.jsonb('{"foo":true,"bar":[1,2,false]}')   -- json container
+  local ts1 = pgtype.timestamp('2017-12-19 12:00:00')
+  print(pgtype.jsonb({ v1 = jtst1,
+                       v2 = jtst2,
+		       v3 = ts1 }))
+$$;
+
 --end
