@@ -74,18 +74,22 @@ pllua_compile(lua_State *L)
 	luaL_buffinit(L, &b);
 
 	/*
+	 * New-style function environment:
+	 *
 	 * The string we construct is:
-	 *   local upvalue,f f=function(args) body end return f
-	 * which we then execute and expect it to return the
-	 * function object.
+	 *   local self = (...) local function f(args) body end return f
+	 *
+	 * We construct an empty table and set a metatable on it so that it
+	 * inherits from _G (the sandbox env or the real env, depending).
+	 * We set the environment of the chunk to this table.
+	 * Then we pass that table as the first arg when we run the chunk,
+	 * so it gets set as the value of the local "self" as well.
 	 *
 	 * For trigger funcs, the args list is a standardized one.
 	 */
-	luaL_addstring(&b, "local " PLLUA_LOCALVAR ",");
+	luaL_addstring(&b, "local self = (...) local function ");
 	luaL_addstring(&b, fname);
-	luaL_addchar(&b, ' ');
-	luaL_addstring(&b, fname);
-	luaL_addstring(&b, "=function(");
+	luaL_addchar(&b, '(');
 	if (func_info->is_trigger)
 	{
 		luaL_addstring(&b, "trigger,old,new,...");
@@ -161,19 +165,21 @@ pllua_compile(lua_State *L)
 	if (comp_info->validate_only)
 		return 0;
 
-	/*
-	 * In trusted mode, repoint the function environment at the sandbox
-	 * rather than the real global table.
-	 */
+	lua_newtable(L);
+	lua_newtable(L);
 	if (func_info->trusted)
-	{
 		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-		pllua_set_environment(L, -2);
-	}
+	else
+		lua_pushglobaltable(L);
+	lua_setfield(L, -2, "__index");
+	lua_setmetatable(L, -2);
+	lua_pushvalue(L, -1);
+	pllua_set_environment(L, -3);
+
 	/*
 	 * Run the code to obtain the function value as a result.
 	 */
-	lua_call(L, 0, 1);
+	lua_call(L, 1, 1);
 
 	/*
 	 * Store in the function object's uservalue table.

@@ -137,13 +137,13 @@ CREATE FUNCTION getcounter() RETURNS integer AS $$
   if shared.counter == nil then -- not cached?
     setshared("counter", 0)
   end
-  return counter -- _G.counter == shared.counter
+  return _G.counter -- _G.counter == shared.counter
 $$ LANGUAGE pllua;
 CREATE FUNCTION setcounter(c integer) RETURNS void AS $$
   if shared.counter == nil then -- not cached?
     setshared("counter", c)
   else
-    counter = c -- _G.counter == shared.counter
+    _G.counter = c -- _G.counter == shared.counter
   end
 $$ LANGUAGE pllua;
 SELECT getcounter();

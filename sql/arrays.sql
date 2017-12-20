@@ -127,9 +127,9 @@ create function af1(a anyarray)
   language pllua
   stable
   as $$
-    return tostring(_U.summarize(a))
+    return tostring(u.summarize(a))
   end
-    _U = require 'myutil'
+    u = require 'myutil'
   do
 $$;
 

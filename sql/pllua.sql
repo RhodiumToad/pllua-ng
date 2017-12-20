@@ -112,9 +112,9 @@ create function pg_temp.f17(a integer) returns integer language pllua
     return a
   end
   do
-    if rdepth > 0 then
-      rdepth = rdepth - 1
-      _U = spi.execute("select pg_temp.f17(1)")
+    if _G.rdepth > 0 then
+      _G.rdepth = _G.rdepth - 1
+      u = spi.execute("select pg_temp.f17(1)")
     end
 $$;
 select pg_temp.f17(1);
