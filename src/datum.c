@@ -1490,10 +1490,49 @@ static int pllua_datum_idxlist_len(lua_State *L)
 	return 1;
 }
 
+static int pllua_datum_array_next(lua_State *L);
+
+static int pllua_datum_idxlist_pairs(lua_State *L)
+{
+	struct idxlist *idxlist = pllua_toobject(L, 1, PLLUA_IDXLIST_OBJECT);
+	pllua_datum *d;
+	pllua_typeinfo *t;
+	ExpandedArrayHeader *arr;
+
+	pllua_get_user_field(L, 1, "datum");
+
+	d = pllua_checkanydatum(L, -1, &t);
+	/* stack: ... datum typeinfo */
+
+	/* Switch to expanded representation if we haven't already. */
+	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
+	{
+		PLLUA_TRY();
+		{
+			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			d->need_gc = true;
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+
+	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+
+	lua_pushvalue(L, -1);
+	lua_pushvalue(L, 1);
+	lua_pushinteger(L, arr->lbound[idxlist->cur_dim]);
+	lua_pushinteger(L, arr->lbound[idxlist->cur_dim] + arr->dims[idxlist->cur_dim]);
+	lua_pushcclosure(L, pllua_datum_array_next, 4);
+	lua_pushnil(L);
+	lua_pushnil(L);
+	return 3;
+}
+
 static struct luaL_Reg idxlist_mt[] = {
 	{ "__index", pllua_datum_idxlist_index },
 	{ "__newindex", pllua_datum_idxlist_newindex },
 	{ "__len", pllua_datum_idxlist_len },
+	{ "__pairs", pllua_datum_idxlist_pairs },
+	{ "__ipairs", pllua_datum_idxlist_pairs },
 	{ NULL, NULL }
 };
 
@@ -1716,6 +1755,70 @@ static int pllua_datum_array_len(lua_State *L)
 	return 1;
 }
 
+
+/*
+ * Not exposed to the user directly, only as a closure over its index var
+ *
+ * upvalues:  typeinfo, datum or idxlist, index, ubound
+ */
+static int pllua_datum_array_next(lua_State *L)
+{
+	int idx = lua_tointeger(L, lua_upvalueindex(3));
+	int ubound = lua_tointeger(L, lua_upvalueindex(4));
+
+	if (idx >= ubound)
+		return 0;
+
+	lua_pushinteger(L, idx+1);
+	lua_replace(L, lua_upvalueindex(3));
+
+	lua_pushinteger(L, idx);
+	lua_pushvalue(L, lua_upvalueindex(2));
+	lua_geti(L, -1, idx);
+	lua_remove(L, -2);
+
+	return 2;
+}
+
+static int pllua_datum_array_pairs(lua_State *L)
+{
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	ExpandedArrayHeader *arr;
+
+	if (!t->is_array)
+		luaL_error(L, "datum is not an array type");
+
+	/* Switch to expanded representation if we haven't already. */
+	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
+	{
+		PLLUA_TRY();
+		{
+			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			d->need_gc = true;
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+
+	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushvalue(L, 1);
+	if (arr->ndims < 1)
+	{
+		lua_pushinteger(L, 0);
+		lua_pushinteger(L, 0);
+	}
+	else
+	{
+		lua_pushinteger(L, arr->lbound[0]);
+		lua_pushinteger(L, arr->lbound[0] + arr->dims[0]);
+	}
+	lua_pushcclosure(L, pllua_datum_array_next, 4);
+	lua_pushnil(L);
+	lua_pushnil(L);
+	return 3;
+}
 
 /*
  * __call(array)
@@ -2035,6 +2138,8 @@ static struct luaL_Reg datumobj_array_methods[] = {
 
 static struct luaL_Reg datumobj_array_mt[] = {
 	{ "__len", pllua_datum_array_len },
+	{ "__pairs", pllua_datum_array_pairs },
+	{ "__ipairs", pllua_datum_array_pairs },
 	{ "__index", pllua_datum_array_index },
 	{ "__newindex", pllua_datum_array_newindex },
 	{ "__call", pllua_datum_array_map },
