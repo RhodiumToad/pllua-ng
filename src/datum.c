@@ -1673,6 +1673,22 @@ static int pllua_datum_array_newindex(lua_State *L)
 			luaL_argerror(L, 2, "integer");
 	}
 
+	/*
+	 * If we came from a row object's deform, then explode the source row;
+	 * otherwise, it would not pick up our changes and the result of
+	 * row.arraycol[i] = n  would not be reflected in "row"
+	 */
+	if (pllua_get_user_field(L, 1, ".datumref") != LUA_TNIL)
+	{
+		pllua_typeinfo *parent_t;
+		pllua_datum *parent_d = pllua_checkanydatum(L, -1, &parent_t);
+		pllua_datum_explode_tuple(L, -2, parent_d, parent_t);
+		lua_pop(L, 3);
+	}
+	else
+		lua_pop(L, 1);
+
+
 	/* Switch to expanded representation if we haven't already. */
 	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
 	{
@@ -3916,13 +3932,16 @@ static int pllua_typeinfo_call(lua_State *L)
 
 	if (d)
 	{
-		if (t->natts >= 0 && dt->natts >= 0
-			&& (t->arity > 1 || t->typeoid == dt->typeoid))
-			return pllua_typeinfo_row_call_datum(L, 2, 1, -1, t, d, dt);
+		if (t->natts >= 0)
+		{
+			if (dt->natts >= 0 && (t->arity > 1 || t->typeoid == dt->typeoid))
+				return pllua_typeinfo_row_call_datum(L, 2, 1, -1, t, d, dt);
+		}
 		else if (t->is_anonymous_record)
 			return pllua_typeinfo_anonrec_call_datum(L, 2, 1, -1, t, d, dt);
 		else
 			return pllua_typeinfo_nonrow_call_datum(L, 2, 1, -1, t, d, dt);
+		lua_pop(L, 1);
 	}
 
 	if (t->is_array)
