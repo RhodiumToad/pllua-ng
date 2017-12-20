@@ -442,4 +442,55 @@ select * from trigtst order by id;
 
 drop trigger t1 on trigtst;
 DROP TRIGGER
+-- table with one column exercises several edge cases:
+create table trigtst1col (col integer);
+CREATE TABLE
+create function modtrig10() returns trigger language pllua
+as $$
+  print(trigger.name,trigger.operation,old,new)
+  new.col = 123
+$$;
+CREATE FUNCTION
+create trigger t1
+  before insert on trigtst1col
+  for each row
+  execute procedure modtrig10();
+CREATE TRIGGER
+insert into trigtst1col values (1);
+INFO:  t1	insert	nil	(1)
+INSERT 0 1
+insert into trigtst1col values (2);
+INFO:  t1	insert	nil	(2)
+INSERT 0 1
+select * from trigtst1col;
+ col 
+-----
+ 123
+ 123
+(2 rows)
+
+create type t2col as (a integer, b text);
+CREATE TYPE
+create table trigtst1col2 (col t2col);
+CREATE TABLE
+create function modtrig11() returns trigger language pllua
+as $$
+  print(trigger.name,trigger.operation,old,new)
+  new.col.a = 123
+$$;
+CREATE FUNCTION
+create trigger t1
+  before insert on trigtst1col2
+  for each row
+  execute procedure modtrig11();
+CREATE TRIGGER
+insert into trigtst1col2 values (row(1,'foo')::t2col);
+INFO:  t1	insert	nil	("(1,foo)")
+INSERT 0 1
+select * from trigtst1col2;
+    col    
+-----------
+ (123,foo)
+(1 row)
+
 --

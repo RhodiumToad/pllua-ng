@@ -845,16 +845,17 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 			pllua_make_datum(L, values[i],
 							 att->atttypid,
 							 att->atttypmod);
-			if (!needsave[i])
-			{
-				lua_pushvalue(L, nd);
-				/*
-				 * the uservalue of the new datum points to the old one in order to
-				 * hold a reference
-				 */
-				pllua_datum_reference(L, -2);
-			}
-			else
+			/*
+			 * the uservalue of the new datum points to the old one in order to
+			 * hold a reference, _regardless_ of whether we actually made a
+			 * copy. Otherwise, if we modify the copy we made, the parent tuple
+			 * is never informed of that fact, and so might get copied without
+			 * our changes.
+			 */
+			lua_pushvalue(L, nd);
+			pllua_datum_reference(L, -2);
+
+			if (needsave[i])
 			{
 				pllua_typeinfo *newt;
 				pllua_datum *newd = pllua_toanydatum(L, -1, &newt);
@@ -894,7 +895,7 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 /*
  * Current tuple's deformed table is on top of the stack.
  */
-static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t);
+static void pllua_datum_explode_tuple_inner(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t);
 
 static void pllua_datum_explode_tuple_recurse(lua_State *L, pllua_datum *d, pllua_typeinfo *t)
 {
@@ -905,7 +906,7 @@ static void pllua_datum_explode_tuple_recurse(lua_State *L, pllua_datum *d, pllu
 	/* need to check pg stack here because we recurse in lua context */
 	PLLUA_CHECK_PG_STACK_DEPTH();
 
-	for (i = 1; i < natts; ++i)
+	for (i = 1; i <= natts; ++i)
 	{
 		if (lua_rawgeti(L, -1, i) == LUA_TUSERDATA)
 		{
@@ -919,12 +920,19 @@ static void pllua_datum_explode_tuple_recurse(lua_State *L, pllua_datum *d, pllu
 			 * We don't handle arrays by explosion (instead using the
 			 * expanded-object representation) so no need to consider them
 			 * here.
+			 *
+			 * We need to explode nested tuples even when need_gc is true.
+			 * It should be impossible to get here if modified is already
+			 * true.
 			 */
-			if (!ed->need_gc && et->natts >= 0)
+			Assert(!ed->modified);
+			if (et->natts >= 0)
 			{
-				pllua_datum_explode_tuple(L, -1, ed, et);
+				pllua_datum_deform_tuple(L, -2, ed, et);
+				pllua_datum_explode_tuple_inner(L, -3, ed, et);
 				lua_pop(L, 1);
 			}
+			lua_pop(L, 1);
 		}
 		lua_pop(L,1);
 	}
@@ -935,11 +943,10 @@ static void pllua_datum_explode_tuple_recurse(lua_State *L, pllua_datum *d, pllu
  * original record, which is then freed. (This is used when we want to modify
  * the datum.)
  *
- * Leaves the result of deform on the stack.
+ * Expects the result of deform on the stack top and leaves it there.
  */
-static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t)
+static void pllua_datum_explode_tuple_inner(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t)
 {
-	volatile bool deref_tuple = false;
 	int i;
 	int natts = t->natts;  /* must include dropped cols */
 
@@ -949,8 +956,6 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 	nd = lua_absindex(L, nd);
 
 	ASSERT_LUA_CONTEXT;
-
-	pllua_datum_deform_tuple(L, nd, d, t);
 
 	/*
 	 * If a composite value is nested inside another, we might have already
@@ -981,7 +986,7 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 				pllua_typeinfo *et;
 				pllua_datum *ed = pllua_toanydatum(L, -1, &et);
 
-				if (!ed->need_gc)
+				if (!ed->need_gc && !ed->modified)
 				{
 					/*
 					 * nested child datums must have already been handled in
@@ -1007,7 +1012,6 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 		{
 			d->modified = true;
 			d->value = (Datum)0;
-			deref_tuple = true;
 		}
 		MemoryContextSwitchTo(oldcontext);
 	}
@@ -1023,12 +1027,77 @@ static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllu
 		lua_pop(L, 1);
 	}
 
-	if (deref_tuple)
-	{
-		lua_pushnil(L);
-		pllua_datum_reference(L, nd);
-	}
+	lua_pushnil(L);
+	pllua_datum_reference(L, nd);
 }
+
+/*
+ * Deform (if needed) a datum, and then detach the column values from the
+ * original record, which is then freed. (This is used when we want to modify
+ * the datum.)
+ *
+ * The tricky part of this is that if we're a dependent child tuple, we need to
+ * go back and explode our parent, and it's parent, and so on, and recurse into
+ * all children. So this function is split into three:
+ * pllua_datum_explode_tuple proper handles finding the ultimate parent,
+ * pllua_datum_explode_tuple_inner handles exploding one tuple, and
+ * pllua_datum_explode_tuple_recurse handles exploding the children of one tuple
+ *
+ * Leaves the result of deform on the stack.
+ */
+static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t)
+{
+	if (d->value == (Datum)0)
+		return;
+
+	nd = lua_absindex(L, nd);
+
+	ASSERT_LUA_CONTEXT;
+
+	pllua_datum_deform_tuple(L, nd, d, t);
+
+	lua_pushvalue(L, nd);
+	for (;;)
+	{
+		pllua_get_user_field(L, -1, ".datumref");
+		if (lua_isnil(L, -1))
+			break;
+		lua_remove(L, -2);
+	}
+	lua_pop(L, 1);
+	/* stack top is now the ultimate parent */
+
+	/*
+	 * If a composite value is nested inside another, we might have already
+	 * deformed the inner value, in which case it has its own set of child
+	 * datums that depend on the outer tuple's storage. So recursively explode
+	 * all nested values before modifying anything. (Separate loop here to
+	 * handle the fact that we want to recurse from lua context, not pg
+	 * context.)
+	 *
+	 * Likewise, we might be the child value of a parent, which will also need
+	 * exploding in order to inherit any of our changes.
+	 *
+	 * (We can't just un-deform the child values, because something might be
+	 * holding references to their values.)
+	 */
+	if (!lua_rawequal(L, -1, nd) || t->nested)
+	{
+		pllua_typeinfo *parent_t;
+		pllua_datum *parent_d = pllua_toanydatum(L, -1, &parent_t);
+		pllua_datum_deform_tuple(L, -2, parent_d, parent_t);
+		pllua_datum_explode_tuple_inner(L, -3, parent_d, parent_t);
+		lua_pop(L, 3);  /* pop deform, typeinfo, parent */
+	}
+	else
+	{
+		lua_pop(L, 1); /* pop parent, deform is on stack top */
+		pllua_datum_explode_tuple_inner(L, nd, d, t);
+	}
+
+	/* our own deform is now on stack top */
+}
+
 
 static bool pllua_datum_column(lua_State *L, int attno, bool skip_dropped)
 {
@@ -4221,7 +4290,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 		{
 			/* is it already a datum of the correct type? */
 			d = pllua_todatum(L, argno, -1);
-			if (!d)
+			if (!d || d->modified)
 			{
 				/* recursively construct an element datum */
 				/* note that here is where most of the work happens */
@@ -4232,7 +4301,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 				lua_replace(L, argno);
 				d = pllua_todatum(L, argno, -1);
 			}
-			if (!d)
+			if (!d || d->modified)
 				luaL_error(L, "inconsistency");
 			values[i] = d->value;
 			isnull[i] = false;

@@ -246,4 +246,34 @@ select * from trigtst order by id;
 
 drop trigger t1 on trigtst;
 
+-- table with one column exercises several edge cases:
+
+create table trigtst1col (col integer);
+create function modtrig10() returns trigger language pllua
+as $$
+  print(trigger.name,trigger.operation,old,new)
+  new.col = 123
+$$;
+create trigger t1
+  before insert on trigtst1col
+  for each row
+  execute procedure modtrig10();
+insert into trigtst1col values (1);
+insert into trigtst1col values (2);
+select * from trigtst1col;
+
+create type t2col as (a integer, b text);
+create table trigtst1col2 (col t2col);
+create function modtrig11() returns trigger language pllua
+as $$
+  print(trigger.name,trigger.operation,old,new)
+  new.col.a = 123
+$$;
+create trigger t1
+  before insert on trigtst1col2
+  for each row
+  execute procedure modtrig11();
+insert into trigtst1col2 values (row(1,'foo')::t2col);
+select * from trigtst1col2;
+
 --
