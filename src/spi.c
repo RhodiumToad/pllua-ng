@@ -1202,7 +1202,7 @@ static int pllua_cursor_own(lua_State *L)
 		return 0;
 
 	curs->is_ours = true;
-	return 0;
+	return 1;
 }
 
 /*
@@ -1216,7 +1216,7 @@ static int pllua_cursor_disown(lua_State *L)
 		return 0;
 
 	curs->is_ours = false;
-	return 0;
+	return 1;
 }
 
 /*

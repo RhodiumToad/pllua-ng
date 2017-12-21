@@ -170,7 +170,7 @@ $$;
 create function do_exec(q text, n text) returns refcursor language pllua as $$
   local s = spi.prepare(q)
   local c = spi.newcursor(n)
-  return c:open(s)
+  return c:open(s):disown()
 $$;
 
 begin;
@@ -180,6 +180,7 @@ commit;
 
 begin;
 select do_exec('select * from tsttab order by id desc', 'mycur2');
+do language pllua $$ collectgarbage() $$;  -- check cursor stays open
 fetch all from mycur2;
 commit;
 
