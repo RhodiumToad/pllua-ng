@@ -533,14 +533,19 @@ pllua_open_elog(lua_State *L)
 
 	/*
 	 * if we're in the postmaster, then preload the error table, by
-	 * outputting a debug message.
+	 * outputting a log message.
 	 */
 	if (!IsUnderPostmaster)
 	{
-		lua_pushstring(L, "debug");
+		const char *ident = NULL;
+		lua_pushstring(L, "log");
 		lua_pushstring(L, "successful_completion");
-		lua_pushstring(L, "pl/lua preloaded in postmaster");
-		lua_call(L, 3, 0);
+		lua_pushstring(L, "PL/Lua preloaded in postmaster");
+		lua_getglobal(L, "_PL_IDENT");
+		ident = lua_tostring(L, -1);
+		lua_pushfstring(L, "_PL_IDENT value is %s", (ident && *ident) ? ident : "empty");
+		lua_remove(L, -2);
+		lua_call(L, 4, 0);
 	}
 	else
 		lua_pop(L, 1);

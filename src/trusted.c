@@ -397,6 +397,10 @@ pllua_open_trusted(lua_State *L)
 	lua_setfield(L, 2, "_VERSION");
 	lua_getglobal(L, "_PLVERSION");
 	lua_setfield(L, 2, "_PLVERSION");
+	lua_getglobal(L, "_PL_LOAD_TIME");
+	lua_setfield(L, 2, "_PL_LOAD_TIME");
+	lua_getglobal(L, "_PL_IDENT");
+	lua_setfield(L, 2, "_PL_IDENT");
 	lua_pushvalue(L, 2);
 	lua_setfield(L, 2, "_G");
 	luaL_setfuncs(L, sandbox_funcs, 0);

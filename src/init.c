@@ -27,8 +27,9 @@ static char *pllua_on_trusted_init = NULL;
 static char *pllua_on_untrusted_init = NULL;
 static bool pllua_do_check_for_interrupts = true;
 static int pllua_num_held_interpreters = 1;
+static char *pllua_reload_ident = NULL;
 
-static lua_State *pllua_newstate_phase1(void);
+static lua_State *pllua_newstate_phase1(const char *ident);
 static void pllua_newstate_phase2(lua_State *L,
 								  bool trusted,
 								  Oid user_id,
@@ -85,7 +86,9 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 	}
 	else
 	{
-		lua_State *L = pllua_newstate_phase1();
+		lua_State *L = pllua_newstate_phase1(pllua_reload_ident);
+		if (!L)
+			elog(ERROR, "PL/Lua: interpreter creation failed");
 		pllua_newstate_phase2(L, trusted, user_id, interp_desc, act);
 	}
 
@@ -105,6 +108,82 @@ pllua_getinterpreter(lua_State *L)
 	return p;
 }
 
+static void
+pllua_create_held_states(const char *ident)
+{
+	MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
+	int i;
+	for (i = 0; i < pllua_num_held_interpreters; ++i)
+	{
+		lua_State *L = pllua_newstate_phase1(ident);
+		if (!L)
+		{
+			elog(WARNING, "PL/Lua: interpreter creation failed");
+			break;
+		}
+		held_states = lcons(L, held_states);
+	}
+	MemoryContextSwitchTo(oldcontext);
+}
+
+static void
+pllua_destroy_held_states(void)
+{
+	/* zap a "held" interp if any */
+	while (held_states != NIL)
+	{
+		lua_State *L = linitial(held_states);
+		held_states = list_delete_first(held_states);
+		/*
+		 * We intentionally do not worry about trying to rethrow any errors
+		 * happening here; we're trying to shut down, and ignoring an error
+		 * is probably less likely to crash us than rethrowing it.
+		 */
+		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		lua_close(L); /* can't throw, but has internal lua catch blocks */
+		pllua_setcontext(PLLUA_CONTEXT_PG);
+	}
+}
+
+static void
+pllua_assign_on_init(const char *newval, void *extra)
+{
+	/* if we're not this far into initialization, do nothing */
+	if (!pllua_interp_hash)
+		return;
+	/* changed? */
+	if (newval == pllua_on_init ||
+		(newval && pllua_on_init && strcmp(newval,pllua_on_init) == 0))
+		return;
+	if ((pllua_reload_ident && *pllua_reload_ident) || IsUnderPostmaster)
+	{
+		pllua_destroy_held_states();
+		if (!IsUnderPostmaster)
+		{
+			pllua_on_init = (char *) newval;
+			pllua_create_held_states(pllua_reload_ident);
+		}
+	}
+}
+
+static void
+pllua_assign_reload_ident(const char *newval, void *extra)
+{
+	/* if we're not this far into initialization, do nothing */
+	if (!pllua_interp_hash)
+		return;
+	/* changed? */
+	if (newval == pllua_reload_ident ||
+		(newval && pllua_reload_ident && strcmp(newval,pllua_reload_ident) == 0))
+		return;
+	/* make sure we don't reload if turning off reloading. */
+	if (newval && *newval)
+	{
+		pllua_destroy_held_states();
+		if (!IsUnderPostmaster)
+			pllua_create_held_states(newval);
+	}
+}
 
 /*
  * _PG_init
@@ -131,7 +210,7 @@ void _PG_init(void)
 							   &pllua_on_init,
 							   NULL,
 							   PGC_SUSET, 0,
-							   NULL, NULL, NULL);
+							   NULL, pllua_assign_on_init, NULL);
 	DefineCustomStringVariable("pllua.on_trusted_init",
 							   gettext_noop("Code to execute when a Lua interpreter is initialized."),
 							   NULL,
@@ -162,6 +241,13 @@ void _PG_init(void)
 							10,
 							PGC_SUSET, 0,
 							NULL, NULL, NULL);
+	DefineCustomStringVariable("pllua.interpreter_reload_ident",
+							   gettext_noop("Altering this id reloads any held interpreters"),
+							   NULL,
+							   &pllua_reload_ident,
+							   NULL,
+							   PGC_SUSET, 0,
+							   NULL, pllua_assign_reload_ident, NULL);
 
 	EmitWarningsOnPlaceholders("pllua");
 
@@ -177,16 +263,7 @@ void _PG_init(void)
 									HASH_ELEM | HASH_BLOBS);
 
 	if (!IsUnderPostmaster)
-	{
-		MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-		int i;
-		for (i = 0; i < pllua_num_held_interpreters; ++i)
-		{
-			lua_State *L = pllua_newstate_phase1();
-			held_states = lcons(L, held_states);
-		}
-		MemoryContextSwitchTo(oldcontext);
-	}
+		pllua_create_held_states(pllua_reload_ident);
 
 	init_done = true;
 }
@@ -215,20 +292,7 @@ pllua_fini(int code, Datum arg)
 		return;
 	}
 
-	/* zap a "held" interp if any */
-	while (held_states != NIL)
-	{
-		lua_State *L = linitial(held_states);
-		held_states = list_delete_first(held_states);
-		/*
-		 * We intentionally do not worry about trying to rethrow any errors
-		 * happening here; we're trying to shut down, and ignoring an error
-		 * is probably less likely to crash us than rethrowing it.
-		 */
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		lua_close(L); /* can't throw, but has internal lua catch blocks */
-		pllua_setcontext(PLLUA_CONTEXT_PG);
-	}
+	pllua_destroy_held_states();
 
 	/* Zap any fully-initialized interpreters */
 	hash_seq_init(&hash_seq, pllua_interp_hash);
@@ -401,9 +465,14 @@ pllua_init_state_phase1(lua_State *L)
 {
 	MemoryContext *mcxt = lua_touserdata(L, 1);
 	MemoryContext *emcxt = lua_touserdata(L, 2);
+	const char *ident = lua_touserdata(L, 3);
 
 	lua_pushliteral(L, PLLUA_VERSION_STR);
 	lua_setglobal(L, "_PLVERSION");
+	lua_pushstring(L, ident ? ident : "");
+	lua_setglobal(L, "_PL_IDENT");
+	lua_pushinteger(L, (lua_Integer) time(NULL));
+	lua_setglobal(L, "_PL_LOAD_TIME");
 	lua_pushlightuserdata(L, mcxt);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
 	lua_pushlightuserdata(L, emcxt);
@@ -432,10 +501,16 @@ pllua_init_state_phase1(lua_State *L)
 	lua_pushcfunction(L, pllua_p_print);
 	lua_setglobal(L, "print");
 
+	pllua_runstring(L, "on_init", pllua_on_init);
+
+	/*
+	 * Do this _after_ the init string so that the init string can't get at
+	 * server.error, which would kill the postmaster messily if done when
+	 * reloading preloaded states. (But don't defer it to phase2 to allow it
+	 * to pre-generate the error tables.)
+	 */
 	luaL_requiref(L, "pllua.elog", pllua_open_elog, 0);
 	lua_setglobal(L, "server");  /* XXX fixme: needs a better name/location */
-
-	pllua_runstring(L, "on_init", pllua_on_init);
 
 	return 0;
 }
@@ -525,12 +600,12 @@ pllua_run_init_strings(lua_State *L)
  * interp will be used for or by whom.
  */
 static lua_State *
-pllua_newstate_phase1(void)
+pllua_newstate_phase1(const char *ident)
 {
 	MemoryContext	mcxt = NULL;
 	MemoryContext	emcxt = NULL;
-	MemoryContext	oldcontext = CurrentMemoryContext;
 	lua_State	   *L = NULL;
+	int				rc;
 
 	ASSERT_PG_CONTEXT;
 
@@ -555,52 +630,42 @@ pllua_newstate_phase1(void)
 
 	lua_atpanic(L, pllua_panic);  /* can't throw */
 
-	PG_TRY();
-	{
-		/*
-		 * Since we just created this interpreter, we know we're not in any
-		 * protected environment yet, so Lua errors outside of pcall will
-		 * become pg errors via pllua_panic. In other contexts we must be more
-		 * cautious about Lua errors, because of this scenario: if a Lua
-		 * function calls into SPI which invokes another Lua function, then any
-		 * Lua error thrown in the nested invocation might longjmp back to the
-		 * outer interpreter...
-		 */
+	/*
+	 * Since we just created this interpreter, we know we're not in any
+	 * protected environment yet, so Lua errors outside of pcall will
+	 * become pg errors via pllua_panic. The only possible errors here
+	 * should be out-of-memory errors.
+	 */
 
-		/* note that pllua_pushcfunction is not available yet. */
-		lua_pushcfunction(L, pllua_init_state_phase1);
-		lua_pushlightuserdata(L, mcxt);
-		lua_pushlightuserdata(L, emcxt);
-		pllua_pcall(L, 2, 0, 0);
-	}
-	PG_CATCH();
-	{
-		ErrorData *e;
-		Assert(pllua_context == PLLUA_CONTEXT_PG);
+	/* note that pllua_pushcfunction is not available yet. */
+	lua_pushcfunction(L, pllua_init_state_phase1);
+	lua_pushlightuserdata(L, mcxt);
+	lua_pushlightuserdata(L, emcxt);
+	lua_pushlightuserdata(L, (void *) ident);
+	rc = pllua_pcall_nothrow(L, 3, 0, 0);
 
-		/*
-		 * If we got a lua error (which could be a caught pg error) during the
-		 * protected part of interpreter initialization, then we need to kill
-		 * the interpreter; but that could provoke further errors, so we exit
-		 * pg's error handling first. Since we need to kill off the lua memory
-		 * contexts too, we temporarily use the caller's memory (which should
-		 * be a transient context) to store the error data.
-		 */
-		MemoryContextSwitchTo(oldcontext);
-		e = CopyErrorData();
-		FlushErrorState();
+	/* We don't allow phase1 init to do anything that interacts with pg in any
+	 * way other than memory allocation and elog/ereport. So if we got an
+	 * error, we can be pretty sure it's not actually a pg error (the one
+	 * exception being out-of-memory errors).
+	 *
+	 * So, we avoid trying to rethrow any error here, because we might be in
+	 * the postmaster and that would be fatal. Leave it to the caller to decide
+	 * what to do.
+	 */
+	if (rc)
+	{
+		elog(WARNING, "PL/Lua initialization error: %s",
+			 (lua_type(L,-1) == LUA_TSTRING) ? lua_tostring(L,-1) : "(not a string)");
 
 		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		pllua_ending = true;  /* we're ending _this_ interpreter at least */
 		lua_close(L); /* can't throw, but has internal lua catch blocks */
-		pllua_ending = false;
 		pllua_setcontext(PLLUA_CONTEXT_PG);
 
 		MemoryContextDelete(mcxt);
 
-		ReThrowError(e);
+		L = NULL;
 	}
-	PG_END_TRY();
 
 	return L;
 }
