@@ -303,7 +303,7 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 			{
 				size_t len = 0;
 				const char *ptr = lua_tolstring(L, -1, &len);
-				MemoryContext oldcontext = tmpcxt;
+				MemoryContext oldcontext = MemoryContextSwitchTo(tmpcxt);
 				char *newstr = palloc(len);
 				memcpy(newstr, ptr, len);
 				pg_verifymbstr(newstr, len, false);
