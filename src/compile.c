@@ -45,6 +45,39 @@ pllua_validate_proctup(lua_State *L, Oid fn_oid,
 	ReleaseSysCache(lanTup);
 }
 
+
+/*
+ * Given a function body chunk or inline chunk on stack top, prepare it for
+ * execution. The function is left below its single first arg.
+ */
+static void
+pllua_prepare_function(lua_State *L, bool trusted)
+{
+	lua_newtable(L);
+	lua_newtable(L);
+	if (trusted)
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+	else
+		lua_pushglobaltable(L);
+	lua_setfield(L, -2, "__index");
+	lua_setmetatable(L, -2);
+	lua_pushvalue(L, -1);
+	pllua_set_environment(L, -3);
+}
+
+/*
+ * Given the body of a DO-block, compile it. This is here mostly to centralize
+ * in this file (pllua_compile_inline and pllua_compile) the environment tweaks
+ * that we do.
+ */
+void
+pllua_compile_inline(lua_State *L, const char *str, bool trusted)
+{
+	if (luaL_loadbuffer(L, str, strlen(str), "DO-block"))
+		pllua_rethrow_from_lua(L, LUA_ERRRUN);
+	pllua_prepare_function(L, trusted);
+}
+
 /*
  * Given a comp_info containing the info we need, compile a function and make
  * an object for it. However, we don't actually store the func_info into the
@@ -165,16 +198,7 @@ pllua_compile(lua_State *L)
 	if (comp_info->validate_only)
 		return 0;
 
-	lua_newtable(L);
-	lua_newtable(L);
-	if (func_info->trusted)
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-	else
-		lua_pushglobaltable(L);
-	lua_setfield(L, -2, "__index");
-	lua_setmetatable(L, -2);
-	lua_pushvalue(L, -1);
-	pllua_set_environment(L, -3);
+	pllua_prepare_function(L, func_info->trusted);
 
 	/*
 	 * Run the code to obtain the function value as a result.

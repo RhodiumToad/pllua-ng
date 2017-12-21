@@ -98,7 +98,7 @@ select * from pg_temp.f16(4);
 
 -- compiler and validator code paths
 
-do language pllua $$ rdepth = 40 $$;  -- global var hack
+do language pllua $$ _G.rdepth = 40 $$;  -- global var hack
 
 -- This function will try and call itself at a point where it is visible
 -- but has no definition interned yet; the recursive call will likewise

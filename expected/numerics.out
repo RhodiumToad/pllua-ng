@@ -5,11 +5,14 @@ create function lua_numexec(code text, n1 numeric, n2 numeric)
   returns text
   language pllua
   as $$
-    local f,e = load("return function(n1,n2) return "..code.." end")
+    local f,e = load("return function(n1,n2) return "..code.." end", code, "t", self)
     assert(f,e)
     f = f()
     assert(f)
     return tostring(f(n1,n2))
+  end
+  do
+    num = require "pllua.numeric"
 $$;
 create function pg_numexec(code text, n1 numeric, n2 numeric)
   returns text
@@ -25,7 +28,6 @@ create function pg_numexec(code text, n1 numeric, n2 numeric)
       return r;
     end;
 $$;
-do language pllua $$ num = require "pllua.numeric" $$;
 with
   t as (select code,
                lua_numexec(code, 5439.123456, -1.9) as lua,

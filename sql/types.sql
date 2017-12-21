@@ -76,10 +76,12 @@ do language pllua $f$
   end
 $f$;
 
-do language pllua $$ a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2) print(a) $$;
-do language pllua $$ print(#a,#(a[1]),#(a[1][1])) $$;
-do language pllua $$ print(a[3][1][2],a[1][1][1]) $$;
-
+do language pllua $$
+  a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2)
+  print(a)
+  print(#a,#(a[1]),#(a[1][1]))
+  print(a[3][1][2],a[1][1][1])
+$$;
 do language pllua $$ print(pgtype.int4range(123,456)) $$;
 do language pllua $$ print(pgtype.int4range()) $$;
 do language pllua $$ print(pgtype.int4range(123,456,'(]')) $$;

@@ -89,11 +89,14 @@ $f$;
 INFO:  1	x	1111	1.1
 INFO:  2	x	2222	2.2
 INFO:  3	x	3333	3.3
-do language pllua $$ a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2) print(a) $$;
+do language pllua $$
+  a = pgtype.array.integer({{{1,2}},{{3,4}},{{5,6}}},3,1,2)
+  print(a)
+  print(#a,#(a[1]),#(a[1][1]))
+  print(a[3][1][2],a[1][1][1])
+$$;
 INFO:  {{{1,2}},{{3,4}},{{5,6}}}
-do language pllua $$ print(#a,#(a[1]),#(a[1][1])) $$;
 INFO:  3	1	2
-do language pllua $$ print(a[3][1][2],a[1][1][1]) $$;
 INFO:  6	1
 do language pllua $$ print(pgtype.int4range(123,456)) $$;
 INFO:  [123,456)

@@ -2,12 +2,12 @@
 \set VERBOSITY terse
 -- old-pllua compat shims
 do language pllua $$
-  function fromstring(t,s) return pgtype(nil,t):fromstring(s) end
-  function setshared(k,v) _G[k] = v end
+  function _G.fromstring(t,s) return pgtype(nil,t):fromstring(s) end
+  function _G.setshared(k,v) _G[k] = v end
   server.execute = spi.execute
   server.rows = spi.rows
   server.prepare = spi.prepare
-  shared = _G
+  _G.shared = _G
 $$;
 --
 -- tests taken from old pllua

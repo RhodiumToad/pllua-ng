@@ -501,14 +501,8 @@ pllua_call_inline(lua_State *L)
 
 	pllua_common_lua_init(L, fcinfo);
 
-	if (luaL_loadbuffer(L, act->cblock->source_text, strlen(act->cblock->source_text), "DO-block"))
-		pllua_rethrow_from_lua(L, LUA_ERRRUN);
-	if (act->trusted)
-	{
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-		pllua_set_environment(L, -2);
-	}
-	lua_call(L, 0, 0);
+	pllua_compile_inline(L, act->cblock->source_text, act->trusted);
+	lua_call(L, 1, 0);
 
 	return 0;
 }

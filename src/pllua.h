@@ -586,6 +586,7 @@ pllua_interpreter *pllua_getinterpreter(lua_State *L);
 /* compile.c */
 
 pllua_func_activation *pllua_validate_and_push(lua_State *L, FunctionCallInfo fcinfo, bool trusted);
+void pllua_compile_inline(lua_State *L, const char *str, bool trusted);
 int pllua_compile(lua_State *L);
 int pllua_intern_function(lua_State *L);
 void pllua_validate_function(lua_State *L, Oid fn_oid, bool trusted);
