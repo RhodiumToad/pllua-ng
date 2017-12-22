@@ -268,11 +268,12 @@ typedef struct pllua_activation_record
 {
 	FunctionCallInfo fcinfo;
 	Datum		retval;
-	bool		trusted;
 
 	/* if fcinfo is null, we're validating or doing inline */
 	InlineCodeBlock *cblock;
 	Oid			validate_func;
+
+	bool		trusted;
 
 	/* for error context stuff */
 	struct pllua_interpreter *interp;
@@ -288,17 +289,23 @@ typedef struct pllua_activation_record
 typedef struct pllua_interpreter
 {
 	Oid			user_id;		/* Hash key (must be first!) */
+	lua_State  *L;				/* The interpreter proper */
 
 	bool		trusted;
-	lua_State  *L;				/* The interpreter proper */
+	bool		new_ident;
 
 	/* state below must be saved/restored for recursive calls */
 	pllua_activation_record cur_activation;
 
-	/* stuff used transiently in error handling */
+	/* stuff used transiently in error handling and elsewhere */
 	lua_Debug	ar;
 	int			errdepth;
 	bool		update_errdepth;
+
+	bool		inval_type;
+	bool		inval_rel;
+	Oid			inval_typeoid;
+	Oid			inval_reloid;
 } pllua_interpreter;
 
 /* We abuse the node system to pass this in fcinfo->context */

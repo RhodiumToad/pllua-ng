@@ -60,9 +60,9 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 	{
 		if (interp_desc->new_ident)
 		{
-			int rc = pllua_cpcall(L, pllua_set_new_ident, interp_desc);
+			int rc = pllua_cpcall(interp_desc->L, pllua_set_new_ident, interp_desc);
 			if (rc)
-				pllua_rethrow_from_lua(L, rc);  /* unlikely, but be safe */
+				pllua_rethrow_from_lua(interp_desc->L, rc);  /* unlikely, but be safe */
 		}
 		return interp_desc;
 	}
@@ -71,6 +71,7 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 	{
 		interp_desc->L = NULL;
 		interp_desc->trusted = trusted;
+		interp_desc->new_ident = false;
 
 		interp_desc->cur_activation.fcinfo = NULL;
 		interp_desc->cur_activation.retval = (Datum) 0;
@@ -79,7 +80,6 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 		interp_desc->cur_activation.validate_func = InvalidOid;
 		interp_desc->cur_activation.interp = NULL;
 		interp_desc->cur_activation.err_text = NULL;
-		interp_desc->cur_activation.new_ident = false;
 	}
 
 	/*
@@ -193,9 +193,10 @@ pllua_assign_reload_ident(const char *newval, void *extra)
 		else if (pllua_interp_hash)
 		{
 			HASH_SEQ_STATUS hash_seq;
+			pllua_interpreter *interp;
 			hash_seq_init(&hash_seq, pllua_interp_hash);
-			while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
-				interp_desc->new_ident = true;
+			while ((interp = hash_seq_search(&hash_seq)) != NULL)
+				interp->new_ident = true;
 		}
 	}
 }
@@ -372,14 +373,12 @@ pllua_relcache_callback(Datum arg, Oid relid)
 				|| arg == PointerGetDatum(interp_desc)))
 		{
 			int rc;
-			pllua_pushcfunction(L, pllua_typeinfo_invalidate);
-			lua_pushnil(L);
-			lua_pushinteger(L, (lua_Integer) relid);
-			rc = pllua_pcall_nothrow(L, 2, 0, 0);
+			interp_desc->inval_type = false;
+			interp_desc->inval_rel = true;
+			interp_desc->inval_reloid = InvalidOid;
+			rc = pllua_cpcall(L, pllua_typeinfo_invalidate, interp_desc);
 			if (rc)
-			{
-				elog(WARNING, "lua error in relcache invalidation");
-			}
+				pllua_poperror(L);
 		}
 	}
 }
@@ -403,14 +402,12 @@ pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashvalue)
 				|| arg == PointerGetDatum(interp_desc)))
 		{
 			int rc;
-			pllua_pushcfunction(L, pllua_typeinfo_invalidate);
-			lua_pushinteger(L, (lua_Integer) InvalidOid);
-			lua_pushnil(L);
-			rc = pllua_pcall_nothrow(L, 2, 0, 0);
+			interp_desc->inval_type = true;
+			interp_desc->inval_rel = false;
+			interp_desc->inval_typeoid = InvalidOid;
+			rc = pllua_cpcall(L, pllua_typeinfo_invalidate, interp_desc);
 			if (rc)
-			{
-				elog(WARNING, "lua error in syscache invalidation");
-			}
+				pllua_poperror(L);
 		}
 	}
 }

@@ -2557,14 +2557,18 @@ int pllua_typeinfo_lookup(lua_State *L)
 }
 
 /*
- * invalidate(typoid,reloid)
+ * invalidate(interp)
  */
 int pllua_typeinfo_invalidate(lua_State *L)
 {
-	if (lua_type(L,1) == LUA_TNUMBER)
+	pllua_interpreter *interp = lua_touserdata(L, 1);
+	Oid typoid = interp->inval_typeoid;
+	Oid relid = interp->inval_reloid;
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
+
+	if (interp->inval_type)
 	{
-		Oid typoid = lua_tointeger(L, 1);
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
 		if (OidIsValid(typoid))
 		{
 			pllua_typeinfo *t;
@@ -2585,10 +2589,9 @@ int pllua_typeinfo_invalidate(lua_State *L)
 			}
 		}
 	}
-	if (lua_type(L,2) == LUA_TNUMBER)
+
+	if (interp->inval_rel)
 	{
-		Oid relid = lua_tointeger(L, 2);
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
 		lua_pushnil(L);
 		while (lua_next(L, -2))
 		{
@@ -2598,6 +2601,7 @@ int pllua_typeinfo_invalidate(lua_State *L)
 			lua_pop(L,1);
 		}
 	}
+
 	return 0;
 }
 
