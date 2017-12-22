@@ -258,8 +258,18 @@ pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 int
 pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 {
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_LUA);
+	pllua_context_type oldctx;
 	int rc;
+
+	if (pllua_context == PLLUA_CONTEXT_PG)
+	{
+		if (!lua_checkstack(L, 3))
+			elog(ERROR, "failed to extend Lua stack");
+	}
+	else
+		luaL_checkstack(L, 3);
+
+	oldctx = pllua_setcontext(PLLUA_CONTEXT_LUA);
 
 	pllua_pushcfunction(L, func); /* can't throw */
 	lua_pushlightuserdata(L, arg); /* can't throw */

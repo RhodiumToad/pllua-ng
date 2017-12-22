@@ -582,6 +582,7 @@ extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 
 pllua_interpreter *pllua_getstate(bool trusted, pllua_activation_record *act);
 pllua_interpreter *pllua_getinterpreter(lua_State *L);
+int pllua_set_new_ident(lua_State *L);
 
 /* compile.c */
 

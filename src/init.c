@@ -38,7 +38,6 @@ static void pllua_newstate_phase2(lua_State *L,
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
 
-
 /*
  * pllua_getstate
  *
@@ -58,7 +57,15 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 							  &found);
 
 	if (found && interp_desc->L)
+	{
+		if (interp_desc->new_ident)
+		{
+			int rc = pllua_cpcall(L, pllua_set_new_ident, interp_desc);
+			if (rc)
+				pllua_rethrow_from_lua(L, rc);  /* unlikely, but be safe */
+		}
 		return interp_desc;
+	}
 
 	if (!found)
 	{
@@ -72,6 +79,7 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 		interp_desc->cur_activation.validate_func = InvalidOid;
 		interp_desc->cur_activation.interp = NULL;
 		interp_desc->cur_activation.err_text = NULL;
+		interp_desc->cur_activation.new_ident = false;
 	}
 
 	/*
@@ -182,9 +190,34 @@ pllua_assign_reload_ident(const char *newval, void *extra)
 		pllua_destroy_held_states();
 		if (!IsUnderPostmaster)
 			pllua_create_held_states(newval);
+		else if (pllua_interp_hash)
+		{
+			HASH_SEQ_STATUS hash_seq;
+			hash_seq_init(&hash_seq, pllua_interp_hash);
+			while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
+				interp_desc->new_ident = true;
+		}
 	}
 }
 
+int
+pllua_set_new_ident(lua_State *L)
+{
+	pllua_interpreter *interp_desc = lua_touserdata(L, 1);
+	lua_pushglobaltable(L);
+	lua_pushliteral(L, "_PL_IDENT_NEW");
+	lua_pushstring(L, pllua_reload_ident);
+	lua_rawset(L, -3);
+	if (interp_desc->trusted)
+	{
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+		lua_pushliteral(L, "_PL_IDENT_NEW");
+		lua_pushstring(L, pllua_reload_ident);
+		lua_rawset(L, -3);
+	}
+	interp_desc->new_ident = false;
+	return 0;
+}
 /*
  * _PG_init
  *
@@ -202,10 +235,10 @@ void _PG_init(void)
 		return;
 
 	/*
-	 * Initialize GUCs. These are SUSET for security reasons!
+	 * Initialize GUCs. These are SUSET or SIGHUP for security reasons!
 	 */
 	DefineCustomStringVariable("pllua.on_init",
-							   gettext_noop("Code to execute when a Lua interpreter is initialized."),
+							   gettext_noop("Code to execute early when a Lua interpreter is initialized."),
 							   NULL,
 							   &pllua_on_init,
 							   NULL,
@@ -239,14 +272,14 @@ void _PG_init(void)
 							1,
 							0,
 							10,
-							PGC_SUSET, 0,
+							PGC_SIGHUP, 0,
 							NULL, NULL, NULL);
 	DefineCustomStringVariable("pllua.interpreter_reload_ident",
 							   gettext_noop("Altering this id reloads any held interpreters"),
 							   NULL,
 							   &pllua_reload_ident,
 							   NULL,
-							   PGC_SUSET, 0,
+							   PGC_SIGHUP, 0,
 							   NULL, pllua_assign_reload_ident, NULL);
 
 	EmitWarningsOnPlaceholders("pllua");
