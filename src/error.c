@@ -267,7 +267,7 @@ pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 			elog(ERROR, "failed to extend Lua stack");
 	}
 	else
-		luaL_checkstack(L, 3);
+		luaL_checkstack(L, 3, NULL);
 
 	oldctx = pllua_setcontext(PLLUA_CONTEXT_LUA);
 
