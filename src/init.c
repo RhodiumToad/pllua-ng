@@ -60,9 +60,10 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 	{
 		if (interp_desc->new_ident)
 		{
-			int rc = pllua_cpcall(interp_desc->L, pllua_set_new_ident, interp_desc);
+			lua_State *L = interp_desc->L;
+			int rc = pllua_cpcall(L, pllua_set_new_ident, interp_desc);
 			if (rc)
-				pllua_rethrow_from_lua(interp_desc->L, rc);  /* unlikely, but be safe */
+				pllua_rethrow_from_lua(L, rc);  /* unlikely, but be safe */
 		}
 		return interp_desc;
 	}
