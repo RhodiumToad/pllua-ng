@@ -18,13 +18,13 @@ pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
 static void
 pllua_common_lua_exit(lua_State *L)
 {
-	unsigned long gc_debt = pllua_getinterpreter(L)->gc_debt;
-
 	lua_settop(L, 0);
 
-	if (gc_debt)
+	if (pllua_track_gc_debt)
 	{
-		pllua_getinterpreter(L)->gc_debt = 0;
+		pllua_interpreter *interp = pllua_getinterpreter(L);
+		unsigned long gc_debt = interp->gc_debt;
+		interp->gc_debt = 0;
 		pllua_run_extra_gc(L, gc_debt);
 	}
 }
