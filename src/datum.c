@@ -2316,7 +2316,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		int32 basetypmod = typmod;
 		Oid elemtype;
 		char typtype;
-		TupleDesc tupdesc;
+		TupleDesc tupdesc = NULL;
 
 		/*
 		 * Break out the RECORDOID case since we can skip a lot of pointless
@@ -2499,7 +2499,6 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 	 * for datum objects of this type. We close most of the functions in it
 	 * over the typeinfo object itself for easy access.
 	 */
-
 	lua_getuservalue(L, -1);
 	lua_pushcfunction(L, pllua_datum_gc);
 	lua_setfield(L, -2, "__gc");
