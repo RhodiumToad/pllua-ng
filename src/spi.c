@@ -1202,8 +1202,10 @@ static int pllua_cursor_own(lua_State *L)
 {
 	pllua_spi_cursor *curs = pllua_checkobject(L, 1, PLLUA_SPI_CURSOR_OBJECT);
 
+	lua_settop(L, 1);
+
 	if (!curs->portal || !curs->is_live)
-		return 0;
+		return 1;
 
 	curs->is_ours = true;
 	return 1;
@@ -1216,8 +1218,10 @@ static int pllua_cursor_disown(lua_State *L)
 {
 	pllua_spi_cursor *curs = pllua_checkobject(L, 1, PLLUA_SPI_CURSOR_OBJECT);
 
+	lua_settop(L, 1);
+
 	if (!curs->portal || !curs->is_live)
-		return 0;
+		return 1;
 
 	curs->is_ours = false;
 	return 1;
