@@ -80,6 +80,7 @@
  *
  * Copyright (c) 2015 Kepler Project.
  */
+extern const char *luaL_tolstring(lua_State *L, int nd, size_t *len);
 static inline int lua_absindex(lua_State *L, int nd)
 {
 	return (nd < 0 && nd > LUA_REGISTRYINDEX) ? nd + lua_gettop(L) + 1 : nd;

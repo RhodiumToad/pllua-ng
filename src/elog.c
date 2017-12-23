@@ -295,7 +295,7 @@ pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 }
 
 #if LUA_VERSION_NUM == 501
-static const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
+const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
 {
   if (!luaL_callmeta(L, idx, "__tostring")) {
     int t = lua_type(L, idx), tt = 0;
