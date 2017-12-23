@@ -613,16 +613,15 @@ pllua_intercept_error(lua_State *L)
 		lua_pushboolean(L, 1);
 		lua_replace(L, lua_upvalueindex(2));
 
+		/*
+		 * It's possible to get here with a non-pg error as the current error
+		 * value while there's a pg error in the registry. But if we're
+		 * catching a pg error, it should be the most recent one thrown.
+		 */
 		if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
 		{
 			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
 			Assert(lua_rawequal(L, 1, -1));
-			lua_pop(L, 1);
-		}
-		else
-		{
-			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
-			Assert(lua_isnil(L, -1));
 			lua_pop(L, 1);
 		}
 		/*

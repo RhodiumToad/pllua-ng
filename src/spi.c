@@ -131,10 +131,15 @@ int pllua_spi_prepare_result(lua_State *L)
 	else
 		base = 1 + lua_tointeger(L, 4);
 
-	lua_pushcfunction(L, pllua_typeinfo_lookup);
-	lua_pushinteger(L, (lua_Integer) tupdesc->tdtypeid);
-	lua_pushinteger(L, (lua_Integer) tupdesc->tdtypmod);
-	lua_call(L, 2, 1);
+	if (tupdesc->tdtypeid == RECORDOID && tupdesc->tdtypmod < 0)
+		pllua_newtypeinfo_raw(L, tupdesc->tdtypeid, tupdesc->tdtypmod, tupdesc);
+	else
+	{
+		lua_pushcfunction(L, pllua_typeinfo_lookup);
+		lua_pushinteger(L, (lua_Integer) tupdesc->tdtypeid);
+		lua_pushinteger(L, (lua_Integer) tupdesc->tdtypmod);
+		lua_call(L, 2, 1);
+	}
 
 	for (i = 0; i < nrows; ++i)
 	{
@@ -359,7 +364,6 @@ static int pllua_spi_prepare(lua_State *L)
 	{
 		for(i = 1; ; ++i)
 		{
-			void **pt;
 			pllua_typeinfo *t;
 
 			if (lua_geti(L, 2, i) == LUA_TNIL)
@@ -375,10 +379,9 @@ static int pllua_spi_prepare(lua_State *L)
 				lua_remove(L, -2);
 			}
 
-			pt = pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
-			if (!pt)
+			t = pllua_totypeinfo(L, -1);
+			if (!t)
 				luaL_error(L, "unexpected object type in argtypes list");
-			t = *pt;
 
 			argtypes[nargs++] = t->typeoid;
 		}
@@ -410,7 +413,7 @@ static int pllua_spi_prepare(lua_State *L)
 
 		for(i = 0; i < stmt->nparams; ++i)
 		{
-			void **pt;
+			pllua_typeinfo *t;
 
 			/* unused params will have InvalidOid here */
 			if (OidIsValid(stmt->param_types[i]))
@@ -418,8 +421,8 @@ static int pllua_spi_prepare(lua_State *L)
 				lua_pushcfunction(L, pllua_typeinfo_lookup);
 				lua_pushinteger(L, (lua_Integer) stmt->param_types[i]);
 				lua_call(L, 1, 1);
-				pt = pllua_torefobject(L, -1, PLLUA_TYPEINFO_OBJECT);
-				if (!pt)
+				t = pllua_totypeinfo(L, -1);
+				if (!t)
 					luaL_error(L, "unexpected type in paramtypes list: %d", (lua_Integer) stmt->param_types[i]);
 
 				lua_rawseti(L, -2, i+1);
@@ -608,8 +611,11 @@ static int pllua_spi_execute_count(lua_State *L)
 			nrows = SPI_processed;
 			if (SPI_tuptable)
 			{
-				BlessTupleDesc(SPI_tuptable->tupdesc);
-
+				/*
+				 * Blessing the tupdesc of the result turns out to be a bad
+				 * idea if we can avoid it; in a long-running backend the
+				 * tupdescs can really pile up.
+				 */
 				pllua_pushcfunction(L, pllua_spi_prepare_result);
 				lua_pushlightuserdata(L, SPI_tuptable);
 				lua_pushinteger(L, nrows);
@@ -855,8 +861,6 @@ static int pllua_spi_cursor_fetch(lua_State *L)
 		nrows = SPI_processed;
 		if (SPI_tuptable)
 		{
-			BlessTupleDesc(SPI_tuptable->tupdesc);
-
 			pllua_pushcfunction(L, pllua_spi_prepare_result);
 			lua_pushlightuserdata(L, SPI_tuptable);
 			lua_pushinteger(L, nrows);

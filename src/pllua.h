@@ -450,13 +450,14 @@ typedef struct pllua_typeinfo
 	Oid			elemtype;	/* for arrays */
 	Oid			rangetype;	/* for ranges */
 	bool		hasoid;
-	bool		nested;		/* may contain nested explodable values */
 	bool		is_array;
 	bool		is_range;
 	bool		is_enum;
 	bool		is_anonymous_record;
 
 	bool		revalidate;
+	bool		modified;
+	bool		obsolete;
 
 	int16		typlen;
 	bool		typbyval;
@@ -605,11 +606,13 @@ int pllua_open_pgtype(lua_State *L);
 void pllua_verify_encoding(lua_State *L, const char *str);
 bool pllua_verify_encoding_noerror(lua_State *L, const char *str);
 void *pllua_palloc(lua_State *L, size_t sz);
+pllua_typeinfo *pllua_totypeinfo(lua_State *L, int nd);
+pllua_typeinfo *pllua_checktypeinfo(lua_State *L, int nd, bool revalidate);
 pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
 pllua_datum *pllua_checkdatum(lua_State *L, int nd, int td);
+pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
+pllua_datum *pllua_todatum(lua_State *L, int nd, int td);
 int pllua_typeinfo_invalidate(lua_State *L);
-struct pllua_datum;
-struct pllua_typeinfo;
 void pllua_savedatum(lua_State *L,
 					 struct pllua_datum *d,
 					 struct pllua_typeinfo *t);
@@ -626,13 +629,8 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 							bool *isnull,
 							const char **errstr);
 pllua_datum *pllua_newdatum(lua_State *L);
-void pllua_savedatum(lua_State *L,
-					 pllua_datum *d,
-					 pllua_typeinfo *t);
 int pllua_typeinfo_lookup(lua_State *L);
 pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc);
-pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti);
-pllua_datum *pllua_todatum(lua_State *L, int nd, int td);
 int pllua_typeinfo_parsetype(lua_State *L);
 int pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t);
 
