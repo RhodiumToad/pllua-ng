@@ -1621,18 +1621,9 @@ static int pllua_datum_idxlist_len(lua_State *L)
 
 static int pllua_datum_array_next(lua_State *L);
 
-static int pllua_datum_idxlist_pairs(lua_State *L)
+static ExpandedArrayHeader *
+pllua_datum_array_value(lua_State *L, pllua_datum *d, pllua_typeinfo *t)
 {
-	struct idxlist *idxlist = pllua_toobject(L, 1, PLLUA_IDXLIST_OBJECT);
-	pllua_datum *d;
-	pllua_typeinfo *t;
-	ExpandedArrayHeader *arr;
-
-	pllua_get_user_field(L, 1, "datum");
-
-	d = pllua_checkanydatum(L, -1, &t);
-	/* stack: ... datum typeinfo */
-
 	/* Switch to expanded representation if we haven't already. */
 	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
 	{
@@ -1645,7 +1636,22 @@ static int pllua_datum_idxlist_pairs(lua_State *L)
 		PLLUA_CATCH_RETHROW();
 	}
 
-	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+	return (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+}
+
+static int pllua_datum_idxlist_pairs(lua_State *L)
+{
+	struct idxlist *idxlist = pllua_toobject(L, 1, PLLUA_IDXLIST_OBJECT);
+	pllua_datum *d;
+	pllua_typeinfo *t;
+	ExpandedArrayHeader *arr;
+
+	pllua_get_user_field(L, 1, "datum");
+
+	d = pllua_checkanydatum(L, -1, &t);
+	/* stack: ... datum typeinfo */
+
+	arr = pllua_datum_array_value(L, d, t);
 
 	lua_pushvalue(L, -1);
 	lua_pushvalue(L, 1);
@@ -1728,19 +1734,7 @@ static int pllua_datum_array_index(lua_State *L)
 		luaL_argerror(L, 2, NULL);
 	}
 
-	/* Switch to expanded representation if we haven't already. */
-	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
-	{
-		PLLUA_TRY();
-		{
-			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
-			pllua_record_gc_debt(L, toast_datum_size(d->value));
-			d->need_gc = true;
-		}
-		PLLUA_CATCH_RETHROW();
-	}
-
-	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+	arr = pllua_datum_array_value(L, d, t);
 
 	if (idxlist)
 	{
@@ -1819,20 +1813,7 @@ static int pllua_datum_array_newindex(lua_State *L)
 	else
 		lua_pop(L, 1);
 
-
-	/* Switch to expanded representation if we haven't already. */
-	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
-	{
-		PLLUA_TRY();
-		{
-			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
-			pllua_record_gc_debt(L, toast_datum_size(d->value));
-			d->need_gc = true;
-		}
-		PLLUA_CATCH_RETHROW();
-	}
-
-	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+	arr = pllua_datum_array_value(L, d, t);
 
 	if (idxlist->cur_dim < arr->ndims)
 		luaL_error(L, "not enough subscripts for array");
@@ -1882,19 +1863,7 @@ static int pllua_datum_array_len(lua_State *L)
 	if (!idxlist && !lua_isnoneornil(L, 2) && !lua_rawequal(L, 1, 2))
 		luaL_argerror(L, 2, "incorrect type");
 
-	/* Switch to expanded representation if we haven't already. */
-	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
-	{
-		PLLUA_TRY();
-		{
-			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
-			pllua_record_gc_debt(L, toast_datum_size(d->value));
-			d->need_gc = true;
-		}
-		PLLUA_CATCH_RETHROW();
-	}
-
-	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+	arr = pllua_datum_array_value(L, d, t);
 
 	if (arr->ndims < 1 || reqdim > arr->ndims)
 		res = 0;
@@ -1938,19 +1907,7 @@ static int pllua_datum_array_pairs(lua_State *L)
 	if (!t->is_array)
 		luaL_error(L, "datum is not an array type");
 
-	/* Switch to expanded representation if we haven't already. */
-	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
-	{
-		PLLUA_TRY();
-		{
-			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
-			pllua_record_gc_debt(L, toast_datum_size(d->value));
-			d->need_gc = true;
-		}
-		PLLUA_CATCH_RETHROW();
-	}
-
-	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+	arr = pllua_datum_array_value(L, d, t);
 
 	lua_pushvalue(L, lua_upvalueindex(1));
 	lua_pushvalue(L, 1);
@@ -2045,19 +2002,7 @@ pllua_datum_array_map(lua_State *L)
 			break;
 	}
 
-	/* Switch to expanded representation if we haven't already. */
-	if (!VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(d->value)))
-	{
-		PLLUA_TRY();
-		{
-			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
-			pllua_record_gc_debt(L, toast_datum_size(d->value));
-			d->need_gc = true;
-		}
-		PLLUA_CATCH_RETHROW();
-	}
-
-	arr = (ExpandedArrayHeader *) DatumGetEOHP(d->value);
+	arr = pllua_datum_array_value(L, d, t);
 	ndim = arr->ndims;
 	nelems = ArrayGetNItems(ndim, arr->dims);
 
@@ -4452,7 +4397,11 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 		 */
 		lua_pushvalue(L, nd);
 		curidx[0] = 1;
-		for (topidx = 0, i = 1; i <= nelems; ++i)
+		/*
+		 * The topidx check in the loop condition serves no purpose except
+		 * to silence a really annoying gcc warning
+		 */
+		for (topidx = 0, i = 1; i <= nelems && topidx >= 0; ++i)
 		{
 			while (topidx < ndim - 1)
 			{
