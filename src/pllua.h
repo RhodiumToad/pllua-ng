@@ -295,6 +295,8 @@ typedef struct pllua_interpreter
 	bool		trusted;
 	bool		new_ident;
 
+	unsigned long gc_debt;		/* estimated additional GC debt */
+
 	/* state below must be saved/restored for recursive calls */
 	pllua_activation_record cur_activation;
 
@@ -592,6 +594,24 @@ extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 pllua_interpreter *pllua_getstate(bool trusted, pllua_activation_record *act);
 pllua_interpreter *pllua_getinterpreter(lua_State *L);
 int pllua_set_new_ident(lua_State *L);
+void pllua_run_extra_gc(lua_State *L, unsigned long gc_debt);
+
+extern bool pllua_track_gc_debt;
+
+/*
+ * This is a macro because we want to avoid executing (sz_) at all if not tracking
+ * gc debt, since it might be a toast_datum_size call with nontrivial overhead.
+ */
+#define pllua_record_gc_debt(L_, sz_) \
+	do { if (pllua_track_gc_debt) pllua_record_gc_debt_real(L_, (sz_)); } while (0)
+
+static inline void
+pllua_record_gc_debt_real(lua_State *L, unsigned long bytes)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	if (interp)
+		interp->gc_debt += bytes;
+}
 
 /* compile.c */
 

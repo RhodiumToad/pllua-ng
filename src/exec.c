@@ -8,12 +8,25 @@
 #include "commands/event_trigger.h"
 #include "utils/datum.h"
 
-
 static void
 pllua_common_lua_init(lua_State *L, FunctionCallInfo fcinfo)
 {
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 	luaL_checkstack(L, 40, NULL);
+}
+
+static void
+pllua_common_lua_exit(lua_State *L)
+{
+	unsigned long gc_debt = pllua_getinterpreter(L)->gc_debt;
+
+	lua_settop(L, 0);
+
+	if (gc_debt)
+	{
+		pllua_getinterpreter(L)->gc_debt = 0;
+		pllua_run_extra_gc(L, gc_debt);
+	}
 }
 
 /*
@@ -286,6 +299,9 @@ pllua_resume_function(lua_State *L)
 	act->retval = pllua_return_result(L, lua_gettop(L) - 1,
 									  fact,
 									  &fcinfo->isnull);
+
+	pllua_common_lua_exit(L);
+
 	return 0;
 }
 
@@ -396,6 +412,9 @@ pllua_call_function(lua_State *L)
 	act->retval = pllua_return_result(L, lua_gettop(L) - nstack,
 									  fact,
 									  &fcinfo->isnull);
+
+	pllua_common_lua_exit(L);
+
 	return 0;
 }
 
@@ -445,6 +464,8 @@ pllua_call_trigger(lua_State *L)
 	/* mark the trigger object dead */
 	pllua_trigger_end(L, 2);
 
+	pllua_common_lua_exit(L);
+
 	return 0;
 }
 
@@ -485,6 +506,8 @@ pllua_call_event_trigger(lua_State *L)
 	/* mark the trigger object dead */
 	pllua_evtrigger_end(L, 2);
 
+	pllua_common_lua_exit(L);
+
 	return 0;
 }
 
@@ -504,6 +527,8 @@ pllua_call_inline(lua_State *L)
 	pllua_compile_inline(L, act->cblock->source_text, act->trusted);
 	lua_call(L, 1, 0);
 
+	pllua_common_lua_exit(L);
+
 	return 0;
 }
 
@@ -521,6 +546,8 @@ pllua_validate(lua_State *L)
 	pllua_common_lua_init(L, NULL);
 
 	pllua_validate_function(L, func_oid, act->trusted);
+
+	pllua_common_lua_exit(L);
 
 	return 0;
 }

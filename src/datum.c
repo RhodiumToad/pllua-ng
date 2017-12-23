@@ -113,6 +113,9 @@ static Datum pllua_detoast_light(lua_State *L, Datum d)
 	}
 	PLLUA_CATCH_RETHROW();
 
+	if (nd != d)
+		pllua_record_gc_debt(L, VARSIZE(DatumGetPointer(nd)));
+
 	return nd;
 }
 
@@ -124,6 +127,7 @@ void *pllua_palloc(lua_State *L, size_t sz)
 		res = palloc(sz);
 	}
 	PLLUA_CATCH_RETHROW();
+	pllua_record_gc_debt(L, sz);
 	return res;
 }
 
@@ -653,6 +657,7 @@ void pllua_savedatum(lua_State *L,
 		nv = datumCopy(d->value, false, t->typlen);
 		d->value = nv;
 		d->need_gc = true;
+		pllua_record_gc_debt(L, t->typlen);
 		return;
 	}
 
@@ -700,6 +705,7 @@ void pllua_savedatum(lua_State *L,
 		nv = PointerGetDatum(PG_DETOAST_DATUM_COPY(d->value));
 		d->value = nv;
 	}
+	pllua_record_gc_debt(L, toast_datum_size(d->value));
 	d->need_gc = true;
 	return;
 }
@@ -1633,6 +1639,7 @@ static int pllua_datum_idxlist_pairs(lua_State *L)
 		PLLUA_TRY();
 		{
 			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			pllua_record_gc_debt(L, toast_datum_size(d->value));
 			d->need_gc = true;
 		}
 		PLLUA_CATCH_RETHROW();
@@ -1727,6 +1734,7 @@ static int pllua_datum_array_index(lua_State *L)
 		PLLUA_TRY();
 		{
 			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			pllua_record_gc_debt(L, toast_datum_size(d->value));
 			d->need_gc = true;
 		}
 		PLLUA_CATCH_RETHROW();
@@ -1818,6 +1826,7 @@ static int pllua_datum_array_newindex(lua_State *L)
 		PLLUA_TRY();
 		{
 			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			pllua_record_gc_debt(L, toast_datum_size(d->value));
 			d->need_gc = true;
 		}
 		PLLUA_CATCH_RETHROW();
@@ -1879,6 +1888,7 @@ static int pllua_datum_array_len(lua_State *L)
 		PLLUA_TRY();
 		{
 			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			pllua_record_gc_debt(L, toast_datum_size(d->value));
 			d->need_gc = true;
 		}
 		PLLUA_CATCH_RETHROW();
@@ -1934,6 +1944,7 @@ static int pllua_datum_array_pairs(lua_State *L)
 		PLLUA_TRY();
 		{
 			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			pllua_record_gc_debt(L, toast_datum_size(d->value));
 			d->need_gc = true;
 		}
 		PLLUA_CATCH_RETHROW();
@@ -2040,6 +2051,7 @@ pllua_datum_array_map(lua_State *L)
 		PLLUA_TRY();
 		{
 			d->value = expand_array(d->value, pllua_get_memory_cxt(L), &t->array_meta);
+			pllua_record_gc_debt(L, toast_datum_size(d->value));
 			d->need_gc = true;
 		}
 		PLLUA_CATCH_RETHROW();
@@ -2503,6 +2515,8 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 
 	if (!t)
 		return t;
+
+	pllua_record_gc_debt(L, 4096);  /* somewhat arbitrary */
 
 	/*
 	 * the table we created for our uservalue is going to be the metatable

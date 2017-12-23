@@ -28,6 +28,10 @@ static char *pllua_on_untrusted_init = NULL;
 static bool pllua_do_check_for_interrupts = true;
 static int pllua_num_held_interpreters = 1;
 static char *pllua_reload_ident = NULL;
+static double pllua_gc_threshold = 0;
+static double pllua_gc_multiplier = 0;
+
+bool pllua_track_gc_debt = false;
 
 static lua_State *pllua_newstate_phase1(const char *ident);
 static void pllua_newstate_phase2(lua_State *L,
@@ -73,6 +77,8 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 		interp_desc->L = NULL;
 		interp_desc->trusted = trusted;
 		interp_desc->new_ident = false;
+
+		interp_desc->gc_debt = 0;
 
 		interp_desc->cur_activation.fcinfo = NULL;
 		interp_desc->cur_activation.retval = (Datum) 0;
@@ -220,6 +226,47 @@ pllua_set_new_ident(lua_State *L)
 	interp_desc->new_ident = false;
 	return 0;
 }
+
+
+static void
+pllua_assign_gc_multiplier(double newval, void *extra)
+{
+	if (newval > 0.0)
+		pllua_track_gc_debt = true;
+	else
+		pllua_track_gc_debt = false;
+}
+
+void
+pllua_run_extra_gc(lua_State *L, unsigned long gc_debt)
+{
+	double val;
+
+	if (pllua_gc_multiplier == 0.0)
+		return;
+
+	val = (gc_debt / 1024.0);
+	if (val < pllua_gc_threshold)
+		return;
+	if (pllua_gc_multiplier > 999999.0)
+	{
+		pllua_debug(L, "pllua_run_extra_gc: full collect");
+		lua_gc(L, LUA_GCCOLLECT, 0);
+	}
+	else
+	{
+		int ival;
+
+		val *= pllua_gc_multiplier;
+		if (val >= (double) INT_MAX)
+			ival = INT_MAX;
+		else
+			ival = (int) val;
+		pllua_debug(L, "pllua_run_extra_gc: step %d", ival);
+		lua_gc(L, LUA_GCSTEP, ival);
+	}
+}
+
 /*
  * _PG_init
  *
@@ -237,7 +284,7 @@ void _PG_init(void)
 		return;
 
 	/*
-	 * Initialize GUCs. These are SUSET or SIGHUP for security reasons!
+	 * Initialize GUCs. These are mostly SUSET or SIGHUP for security reasons!
 	 */
 	DefineCustomStringVariable("pllua.on_init",
 							   gettext_noop("Code to execute early when a Lua interpreter is initialized."),
@@ -283,6 +330,30 @@ void _PG_init(void)
 							   NULL,
 							   PGC_SIGHUP, 0,
 							   NULL, pllua_assign_reload_ident, NULL);
+
+	/*
+	 * These don't need to be SUSET because we're not concerned about resource
+	 * attacks, and we expose the collectgarbage() function to the user anyway, so nothing
+	 * done with these has any real security consequence.
+	 */
+	DefineCustomRealVariable("pllua.extra_gc_multiplier",
+							 gettext_noop("Multiplier for additional GC calls"),
+							 NULL,
+							 &pllua_gc_multiplier,
+							 0,
+							 0,
+							 1000000,
+							 PGC_SUSET, 0,
+							 NULL, pllua_assign_gc_multiplier, NULL);
+	DefineCustomRealVariable("pllua.extra_gc_threshold",
+							 gettext_noop("Threshold for additional GC calls in kbytes"),
+							 NULL,
+							 &pllua_gc_threshold,
+							 0,
+							 0,
+							 LONG_MAX / 1024.0,
+							 PGC_SUSET, 0,
+							 NULL, NULL, NULL);
 
 	EmitWarningsOnPlaceholders("pllua");
 
@@ -542,6 +613,9 @@ pllua_init_state_phase1(lua_State *L)
 	 */
 	luaL_requiref(L, "pllua.elog", pllua_open_elog, 0);
 	lua_setglobal(L, "server");  /* XXX fixme: needs a better name/location */
+
+	if (!IsUnderPostmaster)
+		lua_gc(L, LUA_GCCOLLECT, 0);
 
 	return 0;
 }
