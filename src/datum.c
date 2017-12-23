@@ -227,6 +227,8 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 {
 	ASSERT_LUA_CONTEXT;
 
+	nd = lua_absindex(L, nd);
+
 	if (lua_type(L, nd) == LUA_TNIL)
 	{
 		*isnull = true;
@@ -388,12 +390,20 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 				lua_pushvalue(L, nd);
 				lua_call(L, 1, 1);
 
-				/* cursor name is already checked for encoding correctness */
-				str = lua_tolstring(L, nd, &len);
-				t = pllua_palloc(L, len + VARHDRSZ);
-				memcpy(VARDATA(t), str, len);
-				SET_VARSIZE(t, len + VARHDRSZ);
-				*result = PointerGetDatum(t);
+				if (!lua_isnil(L, -1))
+				{
+					/* cursor name is already checked for encoding correctness */
+					str = lua_tolstring(L, -1, &len);
+					t = pllua_palloc(L, len + VARHDRSZ);
+					memcpy(VARDATA(t), str, len);
+					SET_VARSIZE(t, len + VARHDRSZ);
+					*result = PointerGetDatum(t);
+				}
+				else
+				{
+					*isnull = true;
+					*result = (Datum)0;
+				}
 				return true;
 			}
 			return false;

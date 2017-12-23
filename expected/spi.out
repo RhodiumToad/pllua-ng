@@ -215,7 +215,7 @@ begin;
 select do_exec('select * from tsttab order by id desc', 'mycur2');
  do_exec 
 ---------
- 
+ mycur2
 (1 row)
 
 do language pllua $$ collectgarbage() $$;  -- check cursor stays open
