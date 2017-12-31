@@ -133,20 +133,28 @@ static Datum
 pllua_numeric_getarg(lua_State *L, int nd, pllua_datum *d,
 					 int isint, lua_Integer ival, int isnum, lua_Number fval)
 {
+	volatile Datum res = (Datum)0;
+
 	if (d)
 		return d->value;
-	if (isint)
+	luaL_argcheck(L, isint || isnum, nd, "not convertible to any number");
+
+	PLLUA_TRY();
 	{
-		int64 i = ival;
-		return DirectFunctionCall1(int8_numeric, Int64GetDatumFast(i));
+		if (isint)
+		{
+			int64 i = ival;
+			res = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(i));
+		}
+		else if (isnum)
+		{
+			float8 f = fval;
+			res = DirectFunctionCall1(float8_numeric, Float8GetDatumFast(f));
+		}
 	}
-	if (isnum)
-	{
-		float8 f = fval;
-		return DirectFunctionCall1(float8_numeric, Float8GetDatumFast(f));
-	}
-	luaL_argcheck(L, false, nd, "not convertible to any number");
-	return (Datum)0;
+	PLLUA_CATCH_RETHROW();
+
+	return res;
 }
 
 /*
