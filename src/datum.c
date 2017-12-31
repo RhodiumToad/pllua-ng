@@ -437,8 +437,6 @@ static void pllua_datum_reference(lua_State *L, int nd)
  */
 static void pllua_make_datum(lua_State *L, Datum value, Oid typeid, int32 typmod)
 {
-	lua_pushcfunction(L, pllua_typeinfo_lookup);
-
 	/*
 	 * A record result column probably won't have a useful typmod in the
 	 * atttypmod field, but it might well have one in the datum itself.
@@ -459,6 +457,7 @@ static void pllua_make_datum(lua_State *L, Datum value, Oid typeid, int32 typmod
 		}
 	}
 
+	lua_pushcfunction(L, pllua_typeinfo_lookup);
 	lua_pushinteger(L, (lua_Integer) typeid);
 	if (typeid == RECORDOID)
 		lua_pushinteger(L, (lua_Integer) typmod);
@@ -470,9 +469,7 @@ static void pllua_make_datum(lua_State *L, Datum value, Oid typeid, int32 typmod
 		luaL_error(L, "failed to find typeinfo");
 
 	{
-		pllua_datum *d;
-		pllua_checktypeinfo(L, -1, false);
-		d = pllua_newdatum(L);
+		pllua_datum *d = pllua_newdatum(L, -1);
 		d->value = value;
 		if (typeid != RECORDOID)
 			d->typmod = typmod;
@@ -536,8 +533,8 @@ pllua_typeinfo *pllua_checktypeinfo(lua_State *L, int nd, bool revalidate)
 	lua_pushinteger(L, (lua_Integer) t->typeoid);
 	lua_pushinteger(L, (lua_Integer) t->typmod);
 	lua_call(L, 2, 0);  /* discard result, we don't need it */
-	/* either t->revalidate got cleared, or t->obsolete or t->modified got set */
-	Assert(t->obsolete || !t->revalidate);
+	/* t->revalidate must have been cleared by cache replacement */
+	Assert(!t->revalidate);
 	return t;
 }
 
@@ -603,6 +600,13 @@ pllua_datum *pllua_toanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 				return NULL;
 			}
 			lua_pop(L, 2);
+			if (t->revalidate)
+			{
+				lua_pushcfunction(L, pllua_typeinfo_lookup);
+				lua_pushinteger(L, (lua_Integer) t->typeoid);
+				lua_pushinteger(L, (lua_Integer) t->typmod);
+				lua_call(L, 2, 0);  /* discard result, we don't need it */
+			}
 			if (ti)
 				*ti = t;
 			return p;
@@ -619,21 +623,26 @@ pllua_datum *pllua_checkanydatum(lua_State *L, int nd, pllua_typeinfo **ti)
 	return p;
 }
 
-pllua_datum *pllua_newdatum(lua_State *L)
+pllua_datum *pllua_newdatum(lua_State *L, int nt)
 {
 	pllua_datum *d;
-	pllua_checktypeinfo(L, -1, false);
+
+	nt = lua_absindex(L, nt);
+	pllua_checktypeinfo(L, nt, false);
+
 	d = lua_newuserdata(L, sizeof(pllua_datum));
+
 #if MANDATORY_USERVALUE
 	lua_newtable(L);
 	lua_setuservalue(L, -2);
 #endif
+
 	d->value = (Datum)0;
 	d->typmod = -1;
 	d->need_gc = false;
 	d->modified = false;
 
-	lua_getuservalue(L, -2);
+	lua_getuservalue(L, nt);
 	lua_setmetatable(L, -2);
 
 	return d;
@@ -1675,7 +1684,7 @@ static struct luaL_Reg idxlist_mt[] = {
 int
 pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t)
 {
-	pllua_datum *nd;
+	pllua_datum *newd;
 
 	nt = lua_absindex(L, nt);
 
@@ -1684,15 +1693,13 @@ pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo 
 	else if (pllua_value_from_datum(L, res, t->basetype) == LUA_TNONE &&
 			 pllua_datum_transform_fromsql(L, res, nt, t) == LUA_TNONE)
 	{
-		lua_pushvalue(L, nt);
-		nd = pllua_newdatum(L);
-		lua_remove(L, -2);
+		newd = pllua_newdatum(L, nt);
 
 		PLLUA_TRY();
 		{
 			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
-			nd->value = res;
-			pllua_savedatum(L, nd, t);
+			newd->value = res;
+			pllua_savedatum(L, newd, t);
 			MemoryContextSwitchTo(oldcontext);
 		}
 		PLLUA_CATCH_RETHROW();
@@ -2136,9 +2143,7 @@ pllua_datum_range_deform(lua_State *L, int nd, int nte, pllua_datum *d, pllua_ty
 		lua_pushlightuserdata(L, (void*)0);
 	else
 	{
-		lua_pushvalue(L, nte);
-		ld = pllua_newdatum(L);
-		lua_remove(L, -2);
+		ld = pllua_newdatum(L, nte);
 		ld->value = lower.val;
 	}
 
@@ -2150,9 +2155,7 @@ pllua_datum_range_deform(lua_State *L, int nd, int nte, pllua_datum *d, pllua_ty
 		lua_pushlightuserdata(L, (void*)0);
 	else
 	{
-		lua_pushvalue(L, nte);
-		ud = pllua_newdatum(L);
-		lua_remove(L, -2);
+		ud = pllua_newdatum(L, nte);
 		ud->value = upper.val;
 	}
 
@@ -2481,7 +2484,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		lua_newtable(L);
 		lua_pushstring(L, "kv");
 		lua_setfield(L, -2, "__mode");
-		lua_pushstring(L, "tupconv table metatable");
+		lua_pushstring(L, "tupconv table");
 		lua_setfield(L, -2, "__name");
 		/* stack: ... self uservalue tupconv tupconv_mt */
 		lua_pushvalue(L, -4);
@@ -3390,7 +3393,7 @@ static void pllua_typeinfo_coerce_typmod(lua_State *L,
 static int pllua_typeinfo_fromstring(lua_State *L)
 {
 	pllua_typeinfo *t = pllua_checktypeinfo(L, 1, true);
-	const char *str = lua_isnil(L, 2) ? NULL : lua_tostring(L, 2);
+	const char *str = lua_isnil(L, 2) ? NULL : luaL_checkstring(L, 2);
 	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	pllua_datum *d = NULL;
 	volatile bool done = false;
@@ -3401,11 +3404,10 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 	ASSERT_LUA_CONTEXT;
 
 	if (str)
+	{
 		pllua_verify_encoding(L, str);
-
-	lua_pushvalue(L, 1);
-	if (str)
-		d = pllua_newdatum(L);
+		d = pllua_newdatum(L, 1);
+	}
 	else
 		lua_pushnil(L);
 
@@ -3445,7 +3447,7 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 {
 	pllua_typeinfo *t = pllua_checktypeinfo(L, 1, true);
 	size_t len = 0;
-	const char *str = lua_isnil(L, 2) ? NULL : lua_tolstring(L, 2, &len);
+	const char *str = lua_isnil(L, 2) ? NULL : luaL_checklstring(L, 2, &len);
 	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	pllua_datum *d = NULL;
 	volatile bool done = false;
@@ -3455,9 +3457,8 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 
 	ASSERT_LUA_CONTEXT;
 
-	lua_pushvalue(L, 1);
 	if (str)
-		d = pllua_newdatum(L);
+		d = pllua_newdatum(L, 1);
 	else
 		lua_pushnil(L);
 
@@ -3608,7 +3609,7 @@ static int pllua_tupconv_call(lua_State *L)
 		|| totype->tupdesc->tdtypmod != obj->outdesc->tdtypmod)
 		luaL_error(L, "pllua_tupconv: unexpected result type");
 
-	newd = pllua_newdatum(L);
+	newd = pllua_newdatum(L, -1);
 
 	PLLUA_TRY();
 	{
@@ -3739,9 +3740,8 @@ static bool pllua_datum_transform_tosql(lua_State *L, int nargs, int argbase, in
 		return false;
 	}
 	luaL_checkstack(L, 10+nargs, NULL);
-	argbase = lua_absindex(L, argbase);
 	lua_pushvalue(L, nt);
-	pllua_newdatum(L);
+	pllua_newdatum(L, -1);
 	lua_pushcclosure(L, pllua_typeinfo_tosql, 2);
 	for (i = 0; i < nargs; ++i)
 		lua_pushvalue(L, argbase+i);
@@ -3882,8 +3882,7 @@ static int pllua_typeinfo_nonrow_call_datum(lua_State *L, int nd, int nt, int nd
 	{
 		val = EOHPGetRODatum(DatumGetEOHP(val));
 	}
-	lua_pushvalue(L, nt);
-	newd = pllua_newdatum(L);
+	newd = pllua_newdatum(L, nt);
 	PLLUA_TRY();
 	{
 		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
@@ -3944,9 +3943,7 @@ static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt, int ndt,
 			 * child datum of some other row). Otherwise, we have to make a new
 			 * imploded copy.
 			 */
-			lua_pushvalue(L, nt);
-			newd = pllua_newdatum(L);
-			lua_remove(L, -2);
+			newd = pllua_newdatum(L, nt);
 
 			PLLUA_TRY();
 			{
@@ -4037,8 +4034,7 @@ static int pllua_typeinfo_anonrec_call_datum(lua_State *L, int nd, int nt, int n
 		tmpd = pllua_todatum(L, -1, ndt);
 		Assert(tmpd);
 		Assert(!tmpd->modified);
-		lua_pushvalue(L, nt);
-		newd = pllua_newdatum(L);
+		newd = pllua_newdatum(L, nt);
 		/* transfer ownership of storage to new datum */
 		tmpd->need_gc = false;
 		newd->value = tmpd->value;
@@ -4049,9 +4045,7 @@ static int pllua_typeinfo_anonrec_call_datum(lua_State *L, int nd, int nt, int n
 	{
 		pllua_datum *newd;
 
-		lua_pushvalue(L, nt);
-		newd = pllua_newdatum(L);
-		lua_remove(L, -2);
+		newd = pllua_newdatum(L, nt);
 
 		PLLUA_TRY();
 		{
@@ -4153,16 +4147,14 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 			lua_pushnil(L);
 			return 1;
 		}
-		lua_pushvalue(L, 1);
-		newd = pllua_newdatum(L);
+		newd = pllua_newdatum(L, 1);
 		newd->value = nvalue;
 	}
 	else if (lua_type(L, 2) == LUA_TSTRING)
 	{
-		pllua_verify_encoding(L, str);
 		str = lua_tostring(L, 2);
-		lua_pushvalue(L, 1);
-		newd = pllua_newdatum(L);
+		pllua_verify_encoding(L, str);
+		newd = pllua_newdatum(L, 1);
 	}
 	else
 		luaL_error(L, "incompatible value type");
@@ -4269,8 +4261,7 @@ static int pllua_typeinfo_range_call(lua_State *L)
 		hi.inclusive = (str[1] == ']');
 	}
 
-	lua_pushvalue(L, 1);
-	d = pllua_newdatum(L);
+	d = pllua_newdatum(L, 1);
 
 	PLLUA_TRY();
 	{
@@ -4430,9 +4421,7 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 		lua_settop(L, ct);
 	}
 
-	lua_pushvalue(L, nt);
-	newd = pllua_newdatum(L);
-	lua_remove(L, -2);
+	newd = pllua_newdatum(L, nt);
 
 	PLLUA_TRY();
 	{
@@ -4587,8 +4576,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 		lua_pop(L,1);
 	}
 
-	lua_pushvalue(L, 1);
-	newd = pllua_newdatum(L);
+	newd = pllua_newdatum(L, 1);
 
 	PLLUA_TRY();
 	{

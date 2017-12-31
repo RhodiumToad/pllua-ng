@@ -110,7 +110,7 @@ pllua_trigger_get_typeinfo(lua_State *L, pllua_trigger *obj, int cache)
 static int
 pllua_trigger_getrow(lua_State *L, pllua_trigger *obj, HeapTuple tuple)
 {
-	pllua_datum *d = pllua_newdatum(L);
+	pllua_datum *d = pllua_newdatum(L, -1);
 
 	/*
 	 * Bit of a dance to avoid an extra copy step

@@ -209,8 +209,7 @@ pllua_numeric_handler(lua_State *L)
 
 	if (op >= PLLUA_NUM_ADD && op < PLLUA_NUM_ISNAN)
 	{
-		lua_pushvalue(L, lua_upvalueindex(1));
-		d = pllua_newdatum(L);
+		d = pllua_newdatum(L, lua_upvalueindex(1));
 		pllua_numeric_guts(L, d, t, val1, val2, op, i2, free_val1, free_val2);
 	}
 	else

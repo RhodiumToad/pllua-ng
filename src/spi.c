@@ -152,7 +152,7 @@ int pllua_spi_prepare_result(lua_State *L)
 		HeapTupleHeaderSetTypeId(h, tupdesc->tdtypeid);
 		HeapTupleHeaderSetTypMod(h, tupdesc->tdtypmod);
 
-		d = pllua_newdatum(L);
+		d = pllua_newdatum(L, -1);
 		/* we intentionally do not detoast anything here, see savedatum */
 		d->value = PointerGetDatum(h);
 		lua_rawseti(L, 3, i+base);
@@ -460,6 +460,7 @@ int pllua_spi_convert_args(lua_State *L)
 			/* not already an unexploded datum of correct type? */
 			if (!d ||
 				dt->typeoid != argtypes[i] ||
+				dt->obsolete || dt->modified ||
 				d->modified)
 			{
 				if (d)

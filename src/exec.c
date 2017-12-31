@@ -230,7 +230,7 @@ pllua_push_args(lua_State *L,
 				 (pllua_value_from_datum(L, value, t->basetype) == LUA_TNONE))
 				&& (pllua_datum_transform_fromsql(L, value, -1, t) == LUA_TNONE))
 			{
-				d = pllua_newdatum(L);
+				d = pllua_newdatum(L, -1);
 				d->value = value;
 				/*
 				 * needs savedatum; the datum object on the stack will ensure
@@ -239,7 +239,7 @@ pllua_push_args(lua_State *L,
 				argtinfo[i] = t;
 			}
 			/* drop the typeinfo off the stack */
-			lua_remove(L,-2);
+			lua_remove(L, -2);
 		}
 	}
 

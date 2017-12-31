@@ -575,8 +575,7 @@ pllua_jsonb_tosql(lua_State *L)
 		PLLUA_CATCH_RETHROW();
 	}
 
-	lua_pushvalue(L, lua_upvalueindex(1));
-	nd = pllua_newdatum(L);
+	nd = pllua_newdatum(L, lua_upvalueindex(1));
 
 	PLLUA_TRY();
 	{
