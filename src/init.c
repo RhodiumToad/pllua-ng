@@ -16,6 +16,8 @@
 
 PGDLLEXPORT void _PG_init(void);
 
+#define PLLUA_ERROR_CONTEXT_SIZES 8*1024, 8*1024, 8*1024
+
 static bool simulate_memory_failure = false;
 
 static HTAB *pllua_interp_hash = NULL;
@@ -720,9 +722,7 @@ pllua_newstate_phase1(const char *ident)
 
 	emcxt = AllocSetContextCreate(mcxt,
 								  "PL/Lua error context",
-								  8*1024,
-								  8*1024,
-								  8*1024);
+								  PLLUA_ERROR_CONTEXT_SIZES );
 
 #if LUA_VERSION_NUM == 501
 	L = luaL_newstate();

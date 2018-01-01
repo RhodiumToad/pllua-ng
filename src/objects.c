@@ -163,7 +163,11 @@ MemoryContext pllua_newmemcontext(lua_State *L,
 	volatile MemoryContext mcxt;
 	PLLUA_TRY();
 	{
+#if PG_VERSION_NUM >= 110000
+		mcxt = AllocSetContextCreateExtended(parent, name, 0, minsz, initsz, maxsz);
+#else
 		mcxt = AllocSetContextCreate(parent, name, minsz, initsz, maxsz);
+#endif
 		*p = mcxt;
 	}
 	PLLUA_CATCH_RETHROW();

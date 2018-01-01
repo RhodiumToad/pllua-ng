@@ -152,7 +152,7 @@ int pllua_spi_prepare_result(lua_State *L)
 		HeapTupleHeaderSetTypeId(h, tupdesc->tdtypeid);
 		HeapTupleHeaderSetTypMod(h, tupdesc->tdtypmod);
 
-		d = pllua_newdatum(L, -1);
+		d = pllua_newdatum(L, -1, (Datum)0);
 		/* we intentionally do not detoast anything here, see savedatum */
 		d->value = PointerGetDatum(h);
 		lua_rawseti(L, 3, i+base);

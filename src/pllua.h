@@ -457,6 +457,8 @@ typedef struct pllua_typeinfo
 	bool		is_range;
 	bool		is_enum;
 	bool		is_anonymous_record;
+	bool		nested_unknowns;
+	bool		nested_composites;
 
 	bool		revalidate;
 	bool		modified;
@@ -637,6 +639,9 @@ int pllua_typeinfo_invalidate(lua_State *L);
 void pllua_savedatum(lua_State *L,
 					 struct pllua_datum *d,
 					 struct pllua_typeinfo *t);
+void pllua_save_one_datum(lua_State *L,
+						  pllua_datum *d,
+						  pllua_typeinfo *t);
 int pllua_value_from_datum(lua_State *L,
 						   Datum value,
 						   Oid typeid);
@@ -649,7 +654,7 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 							Datum *result,
 							bool *isnull,
 							const char **errstr);
-pllua_datum *pllua_newdatum(lua_State *L, int nt);
+pllua_datum *pllua_newdatum(lua_State *L, int nt, Datum value);
 int pllua_typeinfo_lookup(lua_State *L);
 pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc);
 int pllua_typeinfo_parsetype(lua_State *L);

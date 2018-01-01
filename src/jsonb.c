@@ -575,12 +575,11 @@ pllua_jsonb_tosql(lua_State *L)
 		PLLUA_CATCH_RETHROW();
 	}
 
-	nd = pllua_newdatum(L, lua_upvalueindex(1));
+	nd = pllua_newdatum(L, lua_upvalueindex(1), datum);
 
 	PLLUA_TRY();
 	{
 		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
-		nd->value = datum;
 		pllua_savedatum(L, nd, t);
 		MemoryContextReset(tmpcxt);
 		MemoryContextSwitchTo(oldcontext);
