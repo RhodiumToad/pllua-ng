@@ -371,11 +371,35 @@ load modules from database queries if they so wish).
 pllua.on_trusted_init is run in trusted interpreters in the global
 env (not the sandbox env). It can do:
 
-      trusted.allow('module' [,'newname'])
-        -- requires 'module', then sets up the sandbox so that lua code
-           can do  require 'newname'  and get access to the module
-      trusted.require('module' [,'newname'])
-        -- as above, but also does sandbox.newname = module
+      trusted.allow('module', newname, mode, global)
+
+        -- requires 'module' outside the sandbox, and then makes it
+           accessible via  require 'newname' (newname is defaulted to
+           'module' if nil or omitted) inside the sandbox using
+           the adapter specified by "mode" (default "proxy"). Then, if
+           "global" is true or a string, it executes the equivalent of:
+             _G[ (type(global)=="string" and global)
+                 or newname or module ] = require(newname or module)
+           inside the sandbox.
+
+           Mode can be "direct" (exposes the module to the sandbox
+           directly), "copy" (makes a recursive copy of it and any
+           contained tables, without copying metatables, otherwise as
+           "direct"), and "proxy" which returns a proxy table having
+           the module in the metatable index slot (and any table
+           members in the module proxied likewise). All modes behave
+           like "direct" if the module's value is not a table.
+
+           PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER FOR
+           ARBITRARY MODULES. It's intended to make it _possible_ for
+           simple modules or adapters to be used easily while
+           protecting the "outside" copy from direct modification from
+           inside. If the module returns any table from a function,
+           that table might be modified from inside the sandbox.
+
+      trusted.require(module, newname, mode)
+        -- equiv. to  trusted.allow(module, newname, mode, true)
+
       trusted.remove('newname')
         -- undoes either of the above (probably not very useful, but you
            could do  trusted.remove('os')  or whatever)
@@ -383,7 +407,8 @@ env (not the sandbox env). It can do:
 The trusted environment's version of "load" overrides the text/binary
 mode field (loading binary functions is unsafe) and overrides the
 environment to be the trusted sandbox if the caller didn't provide one
-itself (but the caller can still give an explicit environment of nil).
+itself (but the caller can still give an explicit environment of nil
+or anything else).
 
 A set-returning function isn't considered to end until it either
 returns or throws an error; yielding with no results is considered the
