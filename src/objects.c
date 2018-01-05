@@ -6,6 +6,8 @@
 
 #include "pllua.h"
 
+#include "nodes/makefuncs.h"
+
 /*
  * True if object at index "nd" is of "objtype"
  *
@@ -34,6 +36,8 @@ void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt)
 	luaL_setfuncs(L, mt, 0);
 	lua_pushstring(L, objtype);
 	lua_setfield(L, -2, "__name");
+	lua_newtable(L);
+	lua_setfield(L, -2, "__metatable");
 	lua_pushvalue(L, -1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, objtype);
 }
@@ -248,6 +252,30 @@ pllua_get_user_field(lua_State *L, int nd, const char *field)
 	else
 	{
 		int typ = lua_getfield(L, -1, field);
+		lua_remove(L, -2);
+		return typ;
+	}
+}
+
+int
+pllua_get_user_subfield(lua_State *L, int nd, const char *field, const char *subfield)
+{
+	if (lua_getuservalue(L, nd) != LUA_TTABLE)
+	{
+		lua_pop(L, 1);
+		lua_pushnil(L);
+		return LUA_TNIL;
+	}
+	else if (lua_getfield(L, -1, field) != LUA_TTABLE)
+	{
+		lua_pop(L, 2);
+		lua_pushnil(L);
+		return LUA_TNIL;
+	}
+	else
+	{
+		int typ	= lua_getfield(L, -1, subfield);
+		lua_remove(L, -2);
 		lua_remove(L, -2);
 		return typ;
 	}
@@ -595,6 +623,117 @@ static int pllua_funcobject_gc(lua_State *L)
 }
 
 /*
+ * PGFunc objects are refobjects pointing at the FmgrInfo for some pg function
+ * we might call.
+ *
+ * It would be nice to be able to initialize more stuff here. But the problem
+ * is that most fmgr initialization needs to be done from PG context, and so
+ * it's better to share a catch block between that and the function call proper
+ * than have a new catch block just for this.
+ *
+ * By storing the memory context in a separate object in the uservalue, we
+ * avoid needing a metatable for this; some callers might like to supply their
+ * own (e.g. with a __call method). But that does mean that pgfunc objects are
+ * not in fact type-checkable as refobjects, and the caller has to do their own
+ * type checks.
+ */
+void pllua_pgfunc_new(lua_State *L)
+{
+	pllua_newrefobject(L, NULL, NULL, true);
+	lua_getuservalue(L, -1);
+	pllua_newmemcontext(L, "pllua pgfunc context", ALLOCSET_SMALL_SIZES);
+	lua_rawsetp(L, -2, PLLUA_MCONTEXT_MEMBER);
+	lua_pop(L, 1);
+}
+
+/*
+ * __index(tab,key)
+ */
+static int
+pllua_pgfunc_auto_new(lua_State *L)
+{
+	lua_settop(L,2);
+	pllua_pgfunc_new(L);
+	lua_pushvalue(L, -2);
+	lua_pushvalue(L, -2);
+	lua_rawset(L, 1);
+	return 1;
+}
+
+void pllua_pgfunc_table_new(lua_State *L)
+{
+	lua_newtable(L);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_PGFUNC_TABLE_OBJECT);
+	lua_setmetatable(L, -2);
+}
+
+/*
+ * Actually allocate (if needed) and fill in a pgfunc. This has to be called
+ * from PG context.
+ */
+FmgrInfo *
+pllua_pgfunc_init(lua_State *L, int nd, Oid fnoid, int nargs, Oid *argtypes, Oid rettype)
+{
+	MemoryContext mcxt;
+	MemoryContext oldcontext;
+	Node	   *func = NULL;
+	FmgrInfo   *fn = NULL;
+	void	  **p = lua_touserdata(L, nd);
+	int			i;
+
+	ASSERT_PG_CONTEXT;
+
+	if (!p)
+		elog(ERROR, "pllua_pgfunc_init: param is not a userdata");
+
+	if (lua_getuservalue(L, nd) != LUA_TTABLE)
+		elog(ERROR, "pllua_pgfunc_init: bad uservalue");
+
+	if (lua_rawgetp(L, -1, PLLUA_MCONTEXT_MEMBER) != LUA_TUSERDATA
+		|| !(mcxt = *(void **) lua_touserdata(L, -1)))
+		elog(ERROR, "pllua_pgfunc_init: missing mcontext");
+
+	lua_pop(L, 2);
+
+	oldcontext = MemoryContextSwitchTo(mcxt);
+
+	if (!*p)
+		fn = *p = palloc0(sizeof(FmgrInfo));
+	else
+		fn = *p;
+
+	if (nargs >= 0)
+	{
+		List	   *args = NIL;
+
+		for (i = 0; i < nargs; ++i)
+		{
+			Param	   *argp = makeNode(Param);
+
+			/* make an argument of a dummy Param node of the input type */
+			argp->paramkind = PARAM_EXEC;
+			argp->paramid = -1;
+			argp->paramtype = argtypes[i];
+			argp->paramtypmod = -1;
+			argp->paramcollid = InvalidOid;
+			argp->location = -1;
+			args = lappend(args, argp);
+		}
+
+		func = (Node *) makeFuncExpr(fnoid, rettype, args,
+									 InvalidOid, InvalidOid,
+									 COERCE_EXPLICIT_CALL);
+	}
+
+	fmgr_info_cxt(fnoid, fn, mcxt);
+	fmgr_info_set_expr(func, fn);
+
+	MemoryContextSwitchTo(oldcontext);
+
+	return fn;
+}
+
+/*
  * metatables for objects and global functions
  */
 
@@ -613,6 +752,11 @@ static struct luaL_Reg actobj_mt[] = {
 	{ NULL, NULL }
 };
 
+static struct luaL_Reg pgfunctab_mt[] = {
+	{ "__index", pllua_pgfunc_auto_new },
+	{ NULL, NULL }
+};
+
 int pllua_open_funcmgr(lua_State *L)
 {
 	lua_newtable(L);
@@ -623,7 +767,8 @@ int pllua_open_funcmgr(lua_State *L)
 	pllua_newmetatable(L, PLLUA_FUNCTION_OBJECT, funcobj_mt);
 	pllua_newmetatable(L, PLLUA_ACTIVATION_OBJECT, actobj_mt);
 	pllua_newmetatable(L, PLLUA_MCONTEXT_OBJECT, mcxtobj_mt);
-	lua_pop(L, 3);
+	pllua_newmetatable(L, PLLUA_PGFUNC_TABLE_OBJECT, pgfunctab_mt);
+	lua_pop(L, 4);
 
 	lua_pushboolean(L, 1);
 	return 1;

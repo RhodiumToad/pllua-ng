@@ -5,7 +5,6 @@
 #include "access/htup_details.h"
 #include "access/sysattr.h"
 #include "access/tuptoaster.h"
-#include "access/tupconvert.h"
 #include "catalog/pg_type.h"
 #include "mb/pg_wchar.h"
 #include "parser/parse_coerce.h"
@@ -67,8 +66,7 @@
 static bool pllua_typeinfo_iofunc(lua_State *L,
 								  pllua_typeinfo *t,
 								  IOFuncSelector whichfunc);
-static int pllua_tupconv_lookup(lua_State *L);
-
+static int pllua_typeconv_index(lua_State *L);
 static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t);
 
 /*
@@ -2335,7 +2333,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		MemoryContext mcxt;
 		MemoryContext oldcontext;
 		Oid basetype;
-		int32 basetypmod = typmod;
+		int32 basetypmod = -1;		/* XXX revisit */
 		Oid elemtype;
 		char typtype;
 		TupleDesc tupdesc = NULL;
@@ -2510,8 +2508,6 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 			t->tosql = get_transform_tosql(oid, langoid, l);
 		}
 
-		t->tojsonb_func.fn_oid = InvalidOid;
-
 		MemoryContextSwitchTo(oldcontext);
 		MemoryContextSetParent(mcxt, pllua_get_memory_cxt(L));
 
@@ -2538,19 +2534,21 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 	lua_pushvalue(L, -2);
 	lua_setfield(L, -2, "typeinfo");
 	/* stack: self uservalue */
+	pllua_pgfunc_table_new(L);
+	lua_setfield(L, -2, ".funcs");
 
 	lua_newtable(L);
 	lua_newtable(L);
 	lua_pushstring(L, "k");
 	lua_setfield(L, -2, "__mode");
-	lua_pushstring(L, "tupconv table");
+	lua_pushstring(L, "typeconv table");
 	lua_setfield(L, -2, "__name");
 	/* stack: ... self uservalue typeconv typeconv_mt */
 	lua_pushvalue(L, -4);
-	lua_pushcclosure(L, pllua_tupconv_lookup, 1);
+	lua_pushcclosure(L, pllua_typeconv_index, 1);
 	lua_setfield(L, -2, "__index");
 	lua_setmetatable(L, -2);
-	lua_setfield(L, -2, "tupconv");
+	lua_setfield(L, -2, "typeconv");
 
 	/* stack: self uservalue */
 	if (t->basetype != t->typeoid)
@@ -2834,8 +2832,19 @@ int pllua_typeinfo_lookup(lua_State *L)
 		if (lua_toboolean(L, -1))
 		{
 			/* equal. pop the new object after updating anything of interest */
-			obj->fromsql = nobj->fromsql;
-			obj->tosql = nobj->tosql;
+			if (obj->fromsql != nobj->fromsql ||
+				obj->tosql != nobj->tosql)
+			{
+				pllua_get_user_field(L, -3, ".funcs");
+				lua_pushnil(L);
+				lua_setfield(L, -2, ".fromsql");
+				lua_pushnil(L);
+				lua_setfield(L, -2, ".tosql");
+				lua_pop(L, 1);
+
+				obj->fromsql = nobj->fromsql;
+				obj->tosql = nobj->tosql;
+			}
 			obj->revalidate = false;
 			lua_pop(L,2);
 			return 1;
@@ -3205,17 +3214,16 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 	return true;
 }
 
-static bool pllua_typeinfo_raw_input(lua_State *L, Datum *res, pllua_typeinfo *t,
+static void pllua_typeinfo_raw_input(lua_State *L, Datum *res, pllua_typeinfo *t,
 									 const char *str, int32 typmod)
 {
 	if ((OidIsValid(t->infuncid) && OidIsValid(t->infunc.fn_oid))
 		|| pllua_typeinfo_iofunc(L, t, IOFunc_input))
 	{
 		*res = InputFunctionCall(&t->infunc, (char *) str, t->typioparam, typmod);
-		return true;
 	}
-
-	return false;
+	else
+		elog(ERROR, "failed to find input function for type %u", t->typeoid);
 }
 
 static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t)
@@ -3233,50 +3241,20 @@ static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_ty
 	return res;
 }
 
-static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *t)
-{
-	FunctionCallInfoData fcinfo;
-	pllua_node node;
-
-	ASSERT_PG_CONTEXT;
-
-	if (!OidIsValid(t->fromsql))
-		return false;
-
-	if (!OidIsValid(t->fromsql_func.fn_oid)
-		|| t->fromsql_func.fn_oid != t->fromsql)
-	{
-		t->fromsql_func.fn_oid = InvalidOid;
-		fmgr_info_cxt(t->fromsql, &t->fromsql_func, t->mcxt);
-	}
-
-	node.type = T_Invalid;
-	node.magic = PLLUA_MAGIC;
-	node.L = L;
-
-	InitFunctionCallInfoData(fcinfo, &t->fromsql_func, 1, InvalidOid, (struct Node *) &node, NULL);
-
-	fcinfo.arg[0] = val;
-	fcinfo.argnull[0] = false;
-
-	FunctionCallInvoke(&fcinfo);
-
-	return !fcinfo.isnull;
-}
-
 static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
-									  pllua_typeinfo *t, int32 typmod, bool is_explicit)
+									  int nf, Oid fnoid, int32 typmod, bool is_explicit)
 {
 	FunctionCallInfoData fcinfo;
+	FmgrInfo *fn = *(FmgrInfo **) lua_touserdata(L, nf);
 
-	Assert(OidIsValid(t->typmod_funcid));
-	if (!OidIsValid(t->typmod_func.fn_oid))
-		fmgr_info_cxt(t->typmod_funcid, &t->typmod_func, t->mcxt);
+	Assert(OidIsValid(fnoid));
+	if (!fn || !OidIsValid(fn->fn_oid))
+		fn = pllua_pgfunc_init(L, nf, fnoid, -1, NULL, InvalidOid);
 
-	if (*isnull && t->typmod_func.fn_strict)
+	if (*isnull && fn->fn_strict)
 		return;
 
-	InitFunctionCallInfoData(fcinfo, &t->typmod_func, 3, InvalidOid, NULL, NULL);
+	InitFunctionCallInfoData(fcinfo, fn, 3, InvalidOid, NULL, NULL);
 
 	fcinfo.arg[0] = *val;
 	fcinfo.argnull[0] = *isnull;
@@ -3289,43 +3267,126 @@ static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
 	*isnull = fcinfo.isnull;
 }
 
-static void pllua_typeinfo_raw_coerce_array(lua_State *L, AnyArrayType *val, int nitems,
-											Datum *values, bool *isnulls,
-											pllua_typeinfo *t, int32 typmod, bool is_explicit)
+static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnull,
+											CoercionPathType elempath,
+											int nf, Oid fnoid, int nf2, Oid fnoid2,
+											pllua_typeinfo *st,
+											pllua_typeinfo *dt,
+											int32 typmod,
+											bool is_explicit)
 {
-	FunctionCallInfoData fcinfo;
-	array_iter iter;
-	int idx;
-
-	Assert(OidIsValid(t->typmod_funcid));
-	if (!OidIsValid(t->typmod_func.fn_oid))
-		fmgr_info_cxt(t->typmod_funcid, &t->typmod_func, t->mcxt);
-
-	array_iter_setup(&iter, val);
-
-	InitFunctionCallInfoData(fcinfo, &t->typmod_func, 3, InvalidOid, NULL, NULL);
-
-	for (idx = 0; idx < nitems; ++idx)
+	if (!*isnull)
 	{
-		fcinfo.arg[0] = array_iter_next(&iter, &fcinfo.argnull[0], idx,
-										t->elemtyplen, t->elemtypbyval, t->elemtypalign);
+		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
+												   "pllua temporary array context",
+												   ALLOCSET_START_SMALL_SIZES);
+		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+		AnyArrayType *arr = DatumGetAnyArrayP(*val);
+		ArrayType *newarr;
+		int ndim = AARR_NDIM(arr);
+		int32 *dims = AARR_DIMS(arr);
+		int nitems = ArrayGetNItems(ndim,dims);
+		Datum *values = palloc(nitems * sizeof(Datum));
+		bool *isnull = palloc(nitems * sizeof(bool));
+		FunctionCallInfoData fcinfo;
+		FunctionCallInfoData fcinfo2;
+		bool separate_typmod = typmod >= 0 && OidIsValid(fnoid2);
+		FmgrInfo *fn = elempath == COERCION_PATH_FUNC ? *(FmgrInfo **) lua_touserdata(L, nf) : NULL;
+		FmgrInfo *fn2 = separate_typmod ? *(FmgrInfo **) lua_touserdata(L, nf2) : NULL;
+		array_iter iter;
+		int idx;
 
-		if (!fcinfo.argnull[0] || !t->typmod_func.fn_strict)
-		{
-			fcinfo.arg[1] = Int32GetDatum(typmod);
-			fcinfo.argnull[1] = false;
-			fcinfo.arg[2] = BoolGetDatum(is_explicit);
-			fcinfo.argnull[2] = false;
-			fcinfo.isnull = false;
+		Assert(elempath != COERCION_PATH_NONE);
+		Assert(elempath != COERCION_PATH_ARRAYCOERCE);
+		Assert(elempath != COERCION_PATH_COERCEVIAIO || !separate_typmod);
 
-			values[idx] = FunctionCallInvoke(&fcinfo);
-			isnulls[idx] = fcinfo.isnull;
-		}
-		else
+		if (OidIsValid(fnoid) && (!fn || !OidIsValid(fn->fn_oid)))
+			fn = pllua_pgfunc_init(L, nf, fnoid, -1, NULL, InvalidOid);
+		if (OidIsValid(fnoid2) && (!fn2 || !OidIsValid(fn->fn_oid)))
+			fn2 = pllua_pgfunc_init(L, nf2, fnoid2, -1, NULL, InvalidOid);
+
+		array_iter_setup(&iter, arr);
+
+		if (elempath == COERCION_PATH_FUNC)
+			InitFunctionCallInfoData(fcinfo, fn, 3, InvalidOid, NULL, NULL);
+		if (separate_typmod)
+			InitFunctionCallInfoData(fcinfo2, fn2, 3, InvalidOid, NULL, NULL);
+
+		for (idx = 0; idx < nitems; ++idx)
 		{
-			values[idx] = (Datum)0;
-			isnulls[idx] = true;
+			fcinfo.arg[0] = array_iter_next(&iter, &fcinfo.argnull[0], idx,
+											st->elemtyplen, st->elemtypbyval, st->elemtypalign);
+
+			if (elempath == COERCION_PATH_RELABELTYPE)
+			{
+				values[idx] = fcinfo.arg[0];
+				isnull[idx] = fcinfo.argnull[0];
+			}
+
+			switch (elempath)
+			{
+				default:
+					break;
+				case COERCION_PATH_COERCEVIAIO:
+					/*
+					 * Contra pg proper, we don't need to do separate typmod
+					 * conversions when doing IO casts; separate_typmod should
+					 * not be true.
+					 */
+					if (!fcinfo.argnull[0])
+					{
+						const char *str = pllua_typeinfo_raw_output(L, fcinfo.arg[0], st);
+						pllua_typeinfo_raw_input(L, &values[idx], dt, str, typmod);
+						isnull[idx] = (str == NULL);
+					}
+					else
+						isnull[idx] = true;
+					break;
+
+				case COERCION_PATH_FUNC:
+					if (!fcinfo.argnull[0] || !fn->fn_strict)
+					{
+						fcinfo.arg[1] = Int32GetDatum(separate_typmod ? -1 : typmod);
+						fcinfo.argnull[1] = false;
+						fcinfo.arg[2] = BoolGetDatum(is_explicit);
+						fcinfo.argnull[2] = false;
+						fcinfo.isnull = false;
+
+						values[idx] = FunctionCallInvoke(&fcinfo);
+						isnull[idx] = fcinfo.isnull;
+					}
+					else
+					{
+						values[idx] = (Datum)0;
+						isnull[idx] = true;
+					}
+					/*FALLTHROUGH*/
+				case COERCION_PATH_RELABELTYPE:
+					if (separate_typmod && (!isnull[idx] || !fn2->fn_strict))
+					{
+						fcinfo2.arg[0] = values[idx];
+						fcinfo2.argnull[0] = isnull[idx];
+						fcinfo2.arg[1] = Int32GetDatum(typmod);
+						fcinfo2.argnull[1] = false;
+						fcinfo2.arg[2] = BoolGetDatum(is_explicit);
+						fcinfo2.argnull[2] = false;
+						fcinfo2.isnull = false;
+
+						values[idx] = FunctionCallInvoke(&fcinfo2);
+						isnull[idx] = fcinfo2.isnull;
+					}
+					break;
+			}
 		}
+
+		MemoryContextSwitchTo(oldcontext);
+
+		newarr = construct_md_array(values, isnull, ndim, dims, AARR_LBOUND(arr),
+									dt->elemtype, dt->elemtyplen, dt->elemtypbyval, dt->elemtypalign);
+		*val = PointerGetDatum(newarr);
+		*isnull = false;
+
+		MemoryContextDelete(mcxt);
 	}
 }
 
@@ -3339,9 +3400,14 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, AnyArrayType *val, int
  */
 static void pllua_typeinfo_check_domain(lua_State *L,
 										Datum *val, bool *isnull, int32 typmod,
-										pllua_typeinfo *t)
+										int nt, pllua_typeinfo *t)
 {
+	int oldtop = lua_gettop(L);
+
 	ASSERT_LUA_CONTEXT;
+
+	if (t->basetypmod != -1	&& typmod != t->basetypmod && t->coerce_typmod)
+		pllua_get_user_subfield(L, nt, ".funcs", ".f_typmod");
 
 	PLLUA_TRY();
 	{
@@ -3349,34 +3415,40 @@ static void pllua_typeinfo_check_domain(lua_State *L,
 		 * Check if we need to do typmod coercion first. This might alter the
 		 * value.
 		 */
-		if (t->basetypmod != -1	&& typmod != t->basetypmod)
-			pllua_typeinfo_raw_coerce(L, val, isnull, t, t->basetypmod, false);
+		if (t->basetypmod != -1	&& typmod != t->basetypmod && t->coerce_typmod)
+		{
+			if (t->coerce_typmod_element)
+				pllua_typeinfo_raw_coerce_array(L, val, isnull, COERCION_PATH_FUNC,
+												-1, t->typmod_funcid, 0, InvalidOid,
+												t, t, t->basetypmod, false);
+			else
+				pllua_typeinfo_raw_coerce(L, val, isnull, -1, t->typmod_funcid, t->basetypmod, false);
+		}
 
 		domain_check(*val, *isnull, t->typeoid, &t->domain_extra, t->mcxt);
 	}
 	PLLUA_CATCH_RETHROW();
+
+	lua_settop(L, oldtop);
 }
 
 static Datum pllua_typeinfo_raw_tosql(lua_State *L, pllua_typeinfo *t, bool *isnull)
 {
 	FunctionCallInfoData fcinfo;
+	FmgrInfo *fn = *(void **) lua_touserdata(L, lua_upvalueindex(3));
 	Datum result;
 	pllua_node node;
 
 	ASSERT_PG_CONTEXT;
 
-	if (!OidIsValid(t->tosql_func.fn_oid)
-		|| t->tosql_func.fn_oid != t->tosql)
-	{
-		t->tosql_func.fn_oid = InvalidOid;
-		fmgr_info_cxt(t->tosql, &t->tosql_func, t->mcxt);
-	}
+	if (!fn || !OidIsValid(fn->fn_oid))
+		fn = pllua_pgfunc_init(L, lua_upvalueindex(3), t->tosql, -1, NULL, InvalidOid);
 
 	node.type = T_Invalid;
 	node.magic = PLLUA_MAGIC;
 	node.L = L;
 
-	InitFunctionCallInfoData(fcinfo, &t->tosql_func, 1, InvalidOid, (struct Node *) &node, NULL);
+	InitFunctionCallInfoData(fcinfo, fn, 1, InvalidOid, (struct Node *) &node, NULL);
 
 	/* actual arg(s) on top of stack */
 	fcinfo.arg[0] = (Datum)0;
@@ -3394,6 +3466,7 @@ static Datum pllua_typeinfo_raw_tosql(lua_State *L, pllua_typeinfo *t, bool *isn
  * args 1..top are the value to convert
  * upvalue 1 is the typeinfo
  * upvalue 2 is the datum to be filled in
+ * upvalue 3 is the pgfunc object
  * returns the datum or nil
  */
 static int pllua_typeinfo_tosql(lua_State *L)
@@ -3420,9 +3493,38 @@ static int pllua_typeinfo_tosql(lua_State *L)
 	return 1;
 }
 
+static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *t)
+{
+	FunctionCallInfoData fcinfo;
+	FmgrInfo *fn = *(void **) lua_touserdata(L, lua_upvalueindex(3));
+	pllua_node node;
+
+	ASSERT_PG_CONTEXT;
+
+	if (!OidIsValid(t->fromsql))
+		return false;
+
+	if (!fn || !OidIsValid(fn->fn_oid))
+		fn = pllua_pgfunc_init(L, lua_upvalueindex(3), t->fromsql, -1, NULL, InvalidOid);
+
+	node.type = T_Invalid;
+	node.magic = PLLUA_MAGIC;
+	node.L = L;
+
+	InitFunctionCallInfoData(fcinfo, fn, 1, InvalidOid, (struct Node *) &node, NULL);
+
+	fcinfo.arg[0] = val;
+	fcinfo.argnull[0] = false;
+
+	FunctionCallInvoke(&fcinfo);
+
+	return !fcinfo.isnull;
+}
+
 /*
  * upvalue 1 is the typeinfo
  * upvalue 2 is a userdata with the value to convert
+ * upvalue 3 is the pgfunc object
  * returns the value or nothing
  */
 static int pllua_typeinfo_fromsql(lua_State *L)
@@ -3444,62 +3546,35 @@ static int pllua_typeinfo_fromsql(lua_State *L)
 	return done ? 1 : 0;
 }
 
-static void pllua_typeinfo_coerce_array_typmod(lua_State *L,
-											   Datum *val, bool *isnull,
-											   pllua_typeinfo *t,
-											   int32 typmod)
-{
-	if (*isnull)
-		return;
-
-	PLLUA_TRY();
-	{
-		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
-												   "pllua temporary array context",
-												   ALLOCSET_DEFAULT_SIZES);
-		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
-		AnyArrayType *arr = DatumGetAnyArrayP(*val);
-		ArrayType *newarr;
-		int ndim = AARR_NDIM(arr);
-		int32 *dims = AARR_DIMS(arr);
-		int nitems = ArrayGetNItems(ndim,dims);
-		Datum *values = palloc(nitems * sizeof(Datum));
-		bool *isnull = palloc(nitems * sizeof(bool));
-
-		pllua_typeinfo_raw_coerce_array(L, arr, nitems, values, isnull, t, typmod, false);
-
-		MemoryContextSwitchTo(oldcontext);
-
-		newarr = construct_md_array(values, isnull, ndim, dims, AARR_LBOUND(arr),
-									t->elemtype, t->elemtyplen, t->elemtypbyval, t->elemtypalign);
-		*val = PointerGetDatum(newarr);
-		*isnull = false;
-
-		MemoryContextDelete(mcxt);
-	}
-	PLLUA_CATCH_RETHROW();
-}
-
 /*
  * Note that "typmod" here is the _destination_ typmod
  */
 static void pllua_typeinfo_coerce_typmod(lua_State *L,
 										 Datum *val, bool *isnull,
+										 int nt,
 										 pllua_typeinfo *t,
 										 int32 typmod)
 {
-	if (!t->coerce_typmod)
+	if (!t->coerce_typmod || typmod < 0)
 		return;
-	if (t->coerce_typmod_element && typmod >= 0)
-	{
-		Assert(t->is_array);
-		pllua_typeinfo_coerce_array_typmod(L, val, isnull, t, typmod);
-	}
+	nt = lua_absindex(L, nt);
+	pllua_get_user_subfield(L, nt, ".funcs", ".f_typmod");
+
 	PLLUA_TRY();
 	{
-		pllua_typeinfo_raw_coerce(L, val, isnull, t, typmod, false);
+		if (t->coerce_typmod_element)
+		{
+			Assert(t->is_array);
+			pllua_typeinfo_raw_coerce_array(L, val, isnull, COERCION_PATH_FUNC,
+											-1, t->typmod_funcid, 0, InvalidOid,
+											t, t, typmod, false);
+		}
+		else
+			pllua_typeinfo_raw_coerce(L, val, isnull, -1, t->typmod_funcid, typmod, false);
 	}
 	PLLUA_CATCH_RETHROW();
+
+	lua_pop(L, 1);
 }
 
 /*
@@ -3514,7 +3589,6 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 	const char *str = lua_isnil(L, 2) ? NULL : luaL_checkstring(L, 2);
 	MemoryContext mcxt = pllua_get_memory_cxt(L);
 	pllua_datum *d = NULL;
-	volatile bool done = false;
 
 	if (t->obsolete || t->modified)
 		luaL_error(L, "cannot create values for a dropped or modified type");
@@ -3533,22 +3607,17 @@ static int pllua_typeinfo_fromstring(lua_State *L)
 	{
 		Datum nv;
 
-		if (pllua_typeinfo_raw_input(L, &nv, t, str, t->typmod))
+		pllua_typeinfo_raw_input(L, &nv, t, str, t->typmod);
+		if (str)
 		{
-			if (str)
-			{
-				MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
-				d->value = nv;
-				pllua_savedatum(L, d, t);
-				MemoryContextSwitchTo(oldcontext);
-			}
-			done = true;
+			MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
+			d->value = nv;
+			pllua_savedatum(L, d, t);
+			MemoryContextSwitchTo(oldcontext);
 		}
 	}
 	PLLUA_CATCH_RETHROW();
 
-	if (!done)
-		luaL_error(L, "could not find input function for type");
 	return 1;
 }
 
@@ -3610,198 +3679,6 @@ static int pllua_typeinfo_frombinary(lua_State *L)
 	return 1;
 }
 
-
-/*
- * tupconv objects cache the conversion data for tuple types.
- */
-
-typedef struct pllua_tupconv {
-	TupleConversionMap *conv;  /* may be null! */
-	TupleDesc indesc;
-	TupleDesc outdesc;
-	MemoryContext mcxt;
-} pllua_tupconv;
-
-static int pllua_tupconv_gc(lua_State *L)
-{
-	void **p = pllua_torefobject(L, 1, PLLUA_TUPCONV_OBJECT);
-	pllua_tupconv *obj = p ? *p : NULL;
-
-	if (!p)
-		return 0;
-
-	ASSERT_LUA_CONTEXT;
-
-	*p = NULL;
-	if (!obj)
-		return 0;
-
-	PLLUA_TRY();
-	{
-		/*
-		 * tupconv is allocated in its own memory context since it has palloc'd
-		 * workspace attached.
-		 */
-		MemoryContextDelete(obj->mcxt);
-	}
-	PLLUA_CATCH_RETHROW();
-
-	return 0;
-}
-
-/*
- * tupconv_new(fromtype,totype)
- *
- */
-static int pllua_tupconv_new(lua_State *L)
-{
-	pllua_typeinfo *from_t = pllua_checktypeinfo(L, 1, false);
-	pllua_typeinfo *to_t = pllua_checktypeinfo(L, 2, false);
-	void **p = pllua_newrefobject(L, PLLUA_TUPCONV_OBJECT, NULL, true);
-	pllua_tupconv *volatile obj = NULL;
-
-	if (!from_t->tupdesc || !to_t->tupdesc)
-		luaL_error(L, "pllua_tupconv: type is not a row type");
-
-	/* uservalue of a tupconv points to its destination typeinfo */
-	lua_pushvalue(L, 2);
-	pllua_set_user_field(L, -2, "dest");
-
-	PLLUA_TRY();
-	{
-		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
-												   "pllua tupconv object",
-												   ALLOCSET_SMALL_SIZES);
-		MemoryContext oldcontext = MemoryContextSwitchTo(mcxt);
-		TupleDesc fromdesc,	todesc;
-		obj = palloc(sizeof(pllua_tupconv));
-		obj->mcxt = mcxt;
-		obj->conv = NULL;
-		/*
-		 * XXX the tupconvert functions are much too strict for us; we need a
-		 * version that applies typmod coercions, domain checks and maybe
-		 * assignment casts. TODO
-		 */
-		/* convert_tuples_by_position doesn't copy the tupdescs so we have to */
-		obj->indesc = fromdesc = CreateTupleDescCopy(from_t->tupdesc);
-		obj->outdesc = todesc = CreateTupleDescCopy(to_t->tupdesc);
-		obj->conv = convert_tuples_by_position(fromdesc, todesc,
-											   "pllua_tupconv: incompatible row types");
-		MemoryContextSwitchTo(oldcontext);
-		MemoryContextSetParent(mcxt, pllua_get_memory_cxt(L));
-	}
-	PLLUA_CATCH_RETHROW();
-
-	*p = obj;
-	return 1;
-}
-
-/*
- * tupconv(val)  returns a new tuple after conversion
- *
- */
-static int pllua_tupconv_call(lua_State *L)
-{
-	pllua_tupconv *obj = *pllua_checkrefobject(L, 1, PLLUA_TUPCONV_OBJECT);
-	pllua_typeinfo *totype;
-	pllua_typeinfo *dt;
-	pllua_datum *d = pllua_checkanydatum(L, 2, &dt);
-	pllua_datum *newd;
-
-	/* sanity - source value must not have been exploded */
-	if (d->modified)
-		luaL_error(L, "pllua_tupconv: modified source tuple");
-
-	/* sanity - source datum's type must match conversion source type */
-	if (!dt->tupdesc
-		|| dt->tupdesc->tdtypeid != obj->indesc->tdtypeid
-		|| dt->tupdesc->tdtypmod != obj->indesc->tdtypmod)
-		luaL_error(L, "pllua_tupconv: unexpected source type");
-
-	pllua_get_user_field(L, 1, "dest");
-	totype = pllua_checktypeinfo(L, -1, false);
-
-	/* sanity - dest type must match conversion result type */
-	if (!totype->tupdesc
-		|| totype->tupdesc->tdtypeid != obj->outdesc->tdtypeid
-		|| totype->tupdesc->tdtypmod != obj->outdesc->tdtypmod)
-		luaL_error(L, "pllua_tupconv: unexpected result type");
-
-	newd = pllua_newdatum(L, -1, (Datum)0);
-
-	PLLUA_TRY();
-	{
-		MemoryContext oldcontext;
-		HeapTupleHeader src = (HeapTupleHeader) DatumGetPointer(d->value);
-		HeapTupleData srctup;
-		HeapTuple dsttup;
-
-		/* Build a temporary HeapTuple control structure */
-		srctup.t_len = HeapTupleHeaderGetDatumLength(src);
-		ItemPointerSetInvalid(&(srctup.t_self));
-		srctup.t_tableOid = InvalidOid;
-		srctup.t_data = src;
-
-		if (obj->conv)
-			dsttup = do_convert_tuple(&srctup, obj->conv);
-		else
-			dsttup = &srctup;
-
-		oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
-		newd->value = heap_copy_tuple_as_datum(dsttup, totype->tupdesc);
-		newd->need_gc = true;
-		MemoryContextSwitchTo(oldcontext);
-	}
-	PLLUA_CATCH_RETHROW();
-
-	return 1;
-}
-
-static struct luaL_Reg tupconv_mt[] = {
-	{ "__call", pllua_tupconv_call },
-	{ "__gc", pllua_tupconv_gc },
-	{ NULL, NULL }
-};
-
-/*
- * __index(tab,key)   key is dest typeinfo, src typeinfo is upvalue 1
- */
-static int pllua_tupconv_lookup(lua_State *L)
-{
-	lua_pushcfunction(L, pllua_tupconv_new);
-	lua_pushvalue(L, lua_upvalueindex(1));
-	lua_pushvalue(L, 2);
-	lua_call(L, 2, 1);
-	/* stack: tab key tupconv */
-	lua_pushvalue(L, -2);
-	lua_pushvalue(L, -2);
-	lua_rawset(L, -5);
-	return 1;
-}
-
-/*
- * f(fromdatum,fromtype,totype)
- *
- */
-static int pllua_typeinfo_convert_tuple(lua_State *L)
-{
-	pllua_checkanydatum(L, 1, NULL);
-	lua_pop(L,1);
-	pllua_checktypeinfo(L, 2, false);
-	pllua_checktypeinfo(L, 3, false);
-
-	pllua_get_user_field(L, 2, "tupconv");
-	lua_pushvalue(L, 3);
-	lua_gettable(L, -2);
-
-	/* stack: ... uservalue tupconv_table tupconv */
-
-	lua_pushvalue(L, 1);
-	lua_call(L, 1, 1);
-	return 1;
-}
-
-
 /*
  * "nd" indexes a table (or table-like object)
  * t = target typeinfo
@@ -3860,7 +3737,8 @@ static bool pllua_datum_transform_tosql(lua_State *L, int nargs, int argbase, in
 	luaL_checkstack(L, 10+nargs, NULL);
 	lua_pushvalue(L, nt);
 	pllua_newdatum(L, -1, (Datum)0);
-	lua_pushcclosure(L, pllua_typeinfo_tosql, 2);
+	pllua_get_user_subfield(L, nt, ".funcs", ".tosql");
+	lua_pushcclosure(L, pllua_typeinfo_tosql, 3);
 	for (i = 0; i < nargs; ++i)
 		lua_pushvalue(L, argbase+i);
 	lua_call(L, nargs, 1);
@@ -3896,7 +3774,8 @@ int pllua_datum_transform_fromsql(lua_State *L, Datum val, int nidx, pllua_typei
 	lua_pushvalue(L, nidx);
 	tmpd = lua_newuserdata(L, sizeof(Datum));
 	*tmpd = val;
-	lua_pushcclosure(L, pllua_typeinfo_fromsql, 2);
+	pllua_get_user_subfield(L, nidx, ".funcs", ".fromsql");
+	lua_pushcclosure(L, pllua_typeinfo_fromsql, 3);
 	lua_call(L, 0, LUA_MULTRET);
 	nd = lua_gettop(L) - nd;
 	if (nd == 0)
@@ -3936,173 +3815,31 @@ static int pllua_typeinfo_row_call(lua_State *L);
 static int pllua_typeinfo_scalar_call(lua_State *L);
 static int pllua_typeinfo_range_call(lua_State *L);
 
+
 /*
  * scalartype(datum)
  * arraytype(datum)
  *
  * Converting a single Datum of one type to the target type.
  *
- * If we already have the right type, we just deep-copy the value. Savedatum
- * does a bunch of the work for us.
- *
- * Otherwise, look through domains of the source type, and see whether we have
- * the base type for our own domain; then we just need domain_check and copy.
- *
- * Otherwise, we need to look for coercions (not done yet).
- *
+ * We invoke the typeconv logic to do the conversion, even if source and target
+ * types are the same, since that helps keep the code simpler.
  */
-static int pllua_typeinfo_nonrow_call_datum(lua_State *L, int nd, int nt, int ndt,
-											pllua_typeinfo *t, pllua_datum *d, pllua_typeinfo *dt)
+static int pllua_typeinfo_call_datum(lua_State *L, int nd, int nt, int ndt, pllua_datum *d, pllua_typeinfo *t)
 {
-	pllua_datum *newd;
-	Datum val = d->value;
-	bool isnull = false;
-
 	nd = lua_absindex(L, nd);   /* source datum */
 	nt = lua_absindex(L, nt);   /* target typeinfo */
-	ndt = lua_absindex(L, ndt); /* source datum's typeinfo */
-
-	/* arg is a domain type? */
-	if (dt->basetype != dt->typeoid)
-	{
-		pllua_get_user_field(L, ndt, "basetype");
-		dt = pllua_checktypeinfo(L, -1, false);
-		ndt = lua_absindex(L, -1);
-	}
-	/*
-	 * If we're a domain and arg is our base type, check it. But this might
-	 * return a locally allocated copy of the value (if the domain's typmod
-	 * changes the value).
-	 */
-	if (t->basetype == dt->typeoid && t->typeoid != dt->typeoid)
-	{
-		pllua_typeinfo_check_domain(L, &val, &isnull, d->typmod, t);
-		if (isnull)
-		{
-			/*
-			 * it would take a pretty badly-behaved typmod cast to get here,
-			 * but do something sane anyway, rather than crash later.
-			 */
-			lua_pushnil(L);
-			return 1;
-		}
-	}
-	else if (t->typeoid != dt->typeoid)
-		luaL_error(L, "datum is wrong type for conversion");
 
 	/*
-	 * If it's an RW expanded datum, take the RO value instead to force making
-	 * a copy rather than owning the original (which wouldn't help since we
-	 * already own it).
+	 * All the work here is done by the typeconv system; looking up the type
+	 * cast generates the function object.
 	 */
-	if (dt->typlen == -1
-		&& VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(val)))
-	{
-		val = EOHPGetRODatum(DatumGetEOHP(val));
-	}
-	newd = pllua_newdatum(L, nt, val);
-	pllua_save_one_datum(L, newd, t);
-	return 1;
-}
-
-/*
- * rowtype(datum)
- *
- * If the rowtype t has arity 1, we disambiguate the cases of rowtype(t) and
- * rowtype(et) (where et is the element type) in favour of the latter unless
- * the type is already an exact match.
- *
- */
-static int pllua_typeinfo_row_call_datum(lua_State *L, int nd, int nt, int ndt,
-										 pllua_typeinfo *t, pllua_datum *d, pllua_typeinfo *dt)
-{
-	pllua_datum *newd;
-
-	nd = lua_absindex(L, nd);
-	nt = lua_absindex(L, nt);
-
-	/*
-	 * These cases only apply to unexploded source tuples.
-	 */
-	if (!d->modified)
-	{
-		/*
-		 * We might be looking at a value of the same type oid, but a different
-		 * tupdesc, for example if a composite type has been altered since the
-		 * original value was formed. We might also be looking at a RECORD type
-		 * that has a compatible structure to the desired row, for example the
-		 * result of "select * from foo" ought to be acceptable input for foo
-		 * (but currently may be an anonymous record type).
-		 *
-		 * We handle this by using a prebuilt tuple conversion object, with
-		 * conversion maps cached in the source type's typeinfo. The conversion
-		 * infrastructure checks that the types match.
-		 */
-		if (t != dt && !equalTupleDescs(t->tupdesc, dt->tupdesc))
-		{
-			lua_pushcfunction(L, pllua_typeinfo_convert_tuple);
-			lua_pushvalue(L, 2);
-			lua_pushvalue(L, -3);
-			lua_pushvalue(L, 1);
-			lua_call(L, 3, 1);
-		}
-		else
-		{
-			/*
-			 * record has a compatible structure. As the source row was not
-			 * modified, we can just copy the bytes (even if the source is a
-			 * child datum of some other row). Otherwise, we have to make a new
-			 * imploded copy.
-			 */
-			newd = pllua_newdatum(L, nt, d->value);
-			pllua_save_one_datum(L, newd, t);
-		}
-	}
-	else
-	{
-		Oid newoid = InvalidOid;
-		int nuv;
-		int i;
-		int nargs;
-		/*
-		 * just push all the exploded parts of the source tuple onto the stack
-		 * and punt it to the general-case code. Watch out for booleans subbing
-		 * for nulls/dropped cols though!
-		 *
-		 * XXX this is wrong, needs to implode to the current type and _then_
-		 * pass to the new type, or dropped columns aren't handled right
-		 */
-		luaL_checkstack(L, 10 + dt->natts, NULL);
-		pllua_get_user_field(L, nd, ".deformed");
-		nuv = lua_absindex(L, -1);
-		lua_pushcfunction(L, pllua_typeinfo_row_call);
-		lua_pushvalue(L, nt);
-		if (dt->hasoid)
-		{
-			lua_getfield(L, nuv, "oid");
-			newoid = (Oid) lua_tointeger(L, -1);
-			lua_pop(L, 1);
-		}
-		nargs = 0;
-		for (i = 0; i < dt->natts; ++i)
-		{
-			if (TupleDescAttr(dt->tupdesc, i)->attisdropped)
-				continue;
-			if (lua_geti(L, nuv, i+1) == LUA_TBOOLEAN)
-			{
-				/* we already skipped dropped cols so this must be an null */
-				lua_pop(L, 1);
-				lua_pushnil(L);
-			}
-			++nargs;
-		}
-		lua_call(L, nargs+1, 1);
-		if (dt->hasoid)
-		{
-			pllua_datum *d = pllua_checkdatum(L, -1, nt);
-			HeapTupleHeaderSetOid((HeapTupleHeader) DatumGetPointer(d->value), newoid);
-		}
-	}
+	pllua_get_user_field(L, ndt, "typeconv");
+	lua_pushvalue(L, nt);
+	if (lua_gettable(L, -2) != LUA_TFUNCTION)
+		luaL_error(L, "cast lookup error");
+	lua_pushvalue(L, nd);
+	lua_call(L, 1, 1);
 	return 1;
 }
 
@@ -4171,15 +3908,20 @@ static int pllua_typeinfo_call(lua_State *L)
 
 	if (d)
 	{
-		if (t->natts >= 0)
-		{
-			if (dt->natts >= 0 && (t->arity > 1 || t->typeoid == dt->typeoid))
-				return pllua_typeinfo_row_call_datum(L, 2, 1, -1, t, d, dt);
-		}
-		else if (t->is_anonymous_record)
+		if (t->is_anonymous_record)
 			return pllua_typeinfo_anonrec_call_datum(L, 2, 1, -1, t, d, dt);
-		else
-			return pllua_typeinfo_nonrow_call_datum(L, 2, 1, -1, t, d, dt);
+		/*
+		 * The condition here is to exclude this case:
+		 *    destination type is a rowtype
+		 *      source type is a scalar,
+		 *      or: destination is arity 1
+		 *          and source is not the same type oid
+		 * This is because all of those cases should be treated as
+		 * constructing from the first element value
+		 */
+		if (!(t->natts >= 0
+			  && (dt->natts < 0 || (t->arity == 1 && t->typeoid != dt->typeoid))))
+			return pllua_typeinfo_call_datum(L, 2, 1, -1, d, t);
 		lua_pop(L, 1);
 	}
 
@@ -4238,7 +3980,7 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 		/* must check domain constraints before accepting a null */
 		/* note this can change the value */
 		if (t->typeoid != t->basetype)
-			pllua_typeinfo_check_domain(L, &nvalue, &isnull, -1, t);
+			pllua_typeinfo_check_domain(L, &nvalue, &isnull, -1, 1, t);
 		if (isnull)
 		{
 			lua_pushnil(L);
@@ -4262,8 +4004,7 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 		if (str)
 		{
 			/* input func is responsible for typmod handling on this path */
-			if (!pllua_typeinfo_raw_input(L, &nvalue, t, str, t->typmod))
-				elog(ERROR, "failed to find input function for type");
+			pllua_typeinfo_raw_input(L, &nvalue, t, str, t->typmod);
 			newd->value = nvalue;
 		}
 
@@ -4670,7 +4411,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 			isnull[i] = false;
 		}
 		if (coltype != RECORDOID && coltypmod >= 0 && (!d || coltypmod != d->typmod))
-			pllua_typeinfo_coerce_typmod(L, &values[i], &isnull[i], argt, coltypmod);
+			pllua_typeinfo_coerce_typmod(L, &values[i], &isnull[i], -1, argt, coltypmod);
 		lua_pop(L,1);
 	}
 
@@ -4691,6 +4432,512 @@ static int pllua_typeinfo_row_call(lua_State *L)
 
 	return 1;
 }
+
+
+/*
+ * Type casting stuff
+ *
+ * We want to support these cases:
+ *
+ * scalar -> scalar via assignment cast
+ * array -> array via assignment cast of elements
+ * row -> row with element-wise assignment casts
+ * row -> row with dropped columns or added cols
+ *
+ * The row cases are best handled by having a function to push the deform
+ * elements compensating for added/dropped cols, and then leaving the rest to
+ * the non-row cast cases.
+ *
+ * The typeconv table is indexed as { dest_typeinfo = func }, with func being
+ * a closure over src and dest typeinfos and typically a pgfunc.
+ */
+
+/*
+ * newdatum = f(olddatum) by calling a cast function
+ *
+ * upvalue 1 is src typeinfo
+ * upvalue 2 is dst typeinfo
+ * upvalue 3 is cast function oid (or InvalidOid for binary-compatible)
+ * upvalue 4 is pgfunc
+ * upvalue 5 is nil, or a pgfunc for the typmod cast fn
+ *
+ * If dst type is a domain, then dst typeinfo is the domain type, but the cast
+ * function is to the domain's base type. For this case, we have to know
+ * whether the cast function actually takes a typmod parameter, because if not,
+ * we have to invoke the typmod cast separately.
+ *
+ * We rely on our setup code to supply a non-nil value for upvalue 5 as a flag
+ * to indicate that the extra coercion is needed.
+ */
+static int
+pllua_typeconv_scalar_coerce_func(lua_State *L)
+{
+	pllua_typeinfo *src_t = pllua_checktypeinfo(L, lua_upvalueindex(1), false);
+	pllua_typeinfo *dst_t = pllua_checktypeinfo(L, lua_upvalueindex(2), true);
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_datum *newd;
+	volatile bool isnull_ret = false;
+	Oid fnoid = (Oid) lua_tointeger(L, lua_upvalueindex(3));
+	bool need_typmod = !lua_isnil(L, lua_upvalueindex(5));
+	if (dst_t->modified || dst_t->obsolete)
+		luaL_error(L, "cannot cast value to modified or obsolete type");
+
+	newd = pllua_newdatum(L, lua_upvalueindex(2), (Datum)0);
+
+	PLLUA_TRY();
+	{
+		Datum val = d->value;
+		bool isnull = false;
+
+		/*
+		 * If it's an RW expanded datum, take the RO value instead to force
+		 * making a copy rather than owning the original (which wouldn't help
+		 * since we already own it).
+		 */
+		if (src_t->typlen == -1
+			&& VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(val)))
+		{
+			val = EOHPGetRODatum(DatumGetEOHP(val));
+		}
+
+		if (OidIsValid(fnoid))
+			pllua_typeinfo_raw_coerce(L, &val, &isnull,
+									  lua_upvalueindex(4), fnoid,
+									  (need_typmod) ? -1 : dst_t->basetypmod, false);
+		if (need_typmod)
+			pllua_typeinfo_raw_coerce(L, &val, &isnull,
+									  lua_upvalueindex(5), dst_t->typmod_funcid,
+									  dst_t->basetypmod, false);
+		if (dst_t->basetype != dst_t->typeoid)
+			domain_check(val, isnull, dst_t->typeoid, &dst_t->domain_extra, dst_t->mcxt);
+
+		if (!isnull)
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+			newd->value = val;
+			pllua_savedatum(L, newd, dst_t);
+			MemoryContextSwitchTo(oldcontext);
+		}
+		isnull_ret = isnull;
+	}
+	PLLUA_CATCH_RETHROW();
+
+	if (isnull_ret)
+		lua_pushnil(L);
+	return 1;
+}
+
+/*
+ * newdatum = f(olddatum) by IO conversions
+ *
+ * upvalue 1 is src typeinfo
+ * upvalue 2 is dst typeinfo
+ * upvalue 3 is dst base typeinfo
+ */
+static int
+pllua_typeconv_scalar_coerce_via_io(lua_State *L)
+{
+	pllua_typeinfo *src_t = pllua_checktypeinfo(L, lua_upvalueindex(1), false);
+	pllua_typeinfo *dst_t = pllua_checktypeinfo(L, lua_upvalueindex(2), true);
+	pllua_typeinfo *base_t = pllua_checktypeinfo(L, lua_upvalueindex(3), true);
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_datum *newd;
+	volatile bool isnull_ret = false;
+	if (dst_t->modified || dst_t->obsolete || base_t->modified || base_t->obsolete)
+		luaL_error(L, "cannot cast value to modified or obsolete type");
+
+	newd = pllua_newdatum(L, lua_upvalueindex(2), (Datum)0);
+
+	PLLUA_TRY();
+	{
+		const char *str = pllua_typeinfo_raw_output(L, d->value, src_t);
+		bool isnull = (str == NULL);
+
+		/*
+		 * Contra pg proper, we use the domain's typmod (if there is one) for
+		 * the input function rather than a separate typmod coercion, because
+		 * we're doing only implicit coercions and not explicit ones. This also
+		 * means we don't need to special-case the "interval" type (which
+		 * always needs its typmod).
+		 */
+		pllua_typeinfo_raw_input(L, &newd->value, base_t, str, dst_t->basetypmod);
+
+		if (dst_t->basetype != dst_t->typeoid)
+			domain_check(newd->value, isnull, dst_t->typeoid, &dst_t->domain_extra, dst_t->mcxt);
+
+		if (str && !isnull)
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+			pllua_savedatum(L, newd, dst_t);
+			MemoryContextSwitchTo(oldcontext);
+		}
+		else
+			isnull_ret = true;
+	}
+	PLLUA_CATCH_RETHROW();
+
+	if (isnull_ret)
+		lua_pushnil(L);
+	return 1;
+}
+
+/*
+ * newarraydatum = f(oldarraydatum) by calling a cast function or i/o conv
+ *
+ * upvalue 1 is src typeinfo
+ * upvalue 2 is dst typeinfo
+ * upvalue 3 is cast function oid, InvalidOid for i/o cast, or nil for no cast
+ * upvalue 4 is pgfunc or nil
+ * upvalue 5 is second pgfunc or nil
+ */
+static int
+pllua_typeconv_array_coerce(lua_State *L)
+{
+	pllua_typeinfo *src_t = pllua_checktypeinfo(L, lua_upvalueindex(1), false);
+	pllua_typeinfo *dst_t = pllua_checktypeinfo(L, lua_upvalueindex(2), true);
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	pllua_datum *newd;
+	bool isnull = false;
+	bool binary_compat = lua_isnil(L, lua_upvalueindex(3));
+	CoercionPathType elempath;
+	Oid fnoid = (Oid) luaL_optinteger(L, lua_upvalueindex(3), InvalidOid);
+	Oid fnoid2 = lua_isnil(L, lua_upvalueindex(5)) ? InvalidOid : dst_t->typmod_funcid;
+	if (dst_t->modified || dst_t->obsolete)
+		luaL_error(L, "cannot cast value to modified or obsolete type");
+
+	Assert(src_t->is_array && dst_t->is_array);
+
+	if (binary_compat)
+		elempath = COERCION_PATH_RELABELTYPE;
+	else if (!OidIsValid(fnoid))
+		elempath = COERCION_PATH_COERCEVIAIO;
+	else
+		elempath = COERCION_PATH_FUNC;
+
+	newd = pllua_newdatum(L, lua_upvalueindex(2), (Datum)0);
+
+	PLLUA_TRY();
+	{
+		Datum val = d->value;
+
+		pllua_typeinfo_raw_coerce_array(L, &val, &isnull, elempath,
+										lua_upvalueindex(4), fnoid, lua_upvalueindex(5), fnoid2,
+										src_t, dst_t, dst_t->basetypmod, false);
+
+		if (dst_t->basetype != dst_t->typeoid)
+			domain_check(val, isnull, dst_t->typeoid, &dst_t->domain_extra, dst_t->mcxt);
+
+		if (!isnull)
+		{
+			MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
+			newd->value = val;
+			pllua_savedatum(L, newd, dst_t);
+			MemoryContextSwitchTo(oldcontext);
+		}
+	}
+	PLLUA_CATCH_RETHROW();
+
+	if (isnull)
+		lua_pushnil(L);
+	return 1;
+}
+
+/*
+ * newrowdatum = f(oldrowdatum) by deform/reform
+ *
+ * upvalue 1 is src typeinfo
+ * upvalue 2 is dst typeinfo
+ * upvalue 3 is string giving dropped att flags (or nil)
+ */
+static int
+pllua_typeconv_row_coerce(lua_State *L)
+{
+	pllua_typeinfo *src_t = pllua_checktypeinfo(L, lua_upvalueindex(1), false);
+	pllua_typeinfo *dst_t = pllua_checktypeinfo(L, lua_upvalueindex(2), true);
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
+	size_t sz;
+	const char *droplist = lua_tolstring(L, lua_upvalueindex(3), &sz);
+	int nuv;
+	int nargs;
+	int i;
+	Oid rowoid = InvalidOid;
+	if (dst_t->modified || dst_t->obsolete)
+		luaL_error(L, "cannot cast value to modified or obsolete type");
+
+	/*
+	 * Push all the exploded parts of the source tuple onto the stack. Watch
+	 * out for booleans subbing for nulls/dropped cols though!
+	 */
+	luaL_checkstack(L, 10 + dst_t->arity, NULL);
+	pllua_datum_deform_tuple(L, 1, d, src_t);
+	nuv = lua_absindex(L, -1);
+
+	lua_pushcfunction(L, pllua_typeinfo_row_call);
+	lua_pushvalue(L, lua_upvalueindex(2));
+	if (dst_t->hasoid && src_t->hasoid)
+	{
+		lua_getfield(L, nuv, "oid");
+		rowoid = (Oid) lua_tointeger(L, -1);
+		lua_pop(L, 1);
+	}
+	nargs = 0;
+	for (i = 0; i < src_t->natts; ++i)
+	{
+		if (TupleDescAttr(src_t->tupdesc, i)->attisdropped)
+			continue;
+		if (droplist && droplist[i])
+			continue;
+		if (lua_geti(L, nuv, i+1) == LUA_TBOOLEAN)
+		{
+			/* we already skipped dropped cols so this must be a null */
+			lua_pop(L, 1);
+			lua_pushnil(L);
+		}
+		++nargs;
+	}
+	/* deal with added cols */
+	Assert(nargs <= dst_t->arity);
+	for (; nargs < dst_t->arity; ++nargs)
+		lua_pushnil(L);
+	lua_call(L, nargs+1, 1);
+
+	{
+		pllua_datum *newd = pllua_checkdatum(L, -1, lua_upvalueindex(2));
+
+		if (dst_t->hasoid && src_t->hasoid)
+			HeapTupleHeaderSetOid((HeapTupleHeader) DatumGetPointer(newd->value), rowoid);
+
+		if (dst_t->basetype != dst_t->typeoid)
+			domain_check(newd->value, false, dst_t->typeoid, &dst_t->domain_extra, dst_t->mcxt);
+	}
+
+	return 1;
+}
+
+/*
+ * func = create(src_t,dst_t)
+ *
+ * This does the whole work of determining what type of conversion to apply,
+ * creating the necessary closure, and entering it into the table.
+ *
+ * Returns no result if no cast possible
+ */
+static int
+pllua_typeconv_create(lua_State *L)
+{
+	pllua_typeinfo *src_t = pllua_checktypeinfo(L, 1, false);
+	pllua_typeinfo *dst_t = pllua_checktypeinfo(L, 2, true);
+	Oid srctype = src_t->basetype;
+	Oid dsttype = dst_t->basetype;
+	if (dst_t->modified || dst_t->obsolete)
+		luaL_error(L, "cannot cast value to modified or obsolete type");
+
+	/*
+	 * Don't look for cast functions for record->x or x->record, or for
+	 * any source type which is modified or obsolete (since the cast will
+	 * expect the newer form)
+	 */
+	if (src_t->natts < 0 &&
+		dst_t->natts < 0 &&
+		!src_t->modified &&
+		!src_t->obsolete)
+	{
+		volatile CoercionPathType pathtype;
+		volatile CoercionPathType elempathtype = COERCION_PATH_NONE;
+		volatile Oid funcid;
+		volatile bool typmod_arg = false;
+
+		PLLUA_TRY();
+		{
+			Oid fnoid = InvalidOid;
+			pathtype = find_coercion_pathway(dsttype, srctype, COERCION_ASSIGNMENT,
+											 &fnoid);
+			if (pathtype == COERCION_PATH_ARRAYCOERCE)
+			{
+				Assert(dst_t->is_array && src_t->is_array);
+				elempathtype = find_coercion_pathway(dst_t->elemtype, src_t->elemtype,
+													 COERCION_ASSIGNMENT, &fnoid);
+				Assert(elempathtype != COERCION_PATH_NONE);
+			}
+			funcid = fnoid;
+
+			if (OidIsValid(fnoid) && get_func_nargs(fnoid) > 1)
+				typmod_arg = true;
+		}
+		PLLUA_CATCH_RETHROW();
+
+		switch (pathtype)
+		{
+			case COERCION_PATH_NONE:
+				break;
+			case COERCION_PATH_RELABELTYPE:
+				funcid = InvalidOid;
+				/*FALLTHROUGH*/
+			case COERCION_PATH_FUNC:
+			case COERCION_PATH_ARRAYCOERCE:
+				lua_pushvalue(L, 1);
+				lua_pushvalue(L, 2);
+
+				switch (elempathtype)
+				{
+					default:
+						break;
+					case COERCION_PATH_NONE:
+						/* (non-array case) */
+						lua_pushinteger(L, (lua_Integer) funcid);
+						break;
+					case COERCION_PATH_RELABELTYPE:
+						lua_pushnil(L);
+						break;
+					case COERCION_PATH_FUNC:
+						lua_pushinteger(L, (lua_Integer) funcid);
+						break;
+					case COERCION_PATH_COERCEVIAIO:
+						lua_pushinteger(L, (lua_Integer) InvalidOid);
+						break;
+				}
+				if (OidIsValid(funcid))
+					pllua_pgfunc_new(L);
+				else
+					lua_pushnil(L);
+				if (!typmod_arg && dst_t->basetypmod >= 0)
+					pllua_pgfunc_new(L);
+				else
+					lua_pushnil(L);
+				lua_pushcclosure(L,
+								 ((pathtype == COERCION_PATH_ARRAYCOERCE)
+								  ? pllua_typeconv_array_coerce
+								  : pllua_typeconv_scalar_coerce_func),
+								 5);
+				return 1;
+			case COERCION_PATH_COERCEVIAIO:
+				lua_pushvalue(L, 1);
+				lua_pushvalue(L, 2);
+				if (dst_t->typeoid != dst_t->basetype)
+					pllua_get_user_field(L, 2, "basetype");
+				else
+					lua_pushvalue(L, 2);
+				lua_pushcclosure(L, pllua_typeconv_scalar_coerce_via_io, 3);
+				return 1;
+
+				lua_pushvalue(L, 1);
+				lua_pushvalue(L, 2);
+				if (!typmod_arg && dst_t->basetypmod >= 0)
+					pllua_pgfunc_new(L);
+				else
+					lua_pushnil(L);
+				lua_pushcclosure(L, pllua_typeconv_array_coerce, 5);
+				return 1;
+		}
+	}
+	/*
+	 * if not found, try a row cast
+	 *
+	 * We don't expect all cases to work.
+	 */
+	if (src_t->natts >= 0 && dst_t->natts >= 0)
+	{
+		int i,j;
+		int arity = 0;
+		bool sametype = (src_t->basetype != RECORDOID && src_t->basetype == dst_t->basetype);
+		char droplist[MaxTupleAttributeNumber + 1];
+		bool need_droplist = false;
+
+		memset(droplist, 0, src_t->natts * sizeof(char));
+		for (i = 0, j = 0; i < src_t->natts && j < dst_t->natts; ++i)
+		{
+			Form_pg_attribute s_att = TupleDescAttr(src_t->tupdesc, i);
+			Form_pg_attribute d_att = TupleDescAttr(dst_t->tupdesc, j);
+			/*
+			 * How we match up columns depends on the relationship between the
+			 * two types.
+			 *
+			 * If both are RECORD, neither will have dropped cols, so we just
+			 * line up the fields and expect it to work.
+			 *
+			 * If both are the same named type, they must be different
+			 * versions, and the dest type must be the newer one (since we
+			 * don't allow casting to old versions). So we expect dropped cols
+			 * to match up except that the newer version might drop more cols,
+			 * and it might also have new cols at the end.
+			 *
+			 * If they are unrelated types, we just line everything up.
+			 */
+			if (s_att->attisdropped)
+			{
+				/*
+				 * If the source col is dropped, skip the dest col if it's also
+				 * dropped, but only in the same-type case.
+				 */
+				if (sametype && d_att->attisdropped)
+					++j;
+				continue;
+			}
+			/*
+			 * If the dest col is dropped, skip the source col in the sametype
+			 * case; otherwise just skip the desc col (retrying the main loop
+			 * with the same source col).
+			 */
+			if (d_att->attisdropped)
+			{
+				++j;
+				if (sametype)
+				{
+					need_droplist = true;
+					droplist[i] = 1;
+					continue;
+				}
+				else
+				{
+					--i;
+					continue;
+				}
+			}
+			++arity;
+		}
+		/*
+		 * If we didn't exhaust the source cols, then the source has higher
+		 * arity, which we don't allow. Otherwise, make the closure.
+		 */
+		if (i == src_t->natts)
+		{
+			lua_pushvalue(L, 1);
+			lua_pushvalue(L, 2);
+			if (need_droplist)
+				lua_pushlstring(L, droplist, src_t->natts);
+			else
+				lua_pushnil(L);
+			lua_pushcclosure(L, pllua_typeconv_row_coerce, 3);
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/*
+ * func = __index(tab,key)  where key is dest typeinfo
+ *
+ * source typeinfo is in upvalue 1
+ */
+static int
+pllua_typeconv_index(lua_State *L)
+{
+	lua_settop(L, 2);
+	luaL_checktype(L, 1, LUA_TTABLE);
+	lua_pushcfunction(L, pllua_typeconv_create);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushvalue(L, 2);
+	lua_call(L, 2, 1);
+	if (!lua_isfunction(L, -1))
+		luaL_error(L, "could not construct cast");
+	/* stack: tab key val */
+	lua_pushvalue(L, -1);
+	lua_insert(L, -3);
+	/* stack: tab val key val */
+	lua_rawset(L, -4);
+	return 1;
+}
+
 
 static struct luaL_Reg typeinfo_mt[] = {
 	{ "__eq", pllua_typeinfo_eq },
@@ -4731,9 +4978,6 @@ int pllua_open_pgtype(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
 
 	pllua_newmetatable(L, PLLUA_IDXLIST_OBJECT, idxlist_mt);
-	lua_pop(L, 1);
-
-	pllua_newmetatable(L, PLLUA_TUPCONV_OBJECT, tupconv_mt);
 	lua_pop(L, 1);
 
 	pllua_newmetatable(L, PLLUA_TYPEINFO_OBJECT, typeinfo_mt);

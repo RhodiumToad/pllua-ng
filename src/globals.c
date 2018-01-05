@@ -40,10 +40,12 @@ char PLLUA_SPI_CURSOR_OBJECT[] = "SPI cursor object";
 char PLLUA_LAST_ERROR[] = "last error";
 char PLLUA_RECURSIVE_ERROR[] = "recursive error";
 char PLLUA_FUNCTION_MEMBER[] = "function element";
+char PLLUA_MCONTEXT_MEMBER[] = "memory context element";
 char PLLUA_THREAD_MEMBER[] = "thread element";
 char PLLUA_TRUSTED_SANDBOX[] = "sandbox";
 char PLLUA_TRUSTED_SANDBOX_LOADED[] = "sandbox loaded modules";
 char PLLUA_TRUSTED_SANDBOX_ALLOW[] = "sandbox allowed modules";
+char PLLUA_PGFUNC_TABLE_OBJECT[] = "pgfunc table object";
 
 #if LUA_VERSION_NUM == 501
 int pllua_getsubtable(lua_State *L, int i, const char *name)

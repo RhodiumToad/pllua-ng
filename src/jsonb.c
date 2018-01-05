@@ -162,51 +162,26 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 /*
  * Given a datum input, which might be json or jsonb or have a cast, figure out
  * what to put into JsonbValue. We're already in pg context in the temporary
- * memory context.
+ * memory context, and the value at -1 on the lua stack is the .f_to_jsonb
+ * pgfunc object from the typeinfo.
  */
 static void
-pllua_jsonb_from_datum(lua_State *L, JsonbValue *pval, pllua_datum *d, pllua_typeinfo *dt)
+pllua_jsonb_from_datum(lua_State *L, JsonbValue *pval,
+					   pllua_datum *d, pllua_typeinfo *dt)
 {
 	FunctionCallInfoData fcinfo;
+	FmgrInfo *fn = *(void **) lua_touserdata(L, -1);
 	Datum res;
 
-	if (!OidIsValid(dt->tojsonb_func.fn_oid))
+	if (!fn || !OidIsValid(fn->fn_oid))
 	{
-		/*
-		 * we need to monkey up a callsite for a polymorphic call, which is a
-		 * bit harder than the usual shorthand methods.
-		 *
-		 * We still take a lot of shortcuts. We assume that the function
-		 * pg_catalog.to_jsonb(anyelement) exists and is sufficient to convert
-		 * any type whatsoever (i.e. that there aren't more specialized
-		 * to_jsonb functions). Currently, that one to_jsonb function handles
-		 * looking up casts for other types, so it works.
-		 */
 		Oid		fnoid = DatumGetObjectId(
 							DirectFunctionCall1(regprocedurein,
 												CStringGetDatum("pg_catalog.to_jsonb(anyelement)")));
-		MemoryContext oldcontext = MemoryContextSwitchTo(dt->mcxt);
-		Param	   *argp = makeNode(Param);
-		List	   *args = list_make1(argp);
-		Node	   *func;
-
-		/* make an argument of a dummy Param node of the input type */
-		argp->paramkind = PARAM_EXEC;
-		argp->paramid = -1;
-		argp->paramtype = dt->typeoid;
-		argp->paramtypmod = dt->typmod;
-		argp->paramcollid = InvalidOid;
-		argp->location = -1;
-
-		func = (Node *) makeFuncExpr(fnoid, JSONBOID, args, InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
-
-		fmgr_info_cxt(fnoid, &dt->tojsonb_func, dt->mcxt);
-		fmgr_info_set_expr(func, &dt->tojsonb_func);
-
-		MemoryContextSwitchTo(oldcontext);
+		fn = pllua_pgfunc_init(L, -1, fnoid, 1, &dt->typeoid, JSONBOID);
 	}
 
-	InitFunctionCallInfoData(fcinfo, &dt->tojsonb_func, 1, InvalidOid, NULL, NULL);
+	InitFunctionCallInfoData(fcinfo, fn, 1, InvalidOid, NULL, NULL);
 	fcinfo.arg[0] = d->value;
 	fcinfo.argnull[0] = false;
 	res = FunctionCallInvoke(&fcinfo);
@@ -281,6 +256,8 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 			}
 			else if ((d = pllua_toanydatum(L, -1, &dt)))
 			{
+				pllua_get_user_subfield(L, -1, ".funcs", "to_jsonb");
+				Assert(lua_type(L,-1) == LUA_TUSERDATA);
 				PLLUA_TRY();
 				{
 					MemoryContext oldcontext = MemoryContextSwitchTo(tmpcxt);
@@ -288,7 +265,7 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 					MemoryContextSwitchTo(oldcontext);
 				}
 				PLLUA_CATCH_RETHROW();
-				lua_pop(L, 1);
+				lua_pop(L, 2);
 				return;
 			}
 			if (luaL_getmetafield(L, -1, "__tostring") == LUA_TNIL)

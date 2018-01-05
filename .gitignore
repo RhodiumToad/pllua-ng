@@ -19,3 +19,4 @@ lcov.info
 coverage/
 /results/
 pllua_functable.h
+src/.dir-locals.el

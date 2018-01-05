@@ -483,7 +483,6 @@ typedef struct pllua_typeinfo
 	bool		coerce_typmod;		/* typmod coercions needed */
 	bool		coerce_typmod_element;
 	Oid			typmod_funcid;
-	FmgrInfo	typmod_func;
 
 	int32		basetypmod;			/* for domains */
 	void	   *domain_extra;		/* domain_check workspace */
@@ -495,10 +494,6 @@ typedef struct pllua_typeinfo
 
 	Oid			fromsql;		/* fromsql(internal) returns internal */
 	Oid			tosql;			/* tosql(internal) returns datum */
-	FmgrInfo	fromsql_func;
-	FmgrInfo	tosql_func;
-
-	FmgrInfo	tojsonb_func;
 
 	/*
 	 * we give this its own context, because we can't control what fmgr will
@@ -583,11 +578,13 @@ extern char PLLUA_SPI_CURSOR_OBJECT[];
 extern char PLLUA_LAST_ERROR[];
 extern char PLLUA_RECURSIVE_ERROR[];
 extern char PLLUA_FUNCTION_MEMBER[];
+extern char PLLUA_MCONTEXT_MEMBER[];
 extern char PLLUA_THREAD_MEMBER[];
 extern char PLLUA_TYPEINFO_MEMBER[];
 extern char PLLUA_TRUSTED_SANDBOX[];
 extern char PLLUA_TRUSTED_SANDBOX_LOADED[];
 extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
+extern char PLLUA_PGFUNC_TABLE_OBJECT[];
 
 /* functions */
 
@@ -733,6 +730,7 @@ MemoryContext pllua_newmemcontext(lua_State *L,
 
 void pllua_set_user_field(lua_State *L, int nd, const char *field);
 int pllua_get_user_field(lua_State *L, int nd, const char *field);
+int pllua_get_user_subfield(lua_State *L, int nd, const char *field, const char *subfield);
 
 int pllua_newactivation(lua_State *L);
 int pllua_setactivation(lua_State *L);
@@ -746,6 +744,10 @@ int pllua_resetactivation(lua_State *L);
 
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);
+
+void pllua_pgfunc_new(lua_State *L);
+FmgrInfo *pllua_pgfunc_init(lua_State *L, int nd, Oid fnoid, int nargs, Oid *argtypes, Oid rettype);
+void pllua_pgfunc_table_new(lua_State *L);
 
 /* spi.c */
 int pllua_open_spi(lua_State *L);
