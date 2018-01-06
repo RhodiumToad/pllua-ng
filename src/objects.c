@@ -36,7 +36,7 @@ void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt)
 	luaL_setfuncs(L, mt, 0);
 	lua_pushstring(L, objtype);
 	lua_setfield(L, -2, "__name");
-	lua_newtable(L);
+	lua_pushboolean(L, 1);
 	lua_setfield(L, -2, "__metatable");
 	lua_pushvalue(L, -1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, objtype);

@@ -132,10 +132,20 @@ select pg_temp.f19(3);
 -- trusted interpreter setup
 
 -- check we really do have different interpreters
--- (uses table.x rather than _ENV.x because _ENV would be sandboxed)
-do language pllua $$ table.g_trusted = 1 $$;
-do language plluau $$ table.g_untrusted = 1 print('untrusted',table.g_trusted,table.g_untrusted)$$;
-do language pllua $$ print('trusted',table.g_trusted,table.g_untrusted) $$;
+
+-- this is hard because we intentionally isolate trusted-language code
+-- from the normal global env of its interpreter, so we would only be
+-- able to verify isolation if we were able to break out of the
+-- sandbox, which would rather defeat the point. We have to take the
+-- outside view, by generating an interpreter-dependent value and
+-- checking that it differs. The stringification of a closure, such as
+-- server.error, suffices since this contains an interpreter-dependent
+-- address (whereas base C functions do not differ between
+-- interpreters in recent lua versions).
+
+create function pg_temp.f20() returns text language pllua as $$ return tostring(server.error) $$;
+create function pg_temp.f21() returns text language plluau as $$ return tostring(server.error) $$;
+select pg_temp.f20() as a intersect select pg_temp.f21();  -- should be empty
 
 -- check the global table
 do language pllua $$
@@ -145,6 +155,20 @@ $$;
 do language plluau $$
   local gk = { "io", "dofile" }  -- probably exist
   for i = 1,#gk do print(gk[i],type(_G[gk[i]])) end
+$$;
+
+-- check that trusted gets only the restricted os module, even from
+-- require
+do language pllua $$
+  local os = require 'os'
+  local gk = { "time", "difftime", "execute", "getenv", "exit" }
+  for i = 1,#gk do print(gk[i],type(os[gk[i]])) end
+$$;
+
+-- check that trusted can't require dangerous core modules
+do language pllua $$
+  print((lpcall(require,"debug")))
+  print((lpcall(require,"io")))
 $$;
 
 --end

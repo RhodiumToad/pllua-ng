@@ -377,6 +377,24 @@ pllua_trusted_mode_direct(lua_State *L)
 	return 1;
 }
 
+/*
+ * Proxy a function call.
+ *
+ * Upvalue 1 is the real function to call.
+ * Upvalue 2 is the value to sub for the first arg (self).
+ */
+static int
+pllua_trusted_mode_proxy_wrap(lua_State *L)
+{
+	lua_pushvalue(L, lua_upvalueindex(2));
+	if (lua_gettop(L) > 1)
+		lua_replace(L, 1);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_insert(L, 1);
+	lua_call(L, lua_gettop(L) - 1, LUA_MULTRET);
+	return lua_gettop(L);
+}
+
 static int
 pllua_trusted_mode_proxy(lua_State *L)
 {
@@ -386,25 +404,60 @@ pllua_trusted_mode_proxy(lua_State *L)
 
 	lua_newtable(L);  /* slot 2 */
 	lua_newtable(L);  /* slot 3 for now */
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__metatable");
 
+	/*
+	 * Logic for metatables:
+	 *
+	 *   __index:
+	 *     always points to the old table, whether or not the old
+	 *     metatable has it
+	 *   __newindex:
+	 *     Points to the old table iff the old metatable has a
+	 *     __newindex entry, otherwise is not set
+	 *   __call:
+	 *     wrapped as a function call if present
+	 *   __metatable:
+	 *     copied if present, otherwise set to true
+	 *   any other key:
+	 *     just copied, since we can't hope to guess the semantics
+	 *
+	 */
 	if (lua_getmetatable(L, 1))
 	{
 		lua_pushnil(L);
 		while (lua_next(L, -2))
 		{
+			const char *keyname = lua_tostring(L, -2);
 			/* metatab key val */
-			lua_pushvalue(L, -2);
-			lua_insert(L, -2);
-			/* ... key key val */
-			lua_rawset(L, 3);
+			if (strcmp(keyname, "__index") == 0)
+				lua_pop(L, 1);
+			else if (strcmp(keyname, "__newindex") == 0)
+			{
+				lua_pushvalue(L, -1);
+				lua_setfield(L, 3, keyname);
+				lua_pop(L, 1);
+			}
+			else if (strcmp(keyname, "__call") == 0)
+			{
+				lua_pushvalue(L, 1);
+				lua_pushcclosure(L, pllua_trusted_mode_proxy_wrap, 2);
+				lua_setfield(L, 3, keyname);
+			}
+			else
+			{
+				lua_pushvalue(L, -2);
+				lua_insert(L, -2);
+				/* ... key key val */
+				lua_rawset(L, 3);
+			}
 			/* metatab key */
 		}
 		lua_pop(L, 1);
 	}
 	lua_pushvalue(L, 1);
 	lua_setfield(L, -2, "__index");
-	lua_newtable(L);
-	lua_setfield(L, -2, "__metatable");
 	lua_setmetatable(L, 2);
 
 	/*
@@ -570,7 +623,7 @@ pllua_open_trusted(lua_State *L)
 	 * want the sandbox to be able to get it via getmetatable("")
 	 */
 	lua_getglobal(L, "string");
-	lua_newtable(L);
+	lua_pushboolean(L, 1);
 	lua_setfield(L, -2, "__metatable");
 	lua_pop(L, 1);
 
