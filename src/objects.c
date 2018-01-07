@@ -42,6 +42,25 @@ void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, objtype);
 }
 
+/*
+ * Create a table+metatable with the specified weak mode and (optional) name.
+ *
+ * Leaves both table and metatable on the stack, with the metatable on top.
+ */
+void pllua_new_weak_table(lua_State *L, const char *mode, const char *name)
+{
+	lua_newtable(L);
+	lua_newtable(L);
+	lua_pushstring(L, mode);
+	lua_setfield(L, -2, "__mode");
+	if (name)
+	{
+		lua_pushstring(L, name);
+		lua_setfield(L, -2, "__name");
+	}
+	lua_pushvalue(L, -1);
+	lua_setmetatable(L, -3);
+}
 
 /*
  * Reference objects hold only a pointer in the Lua object which points to the

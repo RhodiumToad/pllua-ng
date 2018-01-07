@@ -433,7 +433,7 @@ pllua_fini(int code, Datum arg)
  * interpreter.
  */
 static void
-pllua_relcache_callback(Datum arg, Oid relid)
+pllua_callback_broadcast(Datum arg, lua_CFunction cfunc, pllua_cache_inval *inval)
 {
 	HASH_SEQ_STATUS hash_seq;
 	pllua_interpreter *interp_desc;
@@ -447,43 +447,46 @@ pllua_relcache_callback(Datum arg, Oid relid)
 				|| arg == PointerGetDatum(interp_desc)))
 		{
 			int rc;
-			interp_desc->inval_type = false;
-			interp_desc->inval_rel = true;
-			interp_desc->inval_reloid = InvalidOid;
-			rc = pllua_cpcall(L, pllua_typeinfo_invalidate, interp_desc);
+			interp_desc->inval = inval;
+			rc = pllua_cpcall(L, /* keep line split to avoid functable hack */
+							  cfunc,
+							  interp_desc);
 			if (rc)
 				pllua_poperror(L);
 		}
 	}
 }
 
-/*
- * Broadcast an invalidation to all interpreters (if arg==0) or the specified
- * interpreter.
- */
+static void
+pllua_relcache_callback(Datum arg, Oid relid)
+{
+	pllua_cache_inval inval;
+
+	memset(&inval, 0, sizeof(inval));
+	inval.inval_rel = true;
+	inval.inval_reloid = InvalidOid;
+	pllua_callback_broadcast(arg, pllua_register_cfunc(L, pllua_typeinfo_invalidate), &inval);
+}
+
 static void
 pllua_syscache_typeoid_callback(Datum arg, int cacheid, uint32 hashvalue)
 {
-	HASH_SEQ_STATUS hash_seq;
-	pllua_interpreter *interp_desc;
+	pllua_cache_inval inval;
 
-	hash_seq_init(&hash_seq, pllua_interp_hash);
-	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
-	{
-		lua_State *L = interp_desc->L;
-		if (L
-			&& (arg == (Datum)0
-				|| arg == PointerGetDatum(interp_desc)))
-		{
-			int rc;
-			interp_desc->inval_type = true;
-			interp_desc->inval_rel = false;
-			interp_desc->inval_typeoid = InvalidOid;
-			rc = pllua_cpcall(L, pllua_typeinfo_invalidate, interp_desc);
-			if (rc)
-				pllua_poperror(L);
-		}
-	}
+	memset(&inval, 0, sizeof(inval));
+	inval.inval_type = true;
+	inval.inval_typeoid = InvalidOid;
+	pllua_callback_broadcast(arg, pllua_register_cfunc(L, pllua_typeinfo_invalidate), &inval);
+}
+
+static void
+pllua_syscache_cast_callback(Datum arg, int cacheid, uint32 hashvalue)
+{
+	pllua_cache_inval inval;
+
+	memset(&inval, 0, sizeof(inval));
+	inval.inval_cast = true;
+	pllua_callback_broadcast(arg, pllua_register_cfunc(L, pllua_typeconv_invalidate), &inval);
 }
 
 /*
@@ -838,6 +841,7 @@ pllua_newstate_phase2(lua_State *L,
 			CacheRegisterRelcacheCallback(pllua_relcache_callback, (Datum)0);
 			CacheRegisterSyscacheCallback(TYPEOID, pllua_syscache_typeoid_callback, (Datum)0);
 			CacheRegisterSyscacheCallback(TRFTYPELANG, pllua_syscache_typeoid_callback, (Datum)0);
+			CacheRegisterSyscacheCallback(CASTSOURCETARGET, pllua_syscache_cast_callback, (Datum)0);
 			first_time = false;
 		}
 
@@ -851,6 +855,7 @@ pllua_newstate_phase2(lua_State *L,
 		 */
 		pllua_relcache_callback(PointerGetDatum(interp_desc), InvalidOid);
 		pllua_syscache_typeoid_callback(PointerGetDatum(interp_desc), TYPEOID, 0);
+		pllua_syscache_cast_callback(PointerGetDatum(interp_desc), CASTSOURCETARGET, 0);
 
 		/*
 		 * Now that we have everything set up, it should finally be safe to run

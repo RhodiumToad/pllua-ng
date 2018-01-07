@@ -1422,11 +1422,8 @@ int pllua_open_spi(lua_State *L)
 	lua_pop(L, 1);
 
 	/* make a weak table to hold portals: light[Portal] = cursor object */
-	lua_newtable(L);
-	lua_newtable(L);
-	lua_pushstring(L, "v");
-	lua_setfield(L, -2, "__mode");
-	lua_setmetatable(L, -2);
+	pllua_new_weak_table(L, "v", "spi portal registry table");
+	lua_pop(L, 1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_PORTALS);
 
 	pllua_newmetatable(L, PLLUA_SPI_CURSOR_OBJECT, spi_cursor_mt);

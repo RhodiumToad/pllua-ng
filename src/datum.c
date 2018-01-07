@@ -66,7 +66,7 @@
 static bool pllua_typeinfo_iofunc(lua_State *L,
 								  pllua_typeinfo *t,
 								  IOFuncSelector whichfunc);
-static int pllua_typeconv_index(lua_State *L);
+static void pllua_typeconv_register(lua_State *L, int tabidx, int typeidx);
 static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t);
 
 /*
@@ -2537,18 +2537,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 	pllua_pgfunc_table_new(L);
 	lua_setfield(L, -2, ".funcs");
 
-	lua_newtable(L);
-	lua_newtable(L);
-	lua_pushstring(L, "k");
-	lua_setfield(L, -2, "__mode");
-	lua_pushstring(L, "typeconv table");
-	lua_setfield(L, -2, "__name");
-	/* stack: ... self uservalue typeconv typeconv_mt */
-	lua_pushvalue(L, -4);
-	lua_pushcclosure(L, pllua_typeconv_index, 1);
-	lua_setfield(L, -2, "__index");
-	lua_setmetatable(L, -2);
-	lua_setfield(L, -2, "typeconv");
+	pllua_typeconv_register(L, -1, -2);
 
 	/* stack: self uservalue */
 	if (t->basetype != t->typeoid)
@@ -2879,12 +2868,12 @@ int pllua_typeinfo_lookup(lua_State *L)
 int pllua_typeinfo_invalidate(lua_State *L)
 {
 	pllua_interpreter *interp = lua_touserdata(L, 1);
-	Oid typoid = interp->inval_typeoid;
-	Oid relid = interp->inval_reloid;
+	Oid typoid = interp->inval->inval_typeoid;
+	Oid relid = interp->inval->inval_reloid;
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
 
-	if (interp->inval_type)
+	if (interp->inval->inval_type)
 	{
 		if (OidIsValid(typoid))
 		{
@@ -2907,7 +2896,7 @@ int pllua_typeinfo_invalidate(lua_State *L)
 		}
 	}
 
-	if (interp->inval_rel)
+	if (interp->inval->inval_rel)
 	{
 		lua_pushnil(L);
 		while (lua_next(L, -2))
@@ -4715,6 +4704,22 @@ pllua_typeconv_row_coerce(lua_State *L)
 }
 
 /*
+ * Raise error for unconvertible type
+ *
+ * upvalue 1 is the name of the source type, 2 the destination type
+ */
+static int
+pllua_typeconv_error(lua_State *L)
+{
+	const char *srcname = lua_tostring(L, lua_upvalueindex(1));
+	const char *dstname = lua_tostring(L, lua_upvalueindex(2));
+	luaL_error(L, "cannot cast from type %s to %s",
+			   (srcname ? srcname : "(unknown)"),
+			   (dstname ? dstname : "(unknown)"));
+	return 0;
+}
+
+/*
  * func = create(src_t,dst_t)
  *
  * This does the whole work of determining what type of conversion to apply,
@@ -4911,7 +4916,20 @@ pllua_typeconv_create(lua_State *L)
 			return 1;
 		}
 	}
-	return 0;
+
+	/*
+	 * If we didn't construct a cast, then create an error closure as a
+	 * negative cache entry. Use the names of the types in the error.
+	 */
+	lua_getfield(L, 1, "name");
+	lua_pushvalue(L, 1);
+	lua_call(L, 1, 1);
+	lua_getfield(L, 2, "name");
+	lua_pushvalue(L, 2);
+	lua_call(L, 1, 1);
+	lua_pushcclosure(L, pllua_typeconv_error, 2);
+
+	return 1;
 }
 
 /*
@@ -4937,6 +4955,53 @@ pllua_typeconv_index(lua_State *L)
 	lua_rawset(L, -4);
 	return 1;
 }
+
+/*
+ * Create a typeinfo table and store it in the table at "tabidx"
+ * (under the key "typeinfo"). typeidx denotes the typeinfo object
+ * over which we will close the index method.
+ */
+static void
+pllua_typeconv_newtable(lua_State *L, int tabidx, int typeidx)
+{
+	pllua_new_weak_table(L, "k", "typeconv table");
+	lua_pushvalue(L, typeidx);
+	lua_pushcclosure(L, pllua_typeconv_index, 1);
+	lua_setfield(L, -2, "__index");
+	lua_pop(L, 1);
+	lua_setfield(L, tabidx, "typeconv");
+}
+
+static void
+pllua_typeconv_register(lua_State *L, int tabidx, int typeidx)
+{
+	tabidx = lua_absindex(L, tabidx);
+	typeidx = lua_absindex(L, typeidx);
+	pllua_typeconv_newtable(L, tabidx, typeidx);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TYPECONV_REGISTRY);
+	lua_pushvalue(L, tabidx);
+	lua_pushvalue(L, typeidx);
+	lua_rawset(L, -3);
+	lua_pop(L, 1);
+}
+
+/*
+ * invalidate(interp)
+ */
+int pllua_typeconv_invalidate(lua_State *L)
+{
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TYPECONV_REGISTRY);
+
+	lua_pushnil(L);
+	while (lua_next(L, -2))
+	{
+		pllua_typeconv_newtable(L, lua_absindex(L, -2), lua_absindex(L, -1));
+		lua_pop(L, 1);
+	}
+
+	return 0;
+}
+
 
 
 static struct luaL_Reg typeinfo_mt[] = {
@@ -4976,6 +5041,17 @@ int pllua_open_pgtype(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECORDS);
+
+	/*
+	 * key-weak table for registering typeconv tables. This actually references
+	 * the table _containing_ the typeconv, so that we can just replace the
+	 * table with an empty one rather than having to delete its keys.
+	 *
+	 * The values are the source typeinfos, so those can be weak too.
+	 */
+	pllua_new_weak_table(L, "kv", "typeconv registry table");
+	lua_pop(L, 1);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPECONV_REGISTRY);
 
 	pllua_newmetatable(L, PLLUA_IDXLIST_OBJECT, idxlist_mt);
 	lua_pop(L, 1);

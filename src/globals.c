@@ -46,6 +46,7 @@ char PLLUA_TRUSTED_SANDBOX[] = "sandbox";
 char PLLUA_TRUSTED_SANDBOX_LOADED[] = "sandbox loaded modules";
 char PLLUA_TRUSTED_SANDBOX_ALLOW[] = "sandbox allowed modules";
 char PLLUA_PGFUNC_TABLE_OBJECT[] = "pgfunc table object";
+char PLLUA_TYPECONV_REGISTRY[] = "typeconv registry table";
 
 #if LUA_VERSION_NUM == 501
 int pllua_getsubtable(lua_State *L, int i, const char *name)

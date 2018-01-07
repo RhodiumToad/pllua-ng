@@ -325,10 +325,9 @@ pllua_pcall(lua_State *L, int nargs, int nresults, int msgh)
  * have no way to register their addresses for pllua_pushcfunction. So provide
  * this trampoline so that they can use pushlightuserdata instead.
  */
-#if 0
+
 /* DO NOT REMOVE THIS, IT'S NEEDED FOR pllua_functable.h */
-pllua_pushcfunction(L, pllua_trampoline);
-#endif
+int pllua_register_cfunc(L, pllua_trampoline)(lua_State *L);
 
 int
 pllua_trampoline(lua_State *L)

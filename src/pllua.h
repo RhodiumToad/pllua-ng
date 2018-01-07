@@ -72,6 +72,12 @@
 		rc = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_));	\
 		Assert(rc==LUA_TFUNCTION); } while(0)
 
+/*
+ * used to label functions that need registration despite not being
+ * directly passed to pcall or cpcall; the first arg is unused
+ */
+#define pllua_register_cfunc(L_, f_) (f_)
+
 #if LUA_VERSION_NUM == 501
 /*
  * Parts of the lua 5.1 compatibility cruft here is derived from the
@@ -281,6 +287,15 @@ typedef struct pllua_activation_record
 	const char *err_text;
 } pllua_activation_record;
 
+typedef struct pllua_cache_inval
+{
+	bool		inval_type;
+	bool		inval_rel;
+	bool		inval_cast;
+	Oid			inval_typeoid;
+	Oid			inval_reloid;
+} pllua_cache_inval;
+
 /*
  * Top-level data for one interpreter. We keep a hashtable of these per user_id
  * (for trusted mode isolation). We keep a pointer to this in the Lua registry
@@ -305,10 +320,7 @@ typedef struct pllua_interpreter
 	int			errdepth;
 	bool		update_errdepth;
 
-	bool		inval_type;
-	bool		inval_rel;
-	Oid			inval_typeoid;
-	Oid			inval_reloid;
+	pllua_cache_inval *inval;
 } pllua_interpreter;
 
 /* We abuse the node system to pass this in fcinfo->context */
@@ -585,6 +597,7 @@ extern char PLLUA_TRUSTED_SANDBOX[];
 extern char PLLUA_TRUSTED_SANDBOX_LOADED[];
 extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 extern char PLLUA_PGFUNC_TABLE_OBJECT[];
+extern char PLLUA_TYPECONV_REGISTRY[];
 
 /* functions */
 
@@ -656,6 +669,7 @@ int pllua_typeinfo_lookup(lua_State *L);
 pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, TupleDesc tupdesc);
 int pllua_typeinfo_parsetype(lua_State *L);
 int pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t);
+int pllua_typeconv_invalidate(lua_State *L);
 
 /* elog.c */
 int pllua_open_elog(lua_State *L);
@@ -713,6 +727,7 @@ int pllua_open_funcmgr(lua_State *L);
 
 bool pllua_isobject(lua_State *L, int nd, char *objtype);
 void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt);
+void pllua_new_weak_table(lua_State *L, const char *mode, const char *name);
 MemoryContext pllua_get_memory_cxt(lua_State *L);
 void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool uservalue);
 void **pllua_torefobject(lua_State *L, int nd, char *objtype);
