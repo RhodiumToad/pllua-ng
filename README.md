@@ -397,6 +397,14 @@ env (not the sandbox env). It can do:
            inside. If the module returns any table from a function,
            that table might be modified from inside the sandbox.
 
+           If 'module' is actually a table, it is treated as a
+           sequence, each element of which is either a module name
+	   or a table { 'module', newname, mode, global } with missing
+	   values of mode/global defaulted to the original arguments.
+	   This enables the common case usage to be just:
+
+             trusted.allow{"foo", "bar", "baz"}
+
       trusted.require(module, newname, mode)
         -- equiv. to  trusted.allow(module, newname, mode, true)
 

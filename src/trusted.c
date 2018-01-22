@@ -243,7 +243,7 @@ pllua_bind_one_value(lua_State *L)
 }
 
 /*
- * allow(modname,newname,mode,do_require)
+ * _allow(modname,newname,mode,global)
  */
 static int
 pllua_trusted_allow(lua_State *L)
@@ -306,17 +306,6 @@ pllua_trusted_allow(lua_State *L)
 	lua_rawset(L, -3);
 	lua_pop(L, 1);
 
-	return 0;
-}
-
-static int
-pllua_trusted_require(lua_State *L)
-{
-	lua_settop(L, 3);
-	lua_pushboolean(L, 1);
-	lua_getfield(L, lua_upvalueindex(1), "allow");
-	lua_insert(L, 1);
-	lua_call(L, 4, 0);
 	return 0;
 }
 
@@ -493,11 +482,38 @@ static struct luaL_Reg trusted_modes_funcs[] = {
 };
 
 static struct luaL_Reg trusted_funcs[] = {
-	{ "require", pllua_trusted_require },
-	{ "allow", pllua_trusted_allow },
+	{ "_allow", pllua_trusted_allow },
 	{ "remove", pllua_trusted_remove },
 	{ NULL, NULL }
 };
+
+/*
+ * This is called with the first arg being the "trusted" module table
+ */
+static const char *trusted_lua =
+"local lib = ...\n"
+"local unpack = table.unpack or unpack\n"
+"local type, ipairs = type, ipairs\n"
+"local allow = lib._allow\n"
+#if LUA_VERSION_NUM >= 502
+"_ENV = nil\n"
+#endif
+"function lib.allow(mod,new,mode,glob)\n"
+"    if type(mod)==\"string\" then\n"
+"        allow(mod,new,mode,glob)\n"
+"    elseif type(mod)==\"table\" then\n"
+"        for i,v in ipairs(mod) do\n"
+"            local e_mod, e_new, e_mode, e_glob\n"
+"              = unpack(type(v)==\"table\" and v or { v },1,4)\n"
+"            if e_glob == nil then e_glob = glob end\n"
+"            allow(e_mod, e_new, e_mode or mode, e_glob)\n"
+"        end\n"
+"    end\n"
+"end\n"
+"function lib.require(mod,new,mode)\n"
+"    lib.allow(mod,new,mode,true)\n"
+"end\n"
+;
 
 static struct luaL_Reg sandbox_funcs[] = {
 	/* from this file */
@@ -589,6 +605,14 @@ pllua_open_trusted(lua_State *L)
 	lua_setfield(L, 1, "modes");
 
 	luaL_setfuncs(L, trusted_funcs, 2);
+
+	if (luaL_loadstring(L, trusted_lua) == LUA_OK)
+	{
+		lua_pushvalue(L, 1);
+		lua_call(L, 1, 0);
+	}
+	else
+		lua_error(L);
 
 	/* create the "permitted package" table */
 	lua_newtable(L);
