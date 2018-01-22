@@ -789,5 +789,6 @@ void pllua_evtrigger_end(lua_State *L, int nd);
 
 /* trusted.c */
 int pllua_open_trusted(lua_State *L);
+int pllua_open_trusted_late(lua_State *L);
 
 #endif

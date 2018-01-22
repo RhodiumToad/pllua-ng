@@ -608,6 +608,19 @@ pllua_init_state_phase1(lua_State *L)
 	lua_pushcfunction(L, pllua_p_print);
 	lua_setglobal(L, "print");
 
+	/*
+	 * Early init of the trusted sandbox, so that on_init can do trusted setup
+	 * (even though we don't know in on_init whether we're trusted or not).
+	 *
+	 * Note that this relies on the fact that the pllua.trusted module doesn't
+	 * offer any interaction with postgres, so it's postmaster-safe.
+	 */
+	luaL_requiref(L, "pllua.trusted", pllua_open_trusted, 0);
+	lua_pop(L, 1);
+
+	/*
+	 * Actually run the phase1 init string.
+	 */
 	pllua_runstring(L, "on_init", pllua_on_init);
 
 	/*
@@ -663,14 +676,18 @@ pllua_init_state_phase2(lua_State *L)
 	lua_pop(L, 1);
 
 	/*
-	 * If in trusted mode, load the "trusted" module which allows the superuser
-	 * to control (in the init strings) what modules can be exposed to the user.
+	 * complete the initialization of the trusted-mode sandbox.
+	 * We do this in untrusted interps too, but for those, we don't
+	 * store the module table in a global.
+	 *
+	 * This must be last, after all module loads, so that it can copy
+	 * appropriate modules into the sandbox.
 	 */
+	luaL_requiref(L, "pllua.trusted.late", pllua_open_trusted_late, 0);
 	if (trusted)
-	{
-		luaL_requiref(L, "pllua.trusted", pllua_open_trusted, 0);
 		lua_setglobal(L, "trusted");
-	}
+	else
+		lua_pop(L, 1);
 
 	/* enable interrupt checks */
 	if (pllua_do_check_for_interrupts)
@@ -752,10 +769,11 @@ pllua_newstate_phase1(const char *ident)
 	lua_pushlightuserdata(L, (void *) ident);
 	rc = pllua_pcall_nothrow(L, 3, 0, 0);
 
-	/* We don't allow phase1 init to do anything that interacts with pg in any
-	 * way other than memory allocation and elog/ereport. So if we got an
-	 * error, we can be pretty sure it's not actually a pg error (the one
-	 * exception being out-of-memory errors).
+	/*
+	 * We don't allow phase1 init to do anything that interacts with pg in any
+	 * way other than memory allocation. So if we got an error, we can be
+	 * pretty sure it's not actually a pg error (the one exception being
+	 * out-of-memory errors).
 	 *
 	 * So, we avoid trying to rethrow any error here, because we might be in
 	 * the postmaster and that would be fatal. Leave it to the caller to decide

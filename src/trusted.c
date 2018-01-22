@@ -222,7 +222,7 @@ pllua_open_trusted_package(lua_State *L)
  *    -- allow  require "newname"  to work inside the sandbox
  *       note that "module" WILL be loaded immediately (outside)
  *
- * trusted.remove("newname")
+ * trusted.remove("newname","globname")
  *    -- remove the module from the sandbox; INEFFECTIVE if code has already
  *       been run inside.
  *
@@ -312,12 +312,25 @@ pllua_trusted_allow(lua_State *L)
 static int
 pllua_trusted_remove(lua_State *L)
 {
+	lua_settop(L, 2);
 	luaL_checkstring(L, 1);
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX_ALLOW);
-	lua_pushvalue(L, 1);
+	if (lua_type(L, 2) == LUA_TBOOLEAN)
+	{
+		if (lua_toboolean(L, 2))
+			lua_pushvalue(L, 1);
+		else
+			lua_pushnil(L);
+		lua_replace(L, 2);
+	}
+	else
+		luaL_optstring(L, 2, NULL);
+	/* kill sandbox's _G.globname */
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+	lua_pushvalue(L, 2);
 	lua_pushnil(L);
 	lua_rawset(L, -3);
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+	/* kill ALLOW and LOADED entries for modname */
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX_ALLOW);
 	lua_pushvalue(L, 1);
 	lua_pushnil(L);
 	lua_rawset(L, -3);
@@ -328,17 +341,28 @@ pllua_trusted_remove(lua_State *L)
 	return 0;
 }
 
+/*
+ * upvalue 1 is our own closure, upvalue 2 is the memo table
+ */
 static int
-pllua_trusted_mode_copy(lua_State *L)
+pllua_trusted_mode_copy_inner(lua_State *L)
 {
 	lua_settop(L, 1);
-	if (lua_type(L, 1) != LUA_TTABLE)
+
+	lua_pushvalue(L, 1);
+	if (lua_rawget(L, lua_upvalueindex(2)) != LUA_TNIL)
 		return 1;
+	lua_pop(L, 1);
+
+	lua_newtable(L);  /* slot 2 */
+
+	lua_pushvalue(L, 1);
+	lua_pushvalue(L, 2);
+	lua_rawset(L, lua_upvalueindex(2));
+
 	/*
 	 * We intentionally raw-iterate rather than pairs()ing
 	 */
-	lua_newtable(L);  /* slot 2 */
-
 	lua_pushnil(L);
 	while (lua_next(L, 1))
 	{
@@ -348,10 +372,33 @@ pllua_trusted_mode_copy(lua_State *L)
 		/* ... key key val */
 		if (lua_type(L, -1) == LUA_TTABLE)
 		{
-			lua_pushcfunction(L, pllua_trusted_mode_copy);
+			lua_pushvalue(L, lua_upvalueindex(1));
 			lua_insert(L, -2);
 			lua_call(L, 1, 1);
 		}
+		lua_rawset(L, 2);
+		/* ... key */
+	}
+
+	return 1;
+}
+
+static int
+pllua_trusted_mode_scopy(lua_State *L)
+{
+	lua_settop(L, 1);
+	lua_newtable(L);  /* slot 2 */
+
+	/*
+	 * We intentionally raw-iterate rather than pairs()ing
+	 */
+	lua_pushnil(L);
+	while (lua_next(L, 1))
+	{
+		/* ... key val */
+		lua_pushvalue(L, -2);
+		lua_insert(L, -2);
+		/* ... key key val */
 		lua_rawset(L, 2);
 		/* ... key */
 	}
@@ -384,18 +431,12 @@ pllua_trusted_mode_proxy_wrap(lua_State *L)
 	return lua_gettop(L);
 }
 
-static int
-pllua_trusted_mode_proxy(lua_State *L)
+/*
+ * Common code for metatable handling between "proxy" and "sproxy" modes
+ */
+static void
+pllua_trusted_mode_proxy_metatable(lua_State *L, int ot, int mt)
 {
-	lua_settop(L, 1);
-	if (lua_type(L, 1) != LUA_TTABLE)
-		return 1;
-
-	lua_newtable(L);  /* slot 2 */
-	lua_newtable(L);  /* slot 3 for now */
-	lua_pushboolean(L, 1);
-	lua_setfield(L, -2, "__metatable");
-
 	/*
 	 * Logic for metatables:
 	 *
@@ -413,7 +454,7 @@ pllua_trusted_mode_proxy(lua_State *L)
 	 *     just copied, since we can't hope to guess the semantics
 	 *
 	 */
-	if (lua_getmetatable(L, 1))
+	if (lua_getmetatable(L, ot))
 	{
 		lua_pushnil(L);
 		while (lua_next(L, -2))
@@ -425,26 +466,73 @@ pllua_trusted_mode_proxy(lua_State *L)
 			else if (strcmp(keyname, "__newindex") == 0)
 			{
 				lua_pushvalue(L, -1);
-				lua_setfield(L, 3, keyname);
+				lua_setfield(L, mt, keyname);
 				lua_pop(L, 1);
 			}
 			else if (strcmp(keyname, "__call") == 0)
 			{
 				lua_pushvalue(L, 1);
 				lua_pushcclosure(L, pllua_trusted_mode_proxy_wrap, 2);
-				lua_setfield(L, 3, keyname);
+				lua_setfield(L, mt, keyname);
 			}
 			else
 			{
 				lua_pushvalue(L, -2);
 				lua_insert(L, -2);
 				/* ... key key val */
-				lua_rawset(L, 3);
+				lua_rawset(L, mt);
 			}
 			/* metatab key */
 		}
 		lua_pop(L, 1);
 	}
+}
+
+static int
+pllua_trusted_mode_sproxy(lua_State *L)
+{
+	lua_settop(L, 1);
+	if (lua_type(L, 1) != LUA_TTABLE)
+		return 1;
+
+	lua_newtable(L);  /* slot 2 */
+	lua_newtable(L);  /* slot 3 for now */
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__metatable");
+
+	pllua_trusted_mode_proxy_metatable(L, 1, 3);
+
+	lua_pushvalue(L, 1);
+	lua_setfield(L, -2, "__index");
+	lua_setmetatable(L, 2);
+
+	return 1;
+}
+
+static int
+pllua_trusted_mode_proxy_inner(lua_State *L)
+{
+	lua_settop(L, 1);
+	if (lua_type(L, 1) != LUA_TTABLE)
+		return 1;
+
+	lua_pushvalue(L, 1);
+	if (lua_rawget(L, lua_upvalueindex(2)) != LUA_TNIL)
+		return 1;
+	lua_pop(L, 1);
+
+	lua_newtable(L);  /* slot 2 */
+
+	lua_pushvalue(L, 1);
+	lua_pushvalue(L, 2);
+	lua_rawset(L, lua_upvalueindex(2));
+
+	lua_newtable(L);  /* slot 3 for now */
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__metatable");
+
+	pllua_trusted_mode_proxy_metatable(L, 1, 3);
+
 	lua_pushvalue(L, 1);
 	lua_setfield(L, -2, "__index");
 	lua_setmetatable(L, 2);
@@ -461,7 +549,7 @@ pllua_trusted_mode_proxy(lua_State *L)
 			lua_pushvalue(L, -2);
 			lua_insert(L, -2);
 			/* ... key key val */
-			lua_pushcfunction(L, pllua_trusted_mode_proxy);
+			lua_pushvalue(L, lua_upvalueindex(1));
 			lua_insert(L, -2);
 			lua_call(L, 1, 1);
 			lua_rawset(L, 2);
@@ -474,10 +562,29 @@ pllua_trusted_mode_proxy(lua_State *L)
 	return 1;
 }
 
+static int
+pllua_trusted_mode_outer(lua_State *L)
+{
+	lua_settop(L, 1);
+	if (lua_type(L, 1) != LUA_TTABLE)
+		return 1;
+	lua_pushnil(L);
+	lua_newtable(L);
+	if (lua_toboolean(L, lua_upvalueindex(1)))
+		lua_pushcclosure(L, pllua_trusted_mode_proxy_inner, 2);
+	else
+		lua_pushcclosure(L, pllua_trusted_mode_copy_inner, 2);
+	lua_pushvalue(L, -1);
+	lua_setupvalue(L, -2, 1);
+	lua_insert(L, 1);
+	lua_call(L, 1, 1);
+	return 1;
+}
+
 static struct luaL_Reg trusted_modes_funcs[] = {
-	{ "copy", pllua_trusted_mode_copy },
 	{ "direct", pllua_trusted_mode_direct },
-	{ "proxy", pllua_trusted_mode_proxy },
+	{ "scopy", pllua_trusted_mode_scopy },
+	{ "sproxy", pllua_trusted_mode_sproxy },
 	{ NULL, NULL }
 };
 
@@ -572,7 +679,7 @@ struct module_info
 	const char *globname;
 };
 
-static struct module_info sandbox_packages[] = {
+static struct module_info sandbox_packages_early[] = {
 	{ "coroutine",			NULL,	"copy",		"coroutine"		},
 	{ "string",				NULL,	"copy",		"string"		},
 #if LUA_VERSION_NUM == 503
@@ -581,12 +688,49 @@ static struct module_info sandbox_packages[] = {
 	{ "table",				NULL,	"copy",		"table"			},
 	{ "math",				NULL,	"copy",		"math"			},
 	{ "pllua.trusted.os",	"os",	"direct",	"os"			},
+	{ NULL, NULL }
+};
+
+static struct module_info sandbox_packages_late[] = {
 	{ "pllua.spi",			NULL,	"copy",		"spi"			},
 	{ "pllua.pgtype",		NULL,	"proxy",	"pgtype"		},
 	{ "pllua.elog",			NULL,	"copy",		"server"		},
 	{ "pllua.numeric",		NULL,	"copy",		NULL			},
 	{ NULL, NULL }
 };
+
+/*
+ * This isn't really a module but handles the late initialization phase.
+ */
+int
+pllua_open_trusted_late(lua_State *L)
+{
+	const struct module_info *np;
+
+	lua_settop(L, 0);
+	luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
+	lua_getfield(L, -1, "pllua.trusted");
+	lua_replace(L, 1);
+
+	for (np = sandbox_packages_late; np->name; ++np)
+	{
+		lua_getfield(L, 1, "_allow");
+		lua_pushstring(L, np->name);
+		if (np->newname)
+			lua_pushstring(L, np->newname);
+		else
+			lua_pushnil(L);
+		lua_pushstring(L, np->mode);
+		if (np->globname)
+			lua_pushstring(L, np->globname);
+		else
+			lua_pushnil(L);
+		lua_call(L, 4, 0);
+	}
+
+	lua_pushvalue(L, 1);
+	return 1;
+}
 
 int
 pllua_open_trusted(lua_State *L)
@@ -599,8 +743,14 @@ pllua_open_trusted(lua_State *L)
 
 	lua_pushvalue(L, 1);
 
-	luaL_newlibtable(L, trusted_modes_funcs);
+	lua_newtable(L);
 	luaL_setfuncs(L, trusted_modes_funcs, 0);
+	lua_pushboolean(L, 0);
+	lua_pushcclosure(L, pllua_trusted_mode_outer, 1);
+	lua_setfield(L, -2, "copy");
+	lua_pushboolean(L, 1);
+	lua_pushcclosure(L, pllua_trusted_mode_outer, 1);
+	lua_setfield(L, -2, "proxy");
 	lua_pushvalue(L, -1);
 	lua_setfield(L, 1, "modes");
 
@@ -657,9 +807,9 @@ pllua_open_trusted(lua_State *L)
 	/*
 	 * require standard modules into the sandbox
 	 */
-	for (np = sandbox_packages; np->name; ++np)
+	for (np = sandbox_packages_early; np->name; ++np)
 	{
-		lua_getfield(L, 1, "allow");
+		lua_getfield(L, 1, "_allow");
 		lua_pushstring(L, np->name);
 		if (np->newname)
 			lua_pushstring(L, np->newname);

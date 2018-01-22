@@ -368,8 +368,8 @@ environment, allowing package.preload and package.searchers to work
 (the user can install their own function into package.searchers to
 load modules from database queries if they so wish).
 
-pllua.on_trusted_init is run in trusted interpreters in the global
-env (not the sandbox env). It can do:
+pllua.on_init and pllua.on_trusted_init are run in trusted
+interpreters in the global env (not the sandbox env). They can do:
 
       trusted.allow('module', newname, mode, global)
 
@@ -387,30 +387,51 @@ env (not the sandbox env). It can do:
            contained tables, without copying metatables, otherwise as
            "direct"), and "proxy" which returns a proxy table having
            the module in the metatable index slot (and any table
-           members in the module proxied likewise). All modes behave
-           like "direct" if the module's value is not a table.
+           members in the module proxied likewise; "sproxy" omits this
+           step). All modes behave like "direct" if the module's value
+           is not a table.
 
-           PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER FOR
-           ARBITRARY MODULES. It's intended to make it _possible_ for
-           simple modules or adapters to be used easily while
-           protecting the "outside" copy from direct modification from
-           inside. If the module returns any table from a function,
-           that table might be modified from inside the sandbox.
+           **PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER
+           FOR ARBITRARY MODULES**. It's intended to make it
+           _possible_ for simple modules or adapters to be used easily
+           while protecting the "outside" copy from direct
+           modification from inside. If the module returns any table
+           from a function, that table might be modified from inside
+           the sandbox.
+
+           **NEITHER PROXY MODE NOR COPY MODE ARE GUARANTEED TO WORK
+           ON ALL MODULES**. The following constructs (for example)
+           will typically defeat usage of either mode:
+
+             -- use of empty tables as unique identifiers
+
+             -- use of table values as keys
+
+             -- metatables on the module table or its contents with
+                anything other than __call methods
+
+           If you find yourself wanting to use this on a module more
+           complex than (for example) "lpeg" or "re", then consider
+           whether you ought to be using the untrusted language
+           instead.
 
            If 'module' is actually a table, it is treated as a
            sequence, each element of which is either a module name
-	   or a table { 'module', newname, mode, global } with missing
-	   values of mode/global defaulted to the original arguments.
-	   This enables the common case usage to be just:
+           or a table { 'module', newname, mode, global } with missing
+           values of mode/global defaulted to the original arguments.
+           This enables the common case usage to be just:
 
              trusted.allow{"foo", "bar", "baz"}
 
       trusted.require(module, newname, mode)
         -- equiv. to  trusted.allow(module, newname, mode, true)
 
-      trusted.remove('newname')
+      trusted.remove('newname','global')
         -- undoes either of the above (probably not very useful, but you
            could do  trusted.remove('os')  or whatever)
+
+(However, to use these from on_init, you must require 'pllua.trusted'
+explicitly, and use the return value of that to access the functions.)
 
 The trusted environment's version of "load" overrides the text/binary
 mode field (loading binary functions is unsafe) and overrides the
