@@ -14,6 +14,8 @@
 #include "utils/inval.h"
 #include "utils/syscache.h"
 
+#include <time.h>
+
 PGDLLEXPORT void _PG_init(void);
 
 #define PLLUA_ERROR_CONTEXT_SIZES 8*1024, 8*1024, 8*1024
@@ -289,9 +291,19 @@ void _PG_init(void)
 		return;
 
 	pllua_pg_version_str = MemoryContextStrdup(TopMemoryContext,
-											   GetConfigOptionByName("server_version", NULL, false));
+											   GetConfigOptionByName("server_version",
+																	 NULL
+#if PG_VERSION_NUM >= 90600
+																	 ,false
+#endif
+												   ));
 	pllua_pg_version_num = MemoryContextStrdup(TopMemoryContext,
-											   GetConfigOptionByName("server_version_num", NULL, false));
+											   GetConfigOptionByName("server_version_num",
+																	 NULL
+#if PG_VERSION_NUM >= 90600
+																	 ,false
+#endif
+												   ));
 
 	/*
 	 * Initialize GUCs. These are mostly SUSET or SIGHUP for security reasons!
