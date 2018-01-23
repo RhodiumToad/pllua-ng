@@ -599,8 +599,9 @@ pllua_init_state_phase1(lua_State *L)
 	lua_pushstring(L, pllua_pg_version_str);
 	lua_setglobal(L, "_PG_VERSION");
 	lua_pushstring(L, pllua_pg_version_num);
-	lua_tointeger(L, -1);  /* modifies stack value */
+	lua_pushinteger(L, lua_tointeger(L, -1));
 	lua_setglobal(L, "_PG_VERSION_NUM");
+	lua_pop(L, 1);
 	lua_pushstring(L, ident ? ident : "");
 	lua_setglobal(L, "_PL_IDENT");
 	lua_pushinteger(L, (lua_Integer) time(NULL));
