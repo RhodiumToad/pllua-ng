@@ -69,6 +69,29 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 static void pllua_typeconv_register(lua_State *L, int tabidx, int typeidx);
 static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t);
 
+#if LUAJIT_VERSION_NUM > 0 && !PLLUA_INT8_OK
+
+#define LUA_TCDATA 10
+
+static char PLLUA_INT8HACK_INFUNC[] = "int8hack infunc";
+static char PLLUA_INT8HACK_OUTFUNC[] = "int8hack outfunc";
+
+static const char *luajit_lua =
+"local ffi = require 'ffi' \n"
+"local u64 = ffi.typeof('uint64_t') \n"
+"local s64 = ffi.typeof('int64_t') \n"
+"local function infunc(lo,hi) \n"
+"  return s64(u64(hi) * 4294967296ULL + u64(lo)) \n"
+"end \n"
+"local function outfunc(v) \n"
+"  if ffi.istype(s64,v) then \n"
+"    return tonumber(u64(v) / 4294967296ULL), tonumber(u64(v) % 4294967296ULL) \n"
+"  end \n"
+"end \n"
+"return infunc,outfunc\n";
+
+#endif
+
 /*
  * IMPORTANT!!!
  *
@@ -231,6 +254,16 @@ int pllua_value_from_datum(lua_State *L,
 		case INT8OID:
 			lua_pushinteger(L, (lua_Integer) DatumGetInt64(value));
 			return LUA_TNUMBER;
+#elif LUAJIT_VERSION_NUM > 0
+		case INT8OID:
+			{
+				int64 v = DatumGetInt64(value);
+				lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_INT8HACK_INFUNC);
+				lua_pushnumber(L, (lua_Number) (double) (v & 0xFFFFFFFF));
+				lua_pushnumber(L, (lua_Number) (double) ((v >> 32) & 0xFFFFFFFF));
+				lua_call(L, 2, 1);
+			}
+			return lua_type(L, -1);
 #endif
 		case REFCURSOROID:
 			lua_pushcfunction(L, pllua_spi_newcursor);
@@ -399,14 +432,14 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 						else
 							*errstr = "integer value out of range";
 						return true;
-#ifdef PLLUA_INT8_OK
+
 					case INT8OID:
 						if (isint)
 							*result = Int64GetDatum(intval);
 						else
 							*errstr = "bigint out of range";
 						return true;
-#endif
+
 					case NUMERICOID:
 						if (isint)
 							*result = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(intval));
@@ -446,6 +479,69 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 				return true;
 			}
 			return false;
+
+#if !PLLUA_INT8_OK && LUAJIT_VERSION_NUM > 0
+		case LUA_TCDATA:
+			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_INT8HACK_OUTFUNC);
+			lua_pushvalue(L, nd);
+			lua_call(L, 1, 2);
+			if (lua_isnil(L, -1))
+			{
+				lua_pop(L, 2);
+				return false;
+			}
+			else
+			{
+				uint64 lo = (uint64) lua_tonumber(L, -1);
+				uint64 hi = (uint64) lua_tonumber(L, -2);
+				int64 val = (int64) ((hi << 32) | lo);
+				lua_pop(L, 2);
+				switch (typeid)
+				{
+					case FLOAT4OID:
+						*result = Float4GetDatum((float4) val);
+						return true;
+
+					case FLOAT8OID:
+						*result = Float8GetDatum((float8) val);
+						return true;
+
+					case BOOLOID:
+						*result = BoolGetDatum( (val != 0) );
+						return true;
+
+					case OIDOID:
+						if (val == (int64)(Oid)val)
+							*result = ObjectIdGetDatum( (Oid)val );
+						else
+							*errstr = "oid value out of range";
+						return true;
+
+					case INT2OID:
+						if (val >= PG_INT16_MIN && val <= PG_INT16_MAX)
+							*result = Int16GetDatum(val);
+						else
+							*errstr = "smallint value out of range";
+						return true;
+
+					case INT4OID:
+						if (val >= PG_INT32_MIN && val <= PG_INT32_MAX)
+							*result = Int32GetDatum(val);
+						else
+							*errstr = "integer value out of range";
+						return true;
+
+					case INT8OID:
+						*result = Int64GetDatum(val);
+						return true;
+
+					case NUMERICOID:
+						*result = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(val));
+						return true;
+				}
+			}
+			return false;
+#endif
 
 		default:
 			return false;
@@ -5037,6 +5133,17 @@ static struct luaL_Reg typeinfo_package_array_mt[] = {
 
 int pllua_open_pgtype(lua_State *L)
 {
+#if !PLLUA_INT8_OK && LUAJIT_VERSION_NUM > 0
+	if (luaL_loadstring(L, luajit_lua) == LUA_OK)
+	{
+		lua_call(L, 0, 2);
+		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INT8HACK_OUTFUNC);
+		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INT8HACK_INFUNC);
+	}
+	else
+		lua_error(L);
+#endif
+
 	lua_newtable(L);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
 	lua_newtable(L);
