@@ -276,7 +276,7 @@ pllua_trusted_allow(lua_State *L)
 		lua_replace(L, 3);
 	}
 
-	lua_getglobal(L, "require");
+	lua_pushvalue(L, lua_upvalueindex(3));  /* _G.require */
 	lua_pushvalue(L, 1);
 	lua_call(L, 1, 1);
 
@@ -682,14 +682,15 @@ struct module_info
 };
 
 static struct module_info sandbox_packages_early[] = {
-	{ "coroutine",			NULL,	"copy",		"coroutine"		},
-	{ "string",				NULL,	"copy",		"string"		},
+	{ "coroutine",				NULL,		"copy",		"coroutine"		},
+	{ "string",					NULL,		"copy",		"string"		},
 #if LUA_VERSION_NUM == 503
-	{ "utf8",				NULL,	"copy",		"utf8"			},
+	{ "utf8",					NULL,		"copy",		"utf8"			},
 #endif
-	{ "table",				NULL,	"copy",		"table"			},
-	{ "math",				NULL,	"copy",		"math"			},
-	{ "pllua.trusted.os",	"os",	"direct",	"os"			},
+	{ "table",					NULL,		"copy",		"table"			},
+	{ "math",					NULL,		"copy",		"math"			},
+	{ "pllua.trusted.os",		"os",		"direct",	"os"			},
+	{ "pllua.trusted.package",	"package",	"direct",	"package"		},
 	{ NULL, NULL }
 };
 
@@ -756,7 +757,9 @@ pllua_open_trusted(lua_State *L)
 	lua_pushvalue(L, -1);
 	lua_setfield(L, 1, "modes");
 
-	luaL_setfuncs(L, trusted_funcs, 2);
+	lua_getglobal(L, "require");
+
+	luaL_setfuncs(L, trusted_funcs, 3);
 
 	if (luaL_loadstring(L, trusted_lua) == LUA_OK)
 	{
@@ -789,22 +792,14 @@ pllua_open_trusted(lua_State *L)
 
 	/* create the infrastructure of the sandbox module system */
 	luaL_requiref(L, "pllua.trusted.package", pllua_open_trusted_package, 0);
-	/* the package becomes the "package" global in the sandbox */
+	/* the package provides the sandbox's "require" func */
 	lua_getfield(L, -1, "require");
 	lua_setfield(L, 2, "require");
-	lua_setfield(L, 2, "package");
-
-	/*
-	 * global "string" is the metatable for all string objects. We don't
-	 * want the sandbox to be able to get it via getmetatable("")
-	 */
-	lua_getglobal(L, "string");
-	lua_pushboolean(L, 1);
-	lua_setfield(L, -2, "__metatable");
 	lua_pop(L, 1);
 
 	/* create the minimal trusted "os" library */
 	luaL_requiref(L, "pllua.trusted.os", pllua_open_trusted_os, 0);
+	lua_pop(L, 1);
 
 	/*
 	 * require standard modules into the sandbox
@@ -824,6 +819,39 @@ pllua_open_trusted(lua_State *L)
 			lua_pushnil(L);
 		lua_call(L, 4, 0);
 	}
+
+	/*
+	 * Ugly hack; we can't tell reliably at compile time whether the lua
+	 * library we're linked to enables bit32 or not. So just check whether
+	 * it exists and if so, run _allow for it as a special case.
+	 */
+	lua_getglobal(L, LUA_BITLIBNAME);
+	if (!lua_isnil(L, -1))
+	{
+		lua_getfield(L, 1, "_allow");
+		lua_pushstring(L, LUA_BITLIBNAME);
+		lua_pushnil(L);
+		lua_pushstring(L, "copy");
+		lua_pushboolean(L, 1);
+		lua_call(L, 4, 0);
+	}
+	lua_pop(L, 1);
+
+	/*
+	 * global "string" is the metatable for all string objects. We don't
+	 * want the sandbox to be able to get it via getmetatable("")
+	 */
+	lua_pushstring(L, "");
+	if (lua_getmetatable(L, -1))
+	{
+		lua_pushboolean(L, 1);
+		lua_setfield(L, -2, "__metatable");
+		lua_pop(L, 2);
+	}
+	else
+		lua_pop(L, 1);
+
+	/* done */
 
 	lua_pushvalue(L, 1);
 	return 1;
