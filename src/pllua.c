@@ -80,11 +80,17 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 
 	act.fcinfo = fcinfo;
 	act.retval = (Datum) 0;
+	act.atomic = true;
 	act.trusted = trusted;
 	act.cblock = NULL;
 	act.validate_func = InvalidOid;
 	act.interp = NULL;
 	act.err_text = NULL;
+
+#if PG_VERSION_NUM >= 110000
+	if (fcinfo->context && IsA(fcinfo->context, CallContext))
+		act.atomic = castNode(CallContext, fcinfo->context)->atomic;
+#endif
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
@@ -145,6 +151,7 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
+	act.atomic = true;
 	act.trusted = trusted;
 	act.cblock = NULL;
 	act.validate_func = funcoid;
@@ -184,11 +191,16 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
+	act.atomic = true;
 	act.trusted = trusted;
 	act.cblock = (InlineCodeBlock *) PG_GETARG_POINTER(0);
 	act.validate_func = InvalidOid;
 	act.interp = NULL;
 	act.err_text = "inline block entry";
+
+#if PG_VERSION_NUM >= 110000
+	act.atomic = act.cblock->atomic;
+#endif
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 

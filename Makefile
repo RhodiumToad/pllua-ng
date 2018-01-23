@@ -35,6 +35,8 @@ REGRESS = --schedule=$(srcdir)/serial_schedule
 REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule
 # only on pg10+
 REGRESS_10 = triggers_10
+# only on pg10+
+REGRESS_11 = procedures
 
 SRCOBJS=compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	jsonb.o numeric.o objects.o pllua.o spi.o trigger.o trusted.o
@@ -55,6 +57,10 @@ endif
 ifneq ($(filter-out 9.%, $(MAJORVERSION)),)
 REGRESS += $(REGRESS_10)
 REGRESS_PARALLEL += $(REGRESS_10)
+endif
+ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
+REGRESS += $(REGRESS_11)
+REGRESS_PARALLEL += $(REGRESS_11)
 endif
 
 $(OBJS): src/pllua.h

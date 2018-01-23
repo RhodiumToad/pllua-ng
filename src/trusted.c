@@ -661,6 +661,8 @@ static struct luaL_Reg sandbox_lua_globals[] = {
 	{ "_PLVERSION", NULL },
 	{ "_PL_LOAD_TIME", NULL },
 	{ "_PL_IDENT", NULL },
+	{ "_PG_VERSION", NULL },
+	{ "_PG_VERSION_NUM", NULL },
 	{ NULL, NULL }
 };
 

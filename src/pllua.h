@@ -280,6 +280,7 @@ typedef struct pllua_activation_record
 	InlineCodeBlock *cblock;
 	Oid			validate_func;
 
+	bool		atomic;
 	bool		trusted;
 
 	/* for error context stuff */

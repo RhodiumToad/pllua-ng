@@ -3,11 +3,18 @@
 #include "pllua.h"
 
 #include "access/htup_details.h"
+#if PG_VERSION_NUM >= 110000
+#include "access/xact.h"
+#endif
 #include "commands/trigger.h"
 #include "catalog/pg_type.h"
 #include "executor/spi.h"
 #include "parser/analyze.h"
 #include "parser/parse_param.h"
+
+#if PG_VERSION_NUM >= 110000
+#define PortalGetHeapMemory(portal) ((portal)->portalContext)
+#endif
 
 /*
  * plpgsql uses 10. We have a bit more overhead per queue fill since we
@@ -493,6 +500,45 @@ int pllua_spi_convert_args(lua_State *L)
 	return 0;
 }
 
+static ParamListInfo
+pllua_spi_init_paramlist(int nargs, Datum *values, bool *isnull, Oid *types)
+{
+	ParamListInfo paramLI;
+	int			i;
+
+	ASSERT_PG_CONTEXT;
+
+	paramLI = (ParamListInfo) palloc0(offsetof(ParamListInfoData, params) +
+									  nargs * sizeof(ParamExternData));
+	/* we have static list of params, so no hooks needed */
+	paramLI->paramFetch = NULL;
+	paramLI->paramFetchArg = NULL;
+#if PG_VERSION_NUM >= 110000
+	paramLI->paramCompile = NULL;
+	paramLI->paramCompileArg = NULL;
+#endif
+	paramLI->parserSetup = NULL;
+	paramLI->parserSetupArg = NULL;
+
+	paramLI->numParams = nargs;
+
+#if PG_VERSION_NUM >= 90600 && PG_VERSION_NUM < 110000
+	paramLI->paramMask = NULL;
+#endif
+
+	for (i = 0; i < nargs; i++)
+	{
+		ParamExternData *prm = &paramLI->params[i];
+
+		prm->value = values[i];
+		prm->isnull = isnull[i];
+		prm->pflags = PARAM_FLAG_CONST;
+		prm->ptype = types[i];
+	}
+
+	return paramLI;
+}
+
 /*
  * spi.execute_count(cmd, count, arg...) returns {rows...}
  * also stmt:execute_count(count, arg...)
@@ -583,28 +629,7 @@ static int pllua_spi_execute_count(lua_State *L)
 		pllua_pcall(L, 4+nargs, 0, 0);
 
 		if (nargs > 0)
-		{
-			paramLI = (ParamListInfo) palloc(offsetof(ParamListInfoData, params) +
-											 nargs * sizeof(ParamExternData));
-			/* we have static list of params, so no hooks needed */
-			paramLI->paramFetch = NULL;
-			paramLI->paramFetchArg = NULL;
-			paramLI->parserSetup = NULL;
-			paramLI->parserSetupArg = NULL;
-			paramLI->numParams = nargs;
-#if PG_VERSION_NUM >= 90600
-			paramLI->paramMask = NULL;
-#endif
-			for (i = 0; i < nargs; i++)
-			{
-				ParamExternData *prm = &paramLI->params[i];
-
-				prm->value = values[i];
-				prm->isnull = isnull[i];
-				prm->pflags = PARAM_FLAG_CONST;
-				prm->ptype = stmt->param_types[i];
-			}
-		}
+			paramLI = pllua_spi_init_paramlist(nargs, values, isnull, stmt->param_types);
 
 		rc = SPI_execute_plan_with_paramlist(stmt->plan, paramLI, readonly, count);
 		if (rc >= 0)
@@ -759,28 +784,7 @@ static int pllua_spi_cursor_open(lua_State *L)
 		pllua_pcall(L, 4+nargs, 0, 0);
 
 		if (nargs > 0)
-		{
-			paramLI = (ParamListInfo) palloc(offsetof(ParamListInfoData, params) +
-											 nargs * sizeof(ParamExternData));
-			/* we have static list of params, so no hooks needed */
-			paramLI->paramFetch = NULL;
-			paramLI->paramFetchArg = NULL;
-			paramLI->parserSetup = NULL;
-			paramLI->parserSetupArg = NULL;
-			paramLI->numParams = nargs;
-#if PG_VERSION_NUM >= 90600
-			paramLI->paramMask = NULL;
-#endif
-			for (i = 0; i < nargs; i++)
-			{
-				ParamExternData *prm = &paramLI->params[i];
-
-				prm->value = values[i];
-				prm->isnull = isnull[i];
-				prm->pflags = PARAM_FLAG_CONST;
-				prm->ptype = stmt->param_types[i];
-			}
-		}
+			paramLI = pllua_spi_init_paramlist(nargs, values, isnull, stmt->param_types);
 
 		portal = SPI_cursor_open_with_paramlist(name, stmt->plan, paramLI, readonly);
 
@@ -1284,6 +1288,13 @@ static int pllua_spi_stmt_rows_iter(lua_State *L)
 	int fetch_count = curs->is_private ? curs->fetch_count : 1;
 	int qpos = lua_tointeger(L, lua_upvalueindex(2));
 	int qlen = lua_tointeger(L, lua_upvalueindex(3));
+	/*
+	 * If the cursor disappeared from under us, then throw error even if
+	 * there's stuff in the queue; otherwise things would be too confusing and
+	 * unpredictable
+	 */
+	if (!curs->portal || !curs->is_live)
+		luaL_error(L, "cannot iterate a closed cursor");
 	if (fetch_count == 0)
 		fetch_count = DEFAULT_FETCH_COUNT;
 	if (fetch_count > 1 && qpos < qlen)
@@ -1358,6 +1369,49 @@ static int pllua_spi_stmt_rows(lua_State *L)
 	return 3;
 }
 
+#if PG_VERSION_NUM >= 110000
+
+static int pllua_spi_xact(lua_State *L, bool commit)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	if (interp->cur_activation.atomic)
+		luaL_error(L, "cannot commit or rollback in this context");
+	if (IsSubTransaction())
+		luaL_error(L, "cannot commit or rollback from inside a subtransaction");
+
+	PLLUA_TRY();
+	{
+		SPI_connect_ext(SPI_OPT_NONATOMIC);
+		if (commit)
+			SPI_commit();
+		else
+			SPI_rollback();
+		SPI_start_transaction();
+		SPI_finish();
+	}
+	PLLUA_CATCH_RETHROW();
+
+	return 0;
+}
+
+static int pllua_spi_commit(lua_State *L)
+{
+	return pllua_spi_xact(L, true);
+}
+
+static int pllua_spi_rollback(lua_State *L)
+{
+	return pllua_spi_xact(L, false);
+}
+
+#endif
+
+static int pllua_spi_is_atomic(lua_State *L)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	lua_pushboolean(L, interp->cur_activation.atomic ? 1 : 0);
+	return 1;
+}
 
 static struct luaL_Reg spi_funcs[] = {
 	{ "execute", pllua_spi_execute },
@@ -1367,6 +1421,11 @@ static struct luaL_Reg spi_funcs[] = {
 	{ "findcursor", pllua_spi_findcursor },
 	{ "newcursor", pllua_spi_newcursor },
 	{ "rows", pllua_spi_stmt_rows },
+#if PG_VERSION_NUM >= 110000
+	{ "commit", pllua_spi_commit },
+	{ "rollback", pllua_spi_rollback },
+#endif
+	{ "is_atomic", pllua_spi_is_atomic },
 	{ NULL, NULL }
 };
 

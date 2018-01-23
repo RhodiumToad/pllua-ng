@@ -33,6 +33,9 @@ static char *pllua_reload_ident = NULL;
 static double pllua_gc_threshold = 0;
 static double pllua_gc_multiplier = 0;
 
+static const char *pllua_pg_version_str = NULL;
+static const char *pllua_pg_version_num = NULL;
+
 bool pllua_track_gc_debt = false;
 
 static lua_State *pllua_newstate_phase1(const char *ident);
@@ -285,6 +288,11 @@ void _PG_init(void)
 	if (init_done)
 		return;
 
+	pllua_pg_version_str = MemoryContextStrdup(TopMemoryContext,
+											   GetConfigOptionByName("server_version", NULL, false));
+	pllua_pg_version_num = MemoryContextStrdup(TopMemoryContext,
+											   GetConfigOptionByName("server_version_num", NULL, false));
+
 	/*
 	 * Initialize GUCs. These are mostly SUSET or SIGHUP for security reasons!
 	 */
@@ -531,7 +539,7 @@ pllua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 
 /*
  * Hook function to check for interrupts. We have lua call this for every
- * million opcodes executed.
+ * function return or set number of opcodes executed.
  */
 static void
 pllua_hook(lua_State *L, lua_Debug *ar)
@@ -576,6 +584,11 @@ pllua_init_state_phase1(lua_State *L)
 
 	lua_pushliteral(L, PLLUA_VERSION_STR);
 	lua_setglobal(L, "_PLVERSION");
+	lua_pushstring(L, pllua_pg_version_str);
+	lua_setglobal(L, "_PG_VERSION");
+	lua_pushstring(L, pllua_pg_version_num);
+	lua_tointeger(L, -1);  /* modifies stack value */
+	lua_setglobal(L, "_PG_VERSION_NUM");
 	lua_pushstring(L, ident ? ident : "");
 	lua_setglobal(L, "_PL_IDENT");
 	lua_pushinteger(L, (lua_Integer) time(NULL));
@@ -691,7 +704,7 @@ pllua_init_state_phase2(lua_State *L)
 
 	/* enable interrupt checks */
 	if (pllua_do_check_for_interrupts)
-		lua_sethook(L, pllua_hook, LUA_MASKCOUNT, 1000000);
+		lua_sethook(L, pllua_hook, LUA_MASKRET | LUA_MASKCOUNT, 100000);
 
 	/* don't run user code yet */
 	return 0;
