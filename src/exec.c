@@ -272,7 +272,8 @@ pllua_resume_function(lua_State *L)
 
 	if (rc == LUA_OK)
 	{
-		lua_xmove(thr, L, lua_gettop(thr));
+		/* results from function are ignored in this case */
+		lua_settop(thr, 0);
 		pllua_deactivate_thread(L, fact, rsi->econtext);
 		rsi->isDone = ExprEndResult;
 		act->retval = (Datum)0;
@@ -281,6 +282,7 @@ pllua_resume_function(lua_State *L)
 	}
 	else if (rc == LUA_YIELD)
 	{
+		luaL_checkstack(L, lua_gettop(thr) + 10, "in return from set-returning function");
 		lua_xmove(thr, L, lua_gettop(thr));
 		/* leave thread active */
 		rsi->isDone = ExprMultipleResult;

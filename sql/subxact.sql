@@ -118,4 +118,18 @@ do language pllua $$
   print(lpcall(function() server.error("not caught") end))
 $$;
 
+-- make sure PG errors in coroutines are propagated (but not lua errors)
+
+do language pllua $$
+  local c = coroutine.create(function() coroutine.yield() error("caught") end)
+  print(coroutine.resume(c))
+  print(coroutine.resume(c))
+$$;
+
+do language pllua $$
+  local c = coroutine.create(function() coroutine.yield() server.error("not caught") end)
+  print(coroutine.resume(c))
+  print(coroutine.resume(c))
+$$;
+
 --end

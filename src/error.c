@@ -398,6 +398,50 @@ static int pllua_errobject_gc(lua_State *L)
 }
 
 /*
+ * Replace the user-visible coroutine.resume function with a version that
+ * propagates PG errors from the coroutine.
+ */
+
+static int pllua_t_coresume (lua_State *L) {
+  lua_State *co = lua_tothread(L, 1);
+  int narg = lua_gettop(L) - 1;
+  int rc;
+  luaL_argcheck(L, co, 1, "thread expected");
+
+  if (!lua_checkstack(co, narg)) {
+    lua_pushboolean(L, 0);
+    lua_pushliteral(L, "too many arguments to resume");
+    return 2;  /* error flag */
+  }
+  if (lua_status(co) == LUA_OK && lua_gettop(co) == 0) {
+    lua_pushboolean(L, 0);
+    lua_pushliteral(L, "cannot resume dead coroutine");
+    return 2;  /* error flag */
+  }
+  lua_xmove(L, co, narg);
+  rc = lua_resume(co, L, narg);
+  if (rc == LUA_OK || rc == LUA_YIELD) {
+    int nres = lua_gettop(co);
+    if (!lua_checkstack(L, nres + 1)) {
+      lua_settop(co, 0);  /* remove results anyway */
+	  lua_pushboolean(L, 0);
+      lua_pushliteral(L, "too many results to resume");
+      return 2;  /* error flag */
+    }
+	lua_pushboolean(L, 1);
+    lua_xmove(co, L, nres);  /* move yielded values */
+    return nres + 1;
+  }
+  else {
+    lua_pushboolean(L, 0);
+    lua_xmove(co, L, 1);  /* move error message */
+	if (pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
+		pllua_rethrow_from_lua(L, rc);
+    return 2;  /* error flag */
+  }
+}
+
+/*
  * Replace the user-visible "pcall" and "xpcall" functions with
  * versions that catch lua errors but not pg errors.
  *
@@ -1058,6 +1102,11 @@ static struct luaL_Reg errfuncs[] = {
 	{ NULL, NULL }
 };
 
+static struct luaL_Reg co_errfuncs[] = {
+	{ "resume", pllua_t_coresume },
+	{ NULL, NULL }
+};
+
 void pllua_init_error(lua_State *L)
 {
 	pllua_newmetatable(L, PLLUA_ERROR_OBJECT, errobj_mt);
@@ -1075,5 +1124,7 @@ void pllua_init_error(lua_State *L)
 
 	lua_pushglobaltable(L);
 	luaL_setfuncs(L, errfuncs, 0);
-	lua_pop(L,1);
+	luaL_getsubtable(L, -1, "coroutine");
+	luaL_setfuncs(L, co_errfuncs, 0);
+	lua_pop(L,2);
 }
