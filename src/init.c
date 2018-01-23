@@ -274,6 +274,18 @@ pllua_run_extra_gc(lua_State *L, unsigned long gc_debt)
 	}
 }
 
+static const char *
+pllua_get_config_value(const char *name)
+{
+#if PG_VERSION_NUM >= 90600
+	return MemoryContextStrdup(TopMemoryContext,
+							   GetConfigOptionByName(name, NULL, false));
+#else
+	return MemoryContextStrdup(TopMemoryContext,
+							   GetConfigOptionByName(name, NULL));
+#endif
+}
+
 /*
  * _PG_init
  *
@@ -290,20 +302,8 @@ void _PG_init(void)
 	if (init_done)
 		return;
 
-	pllua_pg_version_str = MemoryContextStrdup(TopMemoryContext,
-											   GetConfigOptionByName("server_version",
-																	 NULL
-#if PG_VERSION_NUM >= 90600
-																	 ,false
-#endif
-												   ));
-	pllua_pg_version_num = MemoryContextStrdup(TopMemoryContext,
-											   GetConfigOptionByName("server_version_num",
-																	 NULL
-#if PG_VERSION_NUM >= 90600
-																	 ,false
-#endif
-												   ));
+	pllua_pg_version_str = pllua_get_config_value("server_version");
+	pllua_pg_version_num = pllua_get_config_value("server_version_num");
 
 	/*
 	 * Initialize GUCs. These are mostly SUSET or SIGHUP for security reasons!
