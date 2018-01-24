@@ -232,6 +232,8 @@ void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int 
  * key, but makes arithmetic possible. This all seems like a major loss on
  * balance, hence why it's not the default.
  *
+ * NO_LUAJIT turns off all attempts to use luajit-specific features.
+ *
  */
 
 #if LUA_VERSION_NUM == 503
@@ -240,10 +242,14 @@ void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int 
 #endif
 #endif
 
-#if LUAJIT_VERSION_NUM > 0 && defined(USE_INT8_CDATA)
+#if LUAJIT_VERSION_NUM > 0 && defined(USE_INT8_CDATA) && !defined(NO_LUAJIT)
 #define PLLUA_INT8_LUAJIT_HACK
 #else
 #undef PLLUA_INT8_LUAJIT_HACK
+#endif
+
+#if LUAJIT_VERSION_NUM > 0 && !defined(NO_LUAJIT)
+#define LUA_TCDATA 10
 #endif
 
 #if LUA_VERSION_NUM == 501

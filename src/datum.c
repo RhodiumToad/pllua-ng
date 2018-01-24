@@ -69,9 +69,7 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 static void pllua_typeconv_register(lua_State *L, int tabidx, int typeidx);
 static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t);
 
-#if !defined(PLLUA_INT8_OK) && defined(PLLUA_INT8_LUAJIT_HACK)
-
-#define LUA_TCDATA 10
+#if LUAJIT_VERSION_NUM > 0 && !defined(NO_LUAJIT)
 
 static char PLLUA_INT8HACK_INFUNC[] = "int8hack infunc";
 static char PLLUA_INT8HACK_OUTFUNC[] = "int8hack outfunc";
@@ -80,12 +78,28 @@ static const char *luajit_lua =
 "local ffi = require 'ffi' \n"
 "local u64 = ffi.typeof('uint64_t') \n"
 "local s64 = ffi.typeof('int64_t') \n"
+"local u32 = ffi.typeof('uint32_t') \n"
+"local s32 = ffi.typeof('int32_t') \n"
+"local u16 = ffi.typeof('uint16_t') \n"
+"local s16 = ffi.typeof('int16_t') \n"
+"local u8 = ffi.typeof('uint8_t') \n"
+"local s8 = ffi.typeof('int8_t') \n"
 "local function infunc(lo,hi) \n"
 "  return s64(u64(hi) * 4294967296ULL + u64(lo)) \n"
 "end \n"
 "local function outfunc(v) \n"
 "  if ffi.istype(s64,v) then \n"
-"    return tonumber(u64(v) / 4294967296ULL), tonumber(u64(v) % 4294967296ULL) \n"
+"    return tonumber(u64(v) / 4294967296ULL), tonumber(u64(v) % 4294967296ULL), true \n"
+"  elseif ffi.istype(u64,v) then \n"
+"    return tonumber(v / 4294967296ULL), tonumber(v % 4294967296ULL), false \n"
+"  elseif ffi.istype(s32,v) \n"
+"      or ffi.istype(u32,v) \n"
+"      or ffi.istype(s8,v) \n"
+"      or ffi.istype(u8,v) \n"
+"      or ffi.istype(s16,v) \n"
+"      or ffi.istype(u16,v) \n"
+"  then \n"
+"    return v < 0 and -1 or 0, tonumber(u32(v)), true \n"
 "  end \n"
 "end \n"
 "return infunc,outfunc\n";
@@ -150,6 +164,42 @@ void *pllua_palloc(lua_State *L, size_t sz)
 	PLLUA_CATCH_RETHROW();
 	pllua_record_gc_debt(L, sz);
 	return res;
+}
+
+static Datum
+pllua_float4_get_datum(lua_State *L, float4 val)
+{
+#if USE_FLOAT4_BYVAL
+	return Float4GetDatum(val);
+#else
+	float4 *p = pllua_palloc(L, sizeof(float4));
+	*p = val;
+	return Float4GetDatumFast(*p);
+#endif
+}
+
+static Datum
+pllua_float8_get_datum(lua_State *L, float8 val)
+{
+#if USE_FLOAT8_BYVAL
+	return Float8GetDatum(val);
+#else
+	float8 *p = pllua_palloc(L, sizeof(float8));
+	*p = val;
+	return Float8GetDatumFast(*p);
+#endif
+}
+
+static Datum
+pllua_int64_get_datum(lua_State *L, int64 val)
+{
+#if USE_FLOAT8_BYVAL  /* yes, this controls int64 too */
+	return Int64GetDatum(val);
+#else
+	int64 *p = pllua_palloc(L, sizeof(int64));
+	*p = val;
+	return Int64GetDatumFast(*p);
+#endif
 }
 
 /*
@@ -398,11 +448,11 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 				switch (typeid)
 				{
 					case FLOAT4OID:
-						*result = Float4GetDatum((float4) floatval);
+						*result = pllua_float4_get_datum(L, (float4) floatval);
 						return true;
 
 					case FLOAT8OID:
-						*result = Float8GetDatum((float8) floatval);
+						*result = pllua_float8_get_datum(L, (float8) floatval);
 						return true;
 
 					case BOOLOID:
@@ -435,16 +485,20 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 
 					case INT8OID:
 						if (isint)
-							*result = Int64GetDatum(intval);
+							*result = pllua_int64_get_datum(L, intval);
 						else
 							*errstr = "bigint out of range";
 						return true;
 
 					case NUMERICOID:
-						if (isint)
-							*result = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(intval));
-						else
-							*result = DirectFunctionCall1(float8_numeric, Float8GetDatumFast(floatval));
+						PLLUA_TRY();
+						{
+							if (isint)
+								*result = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(intval));
+							else
+								*result = DirectFunctionCall1(float8_numeric, Float8GetDatumFast(floatval));
+						}
+						PLLUA_CATCH_RETHROW();
 						return true;
 				}
 			}
@@ -480,30 +534,42 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 			}
 			return false;
 
-#if !defined(PLLUA_INT8_OK) && defined(PLLUA_INT8_LUAJIT_HACK)
+/*
+ * Enable this even if we don't convert bigint to cdata ourselves, since
+ * there's no reason not to allow cdata parameters to constructor calls.
+ */
+#if LUAJIT_VERSION_NUM > 0 && !defined(NO_LUAJIT)
 		case LUA_TCDATA:
 			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_INT8HACK_OUTFUNC);
 			lua_pushvalue(L, nd);
-			lua_call(L, 1, 2);
+			lua_call(L, 1, 3);
 			if (lua_isnil(L, -1))
 			{
-				lua_pop(L, 2);
+				lua_pop(L, 3);
 				return false;
 			}
 			else
 			{
-				uint64 lo = (uint64) lua_tonumber(L, -1);
-				uint64 hi = (uint64) lua_tonumber(L, -2);
-				int64 val = (int64) ((hi << 32) | lo);
-				lua_pop(L, 2);
+				bool s64 = lua_toboolean(L, -1);
+				uint64 lo = (uint64) lua_tonumber(L, -2);
+				uint64 hi = (uint64) lua_tonumber(L, -3);
+				uint64 uval = (uint64) ((hi << 32) | lo);
+				int64 val = (int64) uval;
+				lua_pop(L, 3);
 				switch (typeid)
 				{
 					case FLOAT4OID:
-						*result = Float4GetDatum((float4) val);
+						if (s64)
+							*result = pllua_float4_get_datum(L, (float4) val);
+						else
+							*result = pllua_float4_get_datum(L, (float4) uval);
 						return true;
 
 					case FLOAT8OID:
-						*result = Float8GetDatum((float8) val);
+						if (s64)
+							*result = pllua_float8_get_datum(L, (float8) val);
+						else
+							*result = pllua_float8_get_datum(L, (float8) uval);
 						return true;
 
 					case BOOLOID:
@@ -511,32 +577,53 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 						return true;
 
 					case OIDOID:
-						if (val == (int64)(Oid)val)
-							*result = ObjectIdGetDatum( (Oid)val );
+						if (uval == (uint64)(Oid)uval)
+							*result = ObjectIdGetDatum( (Oid)uval );
 						else
 							*errstr = "oid value out of range";
 						return true;
 
 					case INT2OID:
-						if (val >= PG_INT16_MIN && val <= PG_INT16_MAX)
+						if (s64
+							? (val >= PG_INT16_MIN && val <= PG_INT16_MAX)
+							: (uval <= PG_INT16_MAX))
 							*result = Int16GetDatum(val);
 						else
 							*errstr = "smallint value out of range";
 						return true;
 
 					case INT4OID:
-						if (val >= PG_INT32_MIN && val <= PG_INT32_MAX)
+						if (s64
+							? (val >= PG_INT32_MIN && val <= PG_INT32_MAX)
+							: (uval <= PG_INT32_MAX))
 							*result = Int32GetDatum(val);
 						else
 							*errstr = "integer value out of range";
 						return true;
 
 					case INT8OID:
-						*result = Int64GetDatum(val);
+						if (s64 || uval <= PG_INT64_MAX)
+							*result = pllua_int64_get_datum(L, val);
+						else
+							*errstr = "bigint value out of range";
 						return true;
 
 					case NUMERICOID:
-						*result = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(val));
+						PLLUA_TRY();
+						{
+							if (s64 || uval <= PG_INT64_MAX)
+								*result = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(val));
+							else
+							{
+								char str[32];
+								snprintf(str, 32, UINT64_FORMAT, uval);
+								*result = DirectFunctionCall3(numeric_in,
+															  CStringGetDatum(str),
+															  ObjectIdGetDatum(InvalidOid),
+															  Int32GetDatum(-1));
+							}
+						}
+						PLLUA_CATCH_RETHROW();
 						return true;
 				}
 			}
@@ -5133,7 +5220,7 @@ static struct luaL_Reg typeinfo_package_array_mt[] = {
 
 int pllua_open_pgtype(lua_State *L)
 {
-#if !defined(PLLUA_INT8_OK) && defined(PLLUA_INT8_LUAJIT_HACK)
+#if LUAJIT_VERSION_NUM > 0 && !defined(NO_LUAJIT)
 	if (luaL_loadstring(L, luajit_lua) == LUA_OK)
 	{
 		lua_call(L, 0, 2);

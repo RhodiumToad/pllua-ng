@@ -4,6 +4,14 @@ PG_CONFIG ?= pg_config
 
 # Lua specific
 
+# two values can be set here, which only apply to luajit:
+#  -DNO_LUAJIT        disables all use of luajit features
+#  -DUSE_INT8_CDATA   convert sql bigints to cdata int64_t
+# The latter is off by default because it has some possibly
+# undesirable effects on bigint handling.
+
+PLLUA_CONFIG_OPTS ?=
+
 # General
 LUA_INCDIR ?= /usr/local/include/lua53
 LUALIB ?= -L/usr/local/lib -llua-5.3
@@ -45,7 +53,7 @@ OBJS = $(addprefix src/, $(SRCOBJS))
 
 EXTRA_CLEAN = pllua_functable.h
 
-PG_CPPFLAGS = -I$(LUA_INCDIR) #-DPLLUA_DEBUG
+PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
 SHLIB_LINK = $(LUALIB)
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
