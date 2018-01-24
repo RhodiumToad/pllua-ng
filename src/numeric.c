@@ -129,24 +129,39 @@ pllua_numeric_guts(lua_State *L, pllua_datum *d, pllua_typeinfo *t,
 	return DatumGetBool(bool_res);
 }
 
+/*
+ * note, this can leave extra values on stack
+ */
 static Datum
-pllua_numeric_getarg(lua_State *L, int nd, pllua_datum *d,
-					 int isint, lua_Integer ival, int isnum, lua_Number fval)
+pllua_numeric_getarg(lua_State *L, int nd, pllua_datum *d)
 {
 	if (d)
 		return d->value;
-	if (isint)
+
+	if (lua_type(L, nd) == LUA_TNUMBER)
 	{
-		int64 i = ival;
-		return DirectFunctionCall1(int8_numeric, Int64GetDatumFast(i));
+		int isint = 0;
+		int64 ival = lua_tointegerx(L, nd, &isint);
+		float8 f = isint ? 0 : lua_tonumber(L, nd);
+		volatile Datum dt;
+		PLLUA_TRY();
+		{
+			if (isint)
+				dt = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(ival));
+			else
+				dt = DirectFunctionCall1(float8_numeric, Float8GetDatumFast(f));
+		}
+		PLLUA_CATCH_RETHROW();
+		return dt;
 	}
-	if (isnum)
-	{
-		float8 f = fval;
-		return DirectFunctionCall1(float8_numeric, Float8GetDatumFast(f));
-	}
-	luaL_argcheck(L, false, nd, "not convertible to any number");
-	return (Datum)0;
+
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_pushvalue(L, nd);
+	lua_call(L, 1, 1);
+	d = pllua_todatum(L, -1, lua_upvalueindex(1));
+	if (!d)
+		luaL_error(L, "numeric conversion did not yield a numeric datum");
+	return d->value;
 }
 
 /*
@@ -158,52 +173,50 @@ pllua_numeric_handler(lua_State *L)
 	int			op = lua_tointeger(L, lua_upvalueindex(2));
 	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
 	pllua_datum *d;
-	int			isint1 = 0;
-	int			isnum1 = 0;
 	pllua_datum *d1 = pllua_todatum(L, 1, lua_upvalueindex(1));
-	lua_Integer	i1 = !d1 ? lua_tointegerx(L, 1, &isint1) : 0;
-	lua_Number	n1 = (!d1 && !isint1) ? lua_tonumberx(L, 1, &isnum1) : 0;
-	int			isint2 = 0;
-	int			isnum2 = 0;
 	pllua_datum *d2 = pllua_todatum(L, 2, lua_upvalueindex(1));
-	lua_Integer	i2 = !d2 ? lua_tointegerx(L, 2, &isint2) : 0;
-	lua_Number	n2 = (!d2 && !isint2) ? lua_tonumberx(L, 2, &isnum2) : 0;
+	lua_Integer i2 = 0;
 	Datum		val1;
 	Datum		val2 = (Datum)0;
 	bool		free_val1 = !d1;
 	bool		free_val2 = !d2;
 
+	lua_settop(L, 2);
+
 	if (op < PLLUA_NUM_LOG)
 	{
-		val1 = pllua_numeric_getarg(L, 1, d1, isint1, i1, isnum1, n1);
-		val2 = pllua_numeric_getarg(L, 2, d2, isint2, i2, isnum2, n2);
+		val1 = pllua_numeric_getarg(L, 1, d1);
+		val2 = pllua_numeric_getarg(L, 2, d2);
 	}
 	else if (op == PLLUA_NUM_LOG)
 	{
-		val1 = pllua_numeric_getarg(L, 1, d1, isint1, i1, isnum1, n1);
-		if (lua_isnone(L, 2))
+		val1 = pllua_numeric_getarg(L, 1, d1);
+		if (lua_isnoneornil(L, 2))
 		{
 			op = PLLUA_NUM_LN;
 			free_val2 = false;
 		}
 		else
-			val2 = pllua_numeric_getarg(L, 2, d2, isint2, i2, isnum2, n2);
+			val2 = pllua_numeric_getarg(L, 2, d2);
 	}
 	else if (op < PLLUA_NUM_UNM)
 	{
-		val1 = pllua_numeric_getarg(L, 1, d1, isint1, i1, isnum1, n1);
-		luaL_argcheck(L, (lua_isnone(L, 2) || isint2), 2, NULL);
+		int isint = 0;
+
+		val1 = pllua_numeric_getarg(L, 1, d1);
+		i2 = lua_tointegerx(L, 2, &isint);
+		luaL_argcheck(L, (lua_isnoneornil(L, 2) || isint), 2, NULL);
 		free_val2 = false;
 	}
 	else if (op < PLLUA_NUM_ABS)
 	{
-		val1 = pllua_numeric_getarg(L, 1, d1, isint1, i1, isnum1, n1);
+		val1 = pllua_numeric_getarg(L, 1, d1);
 		free_val2 = false;
 	}
 	else
 	{
-		val1 = pllua_numeric_getarg(L, 1, d1, isint1, i1, isnum1, n1);
-		luaL_argcheck(L, (lua_isnone(L, 2)), 2, "none expected");
+		val1 = pllua_numeric_getarg(L, 1, d1);
+		luaL_argcheck(L, (lua_isnoneornil(L, 2)), 2, "none expected");
 		free_val2 = false;
 	}
 
