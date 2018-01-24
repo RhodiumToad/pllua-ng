@@ -209,10 +209,41 @@ void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int 
 #define pllua_set_environment(L_,i_) lua_setupvalue(L_, i_, 1)
 #endif
 
+/*
+ * Define how we want to handle int8 values.
+ *
+ * If nothing here is set, we will treat int8 as any other ordinary datum,
+ * which means it'll be passed through unchanged, will stringify to its
+ * ordinary decimal representation, will work as a json key or value and so on,
+ * but won't be accessible to arithmetic or comparisons (or use as a table key)
+ * in the lua code except by conversion to pgtype.numeric and use of the
+ * numeric module.
+ *
+ * If PLLUA_INT8_OK is defined, which we do if the underlying Lua has a 64-bit
+ * integer subtype (lua 5.3 with lua_Integer being 64 bits), then we convert
+ * int8 to a Lua value and back, which makes it available for direct arithmetic
+ * and use as a table key, while still stringifying to the same value and
+ * working as a json key or value.
+ *
+ * If PLLUA_INT8_LUAJIT_HACK is defined, which we never do automatically at
+ * present but only if using luajit _and_ USE_INT8_CDATA is defined on the
+ * command line, then we convert int8 to a luajit cdata. This breaks
+ * stringification and json key/value usage, does not enable use as a table
+ * key, but makes arithmetic possible. This all seems like a major loss on
+ * balance, hence why it's not the default.
+ *
+ */
+
 #if LUA_VERSION_NUM == 503
 #if LUA_MAXINTEGER == PG_INT64_MAX
 #define PLLUA_INT8_OK
 #endif
+#endif
+
+#if LUAJIT_VERSION_NUM > 0 && defined(USE_INT8_CDATA)
+#define PLLUA_INT8_LUAJIT_HACK
+#else
+#undef PLLUA_INT8_LUAJIT_HACK
 #endif
 
 #if LUA_VERSION_NUM == 501

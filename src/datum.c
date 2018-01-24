@@ -69,7 +69,7 @@ static bool pllua_typeinfo_iofunc(lua_State *L,
 static void pllua_typeconv_register(lua_State *L, int tabidx, int typeidx);
 static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_typeinfo *t);
 
-#if LUAJIT_VERSION_NUM > 0 && !defined(PLLUA_INT8_OK)
+#if !defined(PLLUA_INT8_OK) && defined(PLLUA_INT8_LUAJIT_HACK)
 
 #define LUA_TCDATA 10
 
@@ -250,11 +250,11 @@ int pllua_value_from_datum(lua_State *L,
 		case INT4OID:
 			lua_pushinteger(L, (lua_Integer) DatumGetInt32(value));
 			return LUA_TNUMBER;
-#ifdef PLLUA_INT8_OK
+#if defined(PLLUA_INT8_OK)
 		case INT8OID:
 			lua_pushinteger(L, (lua_Integer) DatumGetInt64(value));
 			return LUA_TNUMBER;
-#elif LUAJIT_VERSION_NUM > 0
+#elif defined(PLLUA_INT8_LUAJIT_HACK)
 		case INT8OID:
 			{
 				int64 v = DatumGetInt64(value);
@@ -480,7 +480,7 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 			}
 			return false;
 
-#if !defined(PLLUA_INT8_OK) && LUAJIT_VERSION_NUM > 0
+#if !defined(PLLUA_INT8_OK) && defined(PLLUA_INT8_LUAJIT_HACK)
 		case LUA_TCDATA:
 			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_INT8HACK_OUTFUNC);
 			lua_pushvalue(L, nd);
@@ -5133,7 +5133,7 @@ static struct luaL_Reg typeinfo_package_array_mt[] = {
 
 int pllua_open_pgtype(lua_State *L)
 {
-#if !defined(PLLUA_INT8_OK) && LUAJIT_VERSION_NUM > 0
+#if !defined(PLLUA_INT8_OK) && defined(PLLUA_INT8_LUAJIT_HACK)
 	if (luaL_loadstring(L, luajit_lua) == LUA_OK)
 	{
 		lua_call(L, 0, 2);
