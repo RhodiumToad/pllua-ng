@@ -66,6 +66,27 @@ do language pllua $$
   end
 $$;
 
+do language pllua $$
+  local c = spi.newcursor('curs1')
+  local stmt = spi.prepare([[ select * from tsttab order by id for update ]])
+  c:open(stmt)
+  for r in c:rows() do
+    print(r)
+    if r.id == 3 then
+      spi.execute([[ update tsttab set c = c + 10 where current of curs1 ]])
+    end
+  end
+  c:move(0, 'absolute')
+  for r in c:rows() do
+    print(r)
+  end
+  for r in spi.rows([[ select * from tsttab order by id ]]) do
+    print(r)
+  end
+  spi.execute([[ update tsttab set c = c - 10 where id=3 ]])
+  c:close()
+$$;
+
 -- cursors
 
 begin;

@@ -76,6 +76,43 @@ INFO:  (5,5,jim,2.34,05-01-2017)
 INFO:  (6,6,sheila,2.34,06-01-2017)
 INFO:  (1,1,foo,2.34,01-01-2017)
 INFO:  (3,3,baz,2.34,03-01-2017)
+do language pllua $$
+  local c = spi.newcursor('curs1')
+  local stmt = spi.prepare([[ select * from tsttab order by id for update ]])
+  c:open(stmt)
+  for r in c:rows() do
+    print(r)
+    if r.id == 3 then
+      spi.execute([[ update tsttab set c = c + 10 where current of curs1 ]])
+    end
+  end
+  c:move(0, 'absolute')
+  for r in c:rows() do
+    print(r)
+  end
+  for r in spi.rows([[ select * from tsttab order by id ]]) do
+    print(r)
+  end
+  spi.execute([[ update tsttab set c = c - 10 where id=3 ]])
+  c:close()
+$$;
+INFO:  (1,1,foo,2.34,01-01-2017)
+INFO:  (2,2,bar,2.34,02-01-2017)
+INFO:  (3,3,baz,2.34,03-01-2017)
+INFO:  (4,4,fred,2.34,04-01-2017)
+INFO:  (5,5,jim,2.34,05-01-2017)
+INFO:  (6,6,sheila,2.34,06-01-2017)
+INFO:  (1,1,foo,2.34,01-01-2017)
+INFO:  (2,2,bar,2.34,02-01-2017)
+INFO:  (4,4,fred,2.34,04-01-2017)
+INFO:  (5,5,jim,2.34,05-01-2017)
+INFO:  (6,6,sheila,2.34,06-01-2017)
+INFO:  (1,1,foo,2.34,01-01-2017)
+INFO:  (2,2,bar,2.34,02-01-2017)
+INFO:  (3,3,baz,12.34,03-01-2017)
+INFO:  (4,4,fred,2.34,04-01-2017)
+INFO:  (5,5,jim,2.34,05-01-2017)
+INFO:  (6,6,sheila,2.34,06-01-2017)
 -- cursors
 begin;
 declare foo scroll cursor for select * from tsttab order by id;
@@ -159,9 +196,9 @@ do language pllua $$
 $$;
 INFO:  3	(4,4,fred,2.34,04-01-2017)	(5,5,jim,2.34,05-01-2017)
 INFO:  3	(4,4,fred,2.34,04-01-2017)	(5,5,jim,2.34,05-01-2017)
-INFO:  <unnamed portal 3>	 select * from tsttab where id >= $1 order by id 	true
-INFO:  <unnamed portal 4>	true
-INFO:  <unnamed portal 4>	 select * from tsttab where id >= $1 order by id 	false
+INFO:  <unnamed portal 4>	 select * from tsttab where id >= $1 order by id 	true
+INFO:  <unnamed portal 5>	true
+INFO:  <unnamed portal 5>	 select * from tsttab where id >= $1 order by id 	false
 -- check missing params are OK
 do language pllua $$
   local stmt = spi.prepare([[ select * from generate_series($1::integer, $3) i ]]);

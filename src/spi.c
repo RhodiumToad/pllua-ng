@@ -1324,11 +1324,14 @@ static int pllua_spi_stmt_rows_iter(lua_State *L)
 	}
 	if (lua_isnil(L, -1))
 	{
-		lua_pushcfunction(L, pllua_cursor_close);
-		lua_pushvalue(L, lua_upvalueindex(1));
-		lua_call(L, 1, 0);
-		lua_pushnil(L);
-		lua_replace(L, lua_upvalueindex(1));
+		if (curs->is_private)
+		{
+			lua_pushcfunction(L, pllua_cursor_close);
+			lua_pushvalue(L, lua_upvalueindex(1));
+			lua_call(L, 1, 0);
+			lua_pushnil(L);
+			lua_replace(L, lua_upvalueindex(1));
+		}
 		lua_pushnil(L);
 		return 1;
 	}
@@ -1361,6 +1364,23 @@ static int pllua_spi_stmt_rows(lua_State *L)
 	lua_call(L, lua_gettop(L) - 1, 1);
 
 	curs->is_private = 1;
+	lua_pushinteger(L, 0);
+	lua_pushinteger(L, 0);
+	lua_pushcclosure(L, pllua_spi_stmt_rows_iter, 3);
+	lua_pushnil(L);
+	lua_pushnil(L);
+	return 3;
+}
+
+/*
+ * c:rows()  returns iterator, nil, nil
+ *
+ */
+static int pllua_cursor_rows(lua_State *L)
+{
+	pllua_checkobject(L, 1, PLLUA_SPI_CURSOR_OBJECT);
+
+	lua_settop(L, 1);
 	lua_pushinteger(L, 0);
 	lua_pushinteger(L, 0);
 	lua_pushcclosure(L, pllua_spi_stmt_rows_iter, 3);
@@ -1438,6 +1458,7 @@ static struct luaL_Reg spi_cursor_methods[] = {
 	{ "close", pllua_cursor_close },
 	{ "isopen", pllua_cursor_isopen },
 	{ "name", pllua_cursor_name },
+	{ "rows", pllua_cursor_rows },
 	{ "open", pllua_spi_cursor_open },
 	{ NULL, NULL }
 };
