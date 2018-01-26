@@ -2687,8 +2687,8 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 		if (OidIsValid(langoid))
 		{
 			List *l = list_make1_oid(oid);
-			t->fromsql = get_transform_fromsql(oid, langoid, l);
-			t->tosql = get_transform_tosql(oid, langoid, l);
+			t->fromsql = get_transform_fromsql(basetype, langoid, l);
+			t->tosql = get_transform_tosql(basetype, langoid, l);
 		}
 
 		MemoryContextSwitchTo(oldcontext);
@@ -4120,7 +4120,7 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 	pllua_typeinfo *t = pllua_totypeinfo(L, 1);
 	pllua_datum *newd = NULL;
 	int nargs = lua_gettop(L) - 1;
-	Datum nvalue;
+	Datum nvalue = (Datum) 0;
 	bool isnull = false;
 	const char *err = NULL;
 	const char *str = NULL;
@@ -4132,9 +4132,24 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 	if ((nargs > 1 || lua_type(L,2) != LUA_TSTRING) &&
 		pllua_datum_transform_tosql(L, nargs, 2, 1, t))
 	{
-		if (lua_isnil(L, -1))
+		Datum *nvaluep = &nvalue;
+		if (!lua_isnil(L, -1))
+		{
+			newd = pllua_todatum(L, -1, 1);
+			nvaluep = &newd->value;
+		}
+		else
+			isnull = true;
+
+		/* must check domain constraints before accepting a null */
+		/* note this can change the value */
+		if (t->typeoid != t->basetype)
+			pllua_typeinfo_check_domain(L, nvaluep, &isnull, -1, 1, t);
+		if (isnull)
 			return 1;
-		newd = pllua_todatum(L, -1, 1);
+		/* shouldn't happen: */
+		if (!newd)
+			luaL_error(L, "domain check returned non-null for null input");
 	}
 	else if (nargs != 1)
 	{
