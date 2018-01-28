@@ -880,7 +880,7 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 int
 pllua_t_pcall(lua_State *L)
 {
-	if (IsUnderPostmaster)
+	if (pllua_getinterpreter(L))
 		return pllua_t_pcall_guts(L, false);
 	else
 		return pllua_t_lpcall(L);
@@ -889,10 +889,26 @@ pllua_t_pcall(lua_State *L)
 int
 pllua_t_xpcall(lua_State *L)
 {
-	if (IsUnderPostmaster)
+	if (pllua_getinterpreter(L))
 		return pllua_t_pcall_guts(L, true);
 	else
 		return pllua_t_lxpcall(L);
+}
+
+/*
+ * local rc,... = subtransaction(func)
+ *
+ * We explicitly reserve multiple args, or table args, for future use
+ * (e.g. for providing a table of error handlers)
+ */
+
+static int
+pllua_subtransaction(lua_State *L)
+{
+	lua_settop(L, 1);
+	if (!pllua_getinterpreter(L))
+		luaL_error(L, "cannot create subtransaction inside on_init string");
+	return pllua_t_pcall_guts(L, false);
 }
 
 /*
@@ -923,10 +939,9 @@ pllua_t_xpcall(lua_State *L)
  *
  */
 
-static void
-pllua_push_sqlstate(lua_State *L, int errcode)
+static bool
+pllua_decode_sqlstate(char *buf, lua_Integer errcode)
 {
-	char buf[8];
 	int i;
 	for (i = 0; i < 5; ++i)
 	{
@@ -934,6 +949,14 @@ pllua_push_sqlstate(lua_State *L, int errcode)
 		errcode = errcode >> 6;
 	}
 	buf[5] = 0;
+	return (errcode == 0 && strspn(buf, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == 5);
+}
+
+static void
+pllua_push_sqlstate(lua_State *L, lua_Integer errcode)
+{
+	char buf[8];
+	pllua_decode_sqlstate(buf, errcode);
 	lua_pushstring(L, buf);
 }
 
@@ -942,22 +965,14 @@ pllua_push_errcode(lua_State *L, int errcode)
 {
 	if (lua_geti(L, lua_upvalueindex(1), errcode) == LUA_TNIL)
 	{
-		if (lua_next(L, lua_upvalueindex(1)))
-		{
-			lua_pop(L, 2);
-			pllua_push_sqlstate(L, errcode);
-			return;
-		}
-		else
-		{
-			pllua_get_errcodes(L, lua_upvalueindex(1));
-			if (lua_geti(L, lua_upvalueindex(1), errcode) == LUA_TNIL)
-			{
-				lua_pop(L, 1);
-				pllua_push_sqlstate(L, errcode);
-				return;
-			}
-		}
+		char buf[8];
+		lua_pop(L, 1);
+		/*
+		 * Should only get here if the errcode is somehow invalid; return it
+		 * anyway
+		 */
+		pllua_decode_sqlstate(buf, errcode);
+		lua_pushstring(L, buf);
 	}
 }
 
@@ -1007,7 +1022,8 @@ pllua_errobject_index(lua_State *L)
 	switch (key[0])
 	{
 		case 'c':
-			if (strcmp(key,"context") == 0) PUSHSTR(e->context);
+			if (strcmp(key,"category") == 0) pllua_push_errcode(L, ERRCODE_TO_CATEGORY(e->sqlerrcode));
+			else if (strcmp(key,"context") == 0) PUSHSTR(e->context);
 			else if (strcmp(key,"column") == 0) PUSHSTR(e->column_name);
 			else if (strcmp(key,"constraint") == 0) PUSHSTR(e->constraint_name);
 			else lua_pushnil(L);
@@ -1069,18 +1085,121 @@ pllua_errobject_tostring(lua_State *L)
 {
 	ErrorData *e = *pllua_checkrefobject(L, 1, PLLUA_ERROR_OBJECT);
 	luaL_Buffer b;
+	char buf[8];
 	luaL_buffinit(L, &b);
 	pllua_push_severity(L, e->elevel, true);
 	luaL_addvalue(&b);
 	luaL_addstring(&b, ": ");
-	pllua_push_sqlstate(L, e->sqlerrcode);
-	luaL_addvalue(&b);
+	pllua_decode_sqlstate(buf, e->sqlerrcode);
+	luaL_addstring(&b, buf);
 	luaL_addstring(&b, " ");
 	luaL_addstring(&b, e->message ? e->message : "(no message)");
 	luaL_pushresult(&b);
 	return 1;
 }
 
+static struct { const char *str; int val; } ecodes[] = {
+#include "plerrcodes.h"
+	{ NULL, 0 }
+};
+
+static void
+pllua_get_errcodes(lua_State *L, int nidx)
+{
+	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
+	int i;
+
+	nidx = lua_absindex(L, nidx);
+
+	for (i = 0; i < ncodes; ++i)
+	{
+		lua_pushstring(L, ecodes[i].str);
+		lua_pushvalue(L, -1);
+		lua_rawseti(L, nidx, ecodes[i].val);
+		lua_pushinteger(L, ecodes[i].val);
+		lua_rawset(L, nidx);
+	}
+}
+
+/*
+ * __index(tab,key)
+ */
+static int
+pllua_errcodes_index(lua_State *L)
+{
+	lua_settop(L, 2);
+
+	if (!lua_toboolean(L, lua_upvalueindex(1)))
+	{
+		pllua_get_errcodes(L, 1);
+
+		lua_pushboolean(L, 1);
+		lua_replace(L, lua_upvalueindex(1));
+
+		lua_pushvalue(L, 2);
+		if (lua_rawget(L, 1) != LUA_TNIL)
+			return 1;
+	}
+	switch (lua_type(L, 2))
+	{
+		default:
+			return 0;
+		case LUA_TSTRING:
+			{
+				const char *str = lua_tostring(L, 2);
+				if (strlen(str) == 5
+					&& strspn(str, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789") == 5)
+				{
+					lua_pushinteger(L, MAKE_SQLSTATE(str[0], str[1], str[2], str[3], str[4]));
+					return 1;
+				}
+				return 0;
+			}
+		case LUA_TNUMBER:
+			{
+				int isint = 0;
+				lua_Integer errcode = lua_tointegerx(L, 2, &isint);
+				char buf[8];
+
+				if (!isint)
+					return 0;
+
+				if (!pllua_decode_sqlstate(buf, errcode))
+					return 0;
+
+				lua_pushstring(L, buf);
+				return 1;
+			}
+	}
+}
+
+/*
+ * __newindex(tab,key,val)
+ */
+static int
+pllua_errcodes_newindex(lua_State *L)
+{
+	return luaL_error(L, "errcodes table is immutable");
+}
+
+static struct luaL_Reg errtab_mt[] = {
+	{ "__index", pllua_errcodes_index },
+	{ "__newindex", pllua_errcodes_newindex },
+	{ NULL, NULL }
+};
+
+/*
+ * function errcode(e) return errcodes[e] end
+ */
+static int
+pllua_errcode(lua_State *L)
+{
+	lua_settop(L, 1);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ERRCODES_TABLE);
+	lua_pushvalue(L, 1);
+	lua_gettable(L, -2);
+	return 1;
+}
 
 /*
  * module init
@@ -1097,6 +1216,20 @@ static struct luaL_Reg errfuncs[] = {
 	{ "error", pllua_t_error },
 	{ "pcall", pllua_t_pcall },
 	{ "xpcall", pllua_t_xpcall },
+	{ "spcall", pllua_t_pcall },
+	{ "sxpcall", pllua_t_xpcall },
+	{ "lpcall", pllua_t_lpcall },
+	{ "lxpcall", pllua_t_lxpcall },
+	{ "subtransaction", pllua_subtransaction },
+	{ "errcode", pllua_errcode },
+	{ NULL, NULL }
+};
+
+static struct luaL_Reg glob_errfuncs[] = {
+	{ "assert", pllua_t_assert },
+	{ "error", pllua_t_error },
+	{ "pcall", pllua_t_pcall },
+	{ "xpcall", pllua_t_xpcall },
 	{ "lpcall", pllua_t_lpcall },
 	{ "lxpcall", pllua_t_lxpcall },
 	{ NULL, NULL }
@@ -1107,10 +1240,25 @@ static struct luaL_Reg co_errfuncs[] = {
 	{ NULL, NULL }
 };
 
-void pllua_init_error(lua_State *L)
+
+int pllua_open_error(lua_State *L)
 {
-	pllua_newmetatable(L, PLLUA_ERROR_OBJECT, errobj_mt);
+	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
+
+	lua_settop(L, 0);
+
+	lua_createtable(L, 0, 2 * ncodes);  /* index 1 */
 	lua_newtable(L);
+	lua_pushboolean(L, 0);
+	luaL_setfuncs(L, errtab_mt, 1);
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__metatable");
+	lua_setmetatable(L, -2);
+	lua_pushvalue(L, -1);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ERRCODES_TABLE);
+
+	pllua_newmetatable(L, PLLUA_ERROR_OBJECT, errobj_mt);
+	lua_pushvalue(L, 1);
 	lua_pushcclosure(L, pllua_errobject_index, 1);
 	lua_setfield(L, -2, "__index");
 	lua_pop(L, 1);
@@ -1123,8 +1271,12 @@ void pllua_init_error(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
 
 	lua_pushglobaltable(L);
-	luaL_setfuncs(L, errfuncs, 0);
+	luaL_setfuncs(L, glob_errfuncs, 0);
 	luaL_getsubtable(L, -1, "coroutine");
 	luaL_setfuncs(L, co_errfuncs, 0);
 	lua_pop(L,2);
+
+	lua_newtable(L);
+	luaL_setfuncs(L, errfuncs, 0);
+	return 1;
 }

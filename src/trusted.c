@@ -2,6 +2,9 @@
 
 #include "pllua.h"
 
+/* from init.c */
+extern bool pllua_do_install_globals;
+
 /*
  * Trusted versions or wrappers for functionality that we need to restrict in a
  * trusted interpreter.
@@ -626,22 +629,17 @@ static struct luaL_Reg sandbox_funcs[] = {
 	/* from this file */
 	{ "load", pllua_t_load },
 	/* "require" is set from package.require */
-	/* from elog.c */
-    { "print", pllua_p_print },
-	/* from error.c */
-	{ "assert", pllua_t_assert },
-	{ "error", pllua_t_error },
-	{ "pcall", pllua_t_pcall },
-	{ "xpcall", pllua_t_xpcall },
-	{ "lpcall", pllua_t_lpcall },
-	{ "lxpcall", pllua_t_lxpcall },
     {NULL, NULL}
 };
 
 /*
  * Whitelist the standard lua globals that we allow into the sandbox.
  */
-static struct luaL_Reg sandbox_lua_globals[] = {
+struct global_info {
+	const char *name;
+	const char *libname;
+};
+static struct global_info sandbox_lua_globals[] = {
 	/* base lib */
 	{ "collectgarbage", NULL },
 	{ "getmetatable", NULL },
@@ -663,6 +661,17 @@ static struct luaL_Reg sandbox_lua_globals[] = {
 	{ "_PL_IDENT", NULL },
 	{ "_PG_VERSION", NULL },
 	{ "_PG_VERSION_NUM", NULL },
+	{ NULL, "pllua.print" },
+	{ "print", NULL },
+	{ NULL, "pllua.error" },
+	{ "assert", NULL },
+	{ "error", NULL },
+	{ "pcall", NULL },
+	{ "xpcall", NULL },
+	{ "lpcall", NULL },
+	{ "lxpcall", NULL },
+	{ NULL, "pllua.trusted.package" },
+	{ "require", NULL },
 	{ NULL, NULL }
 };
 
@@ -691,6 +700,7 @@ static struct module_info sandbox_packages_early[] = {
 	{ "math",					NULL,		"copy",		"math"			},
 	{ "pllua.trusted.os",		"os",		"direct",	"os"			},
 	{ "pllua.trusted.package",	"package",	"direct",	"package"		},
+	{ "pllua.error",			NULL,		"copy",		NULL			},
 	{ NULL, NULL }
 };
 
@@ -724,7 +734,7 @@ pllua_open_trusted_late(lua_State *L)
 		else
 			lua_pushnil(L);
 		lua_pushstring(L, np->mode);
-		if (np->globname)
+		if (np->globname && pllua_do_install_globals)
 			lua_pushstring(L, np->globname);
 		else
 			lua_pushnil(L);
@@ -738,7 +748,7 @@ pllua_open_trusted_late(lua_State *L)
 int
 pllua_open_trusted(lua_State *L)
 {
-	const luaL_Reg *p;
+	const struct global_info *p;
 	const struct module_info *np;
 	lua_settop(L,0);
 	/* create the package table itself: index 1 */
@@ -761,7 +771,7 @@ pllua_open_trusted(lua_State *L)
 
 	luaL_setfuncs(L, trusted_funcs, 3);
 
-	if (luaL_loadstring(L, trusted_lua) == LUA_OK)
+	if (luaL_loadbuffer(L, trusted_lua, strlen(trusted_lua), "trusted.lua") == LUA_OK)
 	{
 		lua_pushvalue(L, 1);
 		lua_call(L, 1, 0);
@@ -775,13 +785,28 @@ pllua_open_trusted(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX_ALLOW);
 	lua_setfield(L, 1, "permit");
 
+	/* create the infrastructure of the sandbox module system */
+	luaL_requiref(L, "pllua.trusted.package", pllua_open_trusted_package, 0);
+	lua_pop(L, 1);
+
 	/* create the trusted sandbox: index 2 */
 	lua_newtable(L);
-	for (p = sandbox_lua_globals; p->name; ++p)
+	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+	lua_pushglobaltable(L);
+	for (p = sandbox_lua_globals; p->name || p->libname; ++p)
 	{
-		lua_getglobal(L, p->name);
-		lua_setfield(L, 2, p->name);
+		if (p->libname)
+		{
+			lua_getfield(L, -2, p->libname);
+			lua_replace(L, -2);
+		}
+		if (p->name)
+		{
+			lua_getfield(L, -1, p->name);
+			lua_setfield(L, 2, p->name);
+		}
 	}
+	lua_pop(L, 2);
 	lua_pushvalue(L, 2);
 	lua_setfield(L, 2, "_G");
 	luaL_setfuncs(L, sandbox_funcs, 0);
@@ -790,13 +815,6 @@ pllua_open_trusted(lua_State *L)
 	lua_pushvalue(L, 2);
 	lua_setfield(L, 1, "sandbox");
 
-	/* create the infrastructure of the sandbox module system */
-	luaL_requiref(L, "pllua.trusted.package", pllua_open_trusted_package, 0);
-	/* the package provides the sandbox's "require" func */
-	lua_getfield(L, -1, "require");
-	lua_setfield(L, 2, "require");
-	lua_pop(L, 1);
-
 	/* create the minimal trusted "os" library */
 	luaL_requiref(L, "pllua.trusted.os", pllua_open_trusted_os, 0);
 	lua_pop(L, 1);
@@ -804,9 +822,10 @@ pllua_open_trusted(lua_State *L)
 	/*
 	 * require standard modules into the sandbox
 	 */
+	lua_getfield(L, 1, "_allow");
 	for (np = sandbox_packages_early; np->name; ++np)
 	{
-		lua_getfield(L, 1, "_allow");
+		lua_pushvalue(L, -1);
 		lua_pushstring(L, np->name);
 		if (np->newname)
 			lua_pushstring(L, np->newname);
@@ -819,13 +838,15 @@ pllua_open_trusted(lua_State *L)
 			lua_pushnil(L);
 		lua_call(L, 4, 0);
 	}
+	lua_pop(L, 1);
 
 	/*
 	 * Ugly hack; we can't tell reliably at compile time whether the lua
 	 * library we're linked to enables bit32 or not. So just check whether
 	 * it exists and if so, run _allow for it as a special case.
 	 */
-	lua_getglobal(L, LUA_BITLIBNAME);
+	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+	lua_getfield(L, -1, LUA_BITLIBNAME);
 	if (!lua_isnil(L, -1))
 	{
 		lua_getfield(L, 1, "_allow");
@@ -835,7 +856,7 @@ pllua_open_trusted(lua_State *L)
 		lua_pushboolean(L, 1);
 		lua_call(L, 4, 0);
 	}
-	lua_pop(L, 1);
+	lua_pop(L, 2);
 
 	/*
 	 * global "string" is the metatable for all string objects. We don't

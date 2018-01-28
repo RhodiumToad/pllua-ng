@@ -233,26 +233,6 @@ pllua_error_callback(void *arg)
 				   act->interp->ar.short_src, act->interp->ar.currentline);
 }
 
-static struct { const char *str; int val; } ecodes[] = {
-#include "plerrcodes.h"
-	{ NULL, 0 }
-};
-
-void
-pllua_get_errcodes(lua_State *L, int nidx)
-{
-	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
-	int i;
-
-	nidx = lua_absindex(L, nidx);
-
-	for (i = 0; i < ncodes; ++i)
-	{
-		lua_pushstring(L, ecodes[i].str);
-		lua_seti(L, nidx, ecodes[i].val);
-	}
-}
-
 static int
 pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 {
@@ -266,28 +246,6 @@ pllua_get_sqlstate(lua_State *L, int tidx, const char *str)
 		int code;
 
 		lua_getfield(L, tidx, str);
-		if (lua_isnil(L, -1))
-		{
-			if (lua_next(L, tidx)) /* already a nil on the stack */
-			{
-				lua_pop(L,2);
-				return 0;		/* not found, table not empty */
-			}
-			else				/* table is empty so populate it */
-			{
-				int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
-				int i;
-
-				for (i = 0; i < ncodes; ++i)
-				{
-					lua_pushinteger(L, ecodes[i].val);
-					lua_setfield(L, tidx, ecodes[i].str);
-				}
-			}
-
-			lua_getfield(L, tidx, str);
-		}
-
 		code = lua_tointeger(L, -1);
 		lua_pop(L, 1);
 		return code;
@@ -339,10 +297,18 @@ int
 pllua_p_print(lua_State *L)
 {
 	int			nargs = lua_gettop(L); /* nargs */
-	int			elevel = IsUnderPostmaster ? INFO : LOG;
+	int			elevel = LOG;
 	const char *s;
 	luaL_Buffer b;
 	int			i;
+
+	if (lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_PRINT_SEVERITY) == LUA_TNUMBER)
+	{
+		elevel = lua_tointeger(L, -1);
+		if (elevel > WARNING || elevel < DEBUG5)
+			elevel = LOG;
+	}
+	lua_pop(L, 1);
 
 	luaL_buffinit(L, &b);
 
@@ -357,6 +323,19 @@ pllua_p_print(lua_State *L)
 	pllua_elog(L, elevel, true, 0, s,
 			   NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 	return 0;
+}
+
+int pllua_open_print(lua_State *L)
+{
+	lua_pushinteger(L, LOG);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_PRINT_SEVERITY);
+
+	lua_newtable(L);
+	lua_pushcfunction(L, pllua_p_print);
+	lua_pushvalue(L, -1);
+	lua_setglobal(L, "print");
+	lua_setfield(L, -2, "print");
+	return 1;
 }
 
 /*
@@ -506,7 +485,6 @@ pllua_open_elog(lua_State *L)
 {
 	int i;
 	int nlevels = sizeof(elevels)/sizeof(elevels[0]);
-	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
 
 	lua_newtable(L);
 
@@ -517,7 +495,8 @@ pllua_open_elog(lua_State *L)
 		lua_pushinteger(L, elevels[i].val);
 		lua_setfield(L, -2, elevels[i].str);
 	}
-	lua_createtable(L, 0, ncodes);
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ERRCODES_TABLE);
 
 	for (i = 0; i < nlevels; ++i)
 	{

@@ -636,6 +636,8 @@ extern char PLLUA_TRUSTED_SANDBOX_LOADED[];
 extern char PLLUA_TRUSTED_SANDBOX_ALLOW[];
 extern char PLLUA_PGFUNC_TABLE_OBJECT[];
 extern char PLLUA_TYPECONV_REGISTRY[];
+extern char PLLUA_ERRCODES_TABLE[];
+extern char PLLUA_PRINT_SEVERITY[];
 
 /* functions */
 
@@ -711,6 +713,7 @@ int pllua_typeconv_invalidate(lua_State *L);
 
 /* elog.c */
 int pllua_open_elog(lua_State *L);
+int pllua_open_print(lua_State *L);
 
 int pllua_p_print (lua_State *L);
 void pllua_debug_lua(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
@@ -718,10 +721,9 @@ void pllua_error(lua_State *L, const char *msg, ...) pg_attribute_noreturn();
 void pllua_warning(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3);
 void pllua_error_callback(void *arg);
 int pllua_error_callback_location(lua_State *L);
-void pllua_get_errcodes(lua_State *L, int nidx);
 
 /* error.c */
-void pllua_init_error(lua_State *L);
+int pllua_open_error(lua_State *L);
 
 int pllua_panic(lua_State *L);
 void pllua_poperror(lua_State *L);

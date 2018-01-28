@@ -29,7 +29,10 @@ static List *held_states = NIL;
 static char *pllua_on_init = NULL;
 static char *pllua_on_trusted_init = NULL;
 static char *pllua_on_untrusted_init = NULL;
+static char *pllua_on_common_init = NULL;
 static bool pllua_do_check_for_interrupts = true;
+/* trusted.c also needs this */
+bool pllua_do_install_globals = true;
 static int pllua_num_held_interpreters = 1;
 static char *pllua_reload_ident = NULL;
 static double pllua_gc_threshold = 0;
@@ -223,13 +226,10 @@ pllua_set_new_ident(lua_State *L)
 	lua_pushliteral(L, "_PL_IDENT_NEW");
 	lua_pushstring(L, pllua_reload_ident);
 	lua_rawset(L, -3);
-	if (interp_desc->trusted)
-	{
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-		lua_pushliteral(L, "_PL_IDENT_NEW");
-		lua_pushstring(L, pllua_reload_ident);
-		lua_rawset(L, -3);
-	}
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+	lua_pushliteral(L, "_PL_IDENT_NEW");
+	lua_pushstring(L, pllua_reload_ident);
+	lua_rawset(L, -3);
 	interp_desc->new_ident = false;
 	return 0;
 }
@@ -316,19 +316,33 @@ void _PG_init(void)
 							   PGC_SUSET, 0,
 							   NULL, pllua_assign_on_init, NULL);
 	DefineCustomStringVariable("pllua.on_trusted_init",
-							   gettext_noop("Code to execute when a Lua interpreter is initialized."),
+							   gettext_noop("Code to execute when a trusted Lua interpreter is initialized."),
 							   NULL,
 							   &pllua_on_trusted_init,
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
 	DefineCustomStringVariable("pllua.on_untrusted_init",
-							   gettext_noop("Code to execute when a Lua interpreter is initialized."),
+							   gettext_noop("Code to execute when an untrusted Lua interpreter is initialized."),
 							   NULL,
 							   &pllua_on_untrusted_init,
 							   NULL,
 							   PGC_SUSET, 0,
 							   NULL, NULL, NULL);
+	DefineCustomStringVariable("pllua.on_common_init",
+							   gettext_noop("Code to execute when any Lua interpreter is initialized."),
+							   NULL,
+							   &pllua_on_common_init,
+							   NULL,
+							   PGC_SUSET, 0,
+							   NULL, NULL, NULL);
+	DefineCustomBoolVariable("pllua.install_globals",
+							 gettext_noop("Install key modules as global tables."),
+							 NULL,
+							 &pllua_do_install_globals,
+							 true,
+							 PGC_SUSET, 0,
+							 NULL, NULL, NULL);
 	DefineCustomBoolVariable("pllua.check_for_interrupts",
 							 gettext_noop("Check for query cancels while running the Lua interpreter."),
 							 NULL,
@@ -365,7 +379,7 @@ void _PG_init(void)
 							 0,
 							 0,
 							 1000000,
-							 PGC_SUSET, 0,
+							 PGC_USERSET, 0,
 							 NULL, pllua_assign_gc_multiplier, NULL);
 	DefineCustomRealVariable("pllua.extra_gc_threshold",
 							 gettext_noop("Threshold for additional GC calls in kbytes"),
@@ -374,7 +388,7 @@ void _PG_init(void)
 							 0,
 							 0,
 							 LONG_MAX / 1024.0,
-							 PGC_SUSET, 0,
+							 PGC_USERSET, 0,
 							 NULL, NULL, NULL);
 
 	EmitWarningsOnPlaceholders("pllua");
@@ -564,17 +578,21 @@ pllua_hook(lua_State *L, lua_Debug *ar)
 }
 
 /*
- * Simple bare-bones execution of a single string. Always uses the global
- * environment, not the sandbox (if any).
+ * Simple bare-bones execution of a single string.
  */
 static void
-pllua_runstring(lua_State *L, const char *chunkname, const char *str)
+pllua_runstring(lua_State *L, const char *chunkname, const char *str, bool use_sandbox)
 {
 	if (str)
 	{
 		int rc = luaL_loadbuffer(L, str, strlen(str), chunkname);
 		if (rc)
 			lua_error(L);
+		if (use_sandbox)
+		{
+			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+			pllua_set_environment(L, -2);
+		}
 		lua_call(L, 0, 0);
 	}
 }
@@ -625,14 +643,14 @@ pllua_init_state_phase1(lua_State *L)
 	 * (pcall, xpcall, error, assert). Must be done after openlibs but before
 	 * anything might throw a pg error.
 	 */
-	pllua_init_error(L);
+	luaL_requiref(L, "pllua.error", pllua_open_error, 0);
 
 	/*
 	 * Default print() is not useful (can't rely on stdout/stderr going
-	 * anywhere safe). Replace with our version.
+	 * anywhere safe). Replace with our version, and direct output initially to
+	 * the log.
 	 */
-	lua_pushcfunction(L, pllua_p_print);
-	lua_setglobal(L, "print");
+	luaL_requiref(L, "pllua.print", pllua_open_print, 0);
 
 	/*
 	 * Early init of the trusted sandbox, so that on_init can do trusted setup
@@ -642,12 +660,11 @@ pllua_init_state_phase1(lua_State *L)
 	 * offer any interaction with postgres, so it's postmaster-safe.
 	 */
 	luaL_requiref(L, "pllua.trusted", pllua_open_trusted, 0);
-	lua_pop(L, 1);
 
 	/*
 	 * Actually run the phase1 init string.
 	 */
-	pllua_runstring(L, "on_init", pllua_on_init);
+	pllua_runstring(L, "on_init", pllua_on_init, false);
 
 	/*
 	 * Do this _after_ the init string so that the init string can't get at
@@ -656,7 +673,10 @@ pllua_init_state_phase1(lua_State *L)
 	 * to pre-generate the error tables.)
 	 */
 	luaL_requiref(L, "pllua.elog", pllua_open_elog, 0);
-	lua_setglobal(L, "server");  /* XXX fixme: needs a better name/location */
+	if (pllua_do_install_globals)
+		lua_setglobal(L, "server");  /* XXX fixme: needs a better name/location */
+
+	lua_settop(L, 0);
 
 	if (!IsUnderPostmaster)
 		lua_gc(L, LUA_GCCOLLECT, 0);
@@ -684,22 +704,20 @@ pllua_init_state_phase2(lua_State *L)
 	/* Treat these as actual modules */
 
 	luaL_requiref(L, "pllua.funcmgr", pllua_open_funcmgr, 0);
-	lua_pop(L, 1);
 
 	luaL_requiref(L, "pllua.pgtype", pllua_open_pgtype, 0);
-	lua_setglobal(L, "pgtype");
+	if (pllua_do_install_globals)
+		lua_setglobal(L, "pgtype");
 
 	luaL_requiref(L, "pllua.spi", pllua_open_spi, 0);
-	lua_setglobal(L, "spi");
+	if (pllua_do_install_globals)
+		lua_setglobal(L, "spi");
 
 	luaL_requiref(L, "pllua.trigger", pllua_open_trigger, 0);
-	lua_pop(L, 1);
 
 	luaL_requiref(L, "pllua.numeric", pllua_open_numeric, 0);
-	lua_pop(L, 1);
 
 	luaL_requiref(L, "pllua.jsonb", pllua_open_jsonb, 0);
-	lua_pop(L, 1);
 
 	/*
 	 * complete the initialization of the trusted-mode sandbox.
@@ -710,10 +728,8 @@ pllua_init_state_phase2(lua_State *L)
 	 * appropriate modules into the sandbox.
 	 */
 	luaL_requiref(L, "pllua.trusted.late", pllua_open_trusted_late, 0);
-	if (trusted)
+	if (trusted && pllua_do_install_globals)
 		lua_setglobal(L, "trusted");
-	else
-		lua_pop(L, 1);
 
 	/* enable interrupt checks */
 	if (pllua_do_check_for_interrupts)
@@ -725,7 +741,7 @@ pllua_init_state_phase2(lua_State *L)
 
 /*
  * Execute the post-fork init strings. Note that they are executed outside any
- * trusted sandbox.
+ * trusted sandbox, except on_common_init which executes inside.
  */
 static int
 pllua_run_init_strings(lua_State *L)
@@ -739,9 +755,17 @@ pllua_run_init_strings(lua_State *L)
 	trusted = lua_toboolean(L, -1);
 
 	if (trusted)
-		pllua_runstring(L, "on_trusted_init", pllua_on_trusted_init);
+		pllua_runstring(L, "on_trusted_init", pllua_on_trusted_init, false);
 	else
-		pllua_runstring(L, "on_untrusted_init", pllua_on_untrusted_init);
+		pllua_runstring(L, "on_untrusted_init", pllua_on_untrusted_init, false);
+
+	pllua_runstring(L, "on_common_init", pllua_on_common_init, trusted);
+
+	/*
+	 * Redirect print() output to the client now.
+	 */
+	lua_pushinteger(L, INFO);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_PRINT_SEVERITY);
 
 	return 0;
 }
