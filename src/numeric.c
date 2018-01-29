@@ -171,7 +171,7 @@ static int
 pllua_numeric_handler(lua_State *L)
 {
 	int			op = lua_tointeger(L, lua_upvalueindex(2));
-	pllua_typeinfo *t = *pllua_checkrefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *t = pllua_totypeinfo(L, lua_upvalueindex(1));
 	pllua_datum *d;
 	pllua_datum *d1 = pllua_todatum(L, 1, lua_upvalueindex(1));
 	pllua_datum *d2 = pllua_todatum(L, 2, lua_upvalueindex(1));
