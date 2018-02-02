@@ -188,7 +188,7 @@ pllua_compile(lua_State *L)
 	/*
 	 * Load the code into lua but run nothing. (Syntax errors show up here.)
 	 */
-	if (luaL_loadbuffer(L, src, strlen(src), fname))
+	if (luaL_loadbufferx(L, src, strlen(src), fname, "t"))
 		pllua_rethrow_from_lua(L, LUA_ERRRUN);
 	lua_remove(L, -2); /* drop source */
 
