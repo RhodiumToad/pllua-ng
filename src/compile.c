@@ -73,7 +73,7 @@ pllua_prepare_function(lua_State *L, bool trusted)
 void
 pllua_compile_inline(lua_State *L, const char *str, bool trusted)
 {
-	if (luaL_loadbuffer(L, str, strlen(str), "DO-block"))
+	if (luaL_loadbufferx(L, str, strlen(str), "DO-block", "t"))
 		pllua_rethrow_from_lua(L, LUA_ERRRUN);
 	pllua_prepare_function(L, trusted);
 }
