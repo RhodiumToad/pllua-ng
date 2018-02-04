@@ -1038,7 +1038,8 @@ pllua_push_severity(lua_State *L, int elevel, bool uppercase)
 		case DEBUG5:
 			lua_pushstring(L, uppercase ? "DEBUG" : "debug"); break;
 		case LOG:
-#ifdef LOG_SERVER_ONLY
+		case COMMERROR:
+#if defined(LOG_SERVER_ONLY) && LOG_SERVER_ONLY != COMMERROR
 		case LOG_SERVER_ONLY:
 #endif
 			lua_pushstring(L, uppercase ? "LOG" : "log"); break;
