@@ -132,4 +132,15 @@ do language pllua $$
   print(coroutine.resume(c))
 $$;
 
+-- error object funcs
+
+do language pllua $$
+  local err = require 'pllua.error'
+  local r,e = pcall(function() server.error("22003", "foo", "bar", "baz") end)
+  print(err.type(e), err.category(e), err.errcode(e))
+  print(e.severity, e.category, e.errcode, e.sqlstate, e.message, e.detail, e.hint)
+  local r,e = pcall(function() error("foo") end)
+  print(err.type(e), err.category(e), err.errcode(e), e)
+$$;
+
 --end

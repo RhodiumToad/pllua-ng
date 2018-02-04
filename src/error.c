@@ -1147,6 +1147,44 @@ pllua_errobject_tostring(lua_State *L)
 	return 1;
 }
 
+static int
+pllua_errobject_errcode(lua_State *L)
+{
+	void **p = pllua_torefobject(L, 1, PLLUA_ERROR_OBJECT);
+	if (p && *p)
+	{
+		ErrorData *e = *p;
+		pllua_push_errcode(L, e->sqlerrcode);
+		return 1;
+	}
+	else
+		return 0;
+}
+
+static int
+pllua_errobject_category(lua_State *L)
+{
+	void **p = pllua_torefobject(L, 1, PLLUA_ERROR_OBJECT);
+	if (p && *p)
+	{
+		ErrorData *e = *p;
+		pllua_push_errcode(L, ERRCODE_TO_CATEGORY(e->sqlerrcode));
+		return 1;
+	}
+	else
+		return 0;
+}
+
+static int
+pllua_errobject_type(lua_State *L)
+{
+	if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
+		lua_pushstring(L, "error");
+	else
+		lua_pushnil(L);
+	return 1;
+}
+
 static struct { const char *str; int val; } ecodes[] = {
 #include "plerrcodes.h"
 	{ NULL, 0 }
@@ -1238,19 +1276,6 @@ static struct luaL_Reg errtab_mt[] = {
 };
 
 /*
- * function errcode(e) return errcodes[e] end
- */
-static int
-pllua_errcode(lua_State *L)
-{
-	lua_settop(L, 1);
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ERRCODES_TABLE);
-	lua_pushvalue(L, 1);
-	lua_gettable(L, -2);
-	return 1;
-}
-
-/*
  * module init
  */
 
@@ -1270,7 +1295,13 @@ static struct luaL_Reg errfuncs[] = {
 	{ "lpcall", pllua_t_lpcall },
 	{ "lxpcall", pllua_t_lxpcall },
 	{ "subtransaction", pllua_subtransaction },
-	{ "errcode", pllua_errcode },
+	{ "type", pllua_errobject_type },
+	{ NULL, NULL }
+};
+
+static struct luaL_Reg errfuncs2[] = {
+	{ "errcode", pllua_errobject_errcode },
+	{ "category", pllua_errobject_category },
 	{ NULL, NULL }
 };
 
@@ -1331,5 +1362,7 @@ int pllua_open_error(lua_State *L)
 
 	lua_newtable(L);
 	luaL_setfuncs(L, errfuncs, 0);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ERRCODES_TABLE);
+	luaL_setfuncs(L, errfuncs2, 1);
 	return 1;
 }
