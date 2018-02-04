@@ -608,9 +608,10 @@ pllua_runstring(lua_State *L, const char *chunkname, const char *str, bool use_s
 static int
 pllua_init_state_phase1(lua_State *L)
 {
-	MemoryContext *mcxt = lua_touserdata(L, 1);
-	MemoryContext *emcxt = lua_touserdata(L, 2);
-	const char *ident = lua_touserdata(L, 3);
+	MemoryContext  *mcxt = lua_touserdata(L, 1);
+	MemoryContext  *emcxt = lua_touserdata(L, 2);
+	ErrorData	   *edata = lua_touserdata(L, 3);
+	const char	   *ident = lua_touserdata(L, 4);
 
 	lua_pushliteral(L, PLLUA_VERSION_STR);
 	lua_setglobal(L, "_PLVERSION");
@@ -628,6 +629,8 @@ pllua_init_state_phase1(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
 	lua_pushlightuserdata(L, emcxt);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
+	lua_pushlightuserdata(L, edata);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
 	lua_pushlightuserdata(L, 0);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
 
@@ -781,18 +784,24 @@ pllua_newstate_phase1(const char *ident)
 {
 	MemoryContext	mcxt = NULL;
 	MemoryContext	emcxt = NULL;
+	MemoryContext	oldcontext = CurrentMemoryContext;
+	ErrorData	   *edata;
 	lua_State	   *L = NULL;
 	int				rc;
 
 	ASSERT_PG_CONTEXT;
 
-	mcxt = AllocSetContextCreate(TopMemoryContext,
+	mcxt = AllocSetContextCreate(CurrentMemoryContext,
 								 "PL/Lua context",
 								 ALLOCSET_DEFAULT_SIZES);
 
 	emcxt = AllocSetContextCreate(mcxt,
 								  "PL/Lua error context",
 								  PLLUA_ERROR_CONTEXT_SIZES );
+
+	MemoryContextSwitchTo(mcxt);
+
+	edata = pllua_make_recursive_error();
 
 #if LUA_VERSION_NUM == 501
 	L = luaL_newstate();
@@ -816,8 +825,9 @@ pllua_newstate_phase1(const char *ident)
 	lua_pushcfunction(L, pllua_init_state_phase1);
 	lua_pushlightuserdata(L, mcxt);
 	lua_pushlightuserdata(L, emcxt);
+	lua_pushlightuserdata(L, edata);
 	lua_pushlightuserdata(L, (void *) ident);
-	rc = pllua_pcall_nothrow(L, 3, 0, 0);
+	rc = pllua_pcall_nothrow(L, 4, 0, 0);
 
 	/*
 	 * We don't allow phase1 init to do anything that interacts with pg in any
@@ -838,9 +848,15 @@ pllua_newstate_phase1(const char *ident)
 		lua_close(L); /* can't throw, but has internal lua catch blocks */
 		pllua_setcontext(PLLUA_CONTEXT_PG);
 
+		MemoryContextSwitchTo(oldcontext);
 		MemoryContextDelete(mcxt);
 
 		L = NULL;
+	}
+	else
+	{
+		MemoryContextSwitchTo(oldcontext);
+		MemoryContextSetParent(mcxt, TopMemoryContext);
 	}
 
 	return L;

@@ -724,10 +724,11 @@ int pllua_error_callback_location(lua_State *L);
 
 /* error.c */
 int pllua_open_error(lua_State *L);
+ErrorData *pllua_make_recursive_error(void);
 
 int pllua_panic(lua_State *L);
-void pllua_poperror(lua_State *L);
 int pllua_newerror(lua_State *L);
+void pllua_poperror(lua_State *L);
 void pllua_rethrow_from_lua(lua_State *L, int rc);
 
 /* These are DLLEXPORT so that transform modules can get at them */

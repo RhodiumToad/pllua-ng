@@ -46,6 +46,54 @@ pllua_newerror(lua_State *L)
 }
 
 /*
+ * Create an ErrorData (allocated in the caller's memory context) for our
+ * special "recursive error in error handling" error.
+ *
+ * This might itself throw a PG error, which is why it's essentially isolated
+ * from the rest of the module; init.c calls it at a safe point before actually
+ * entering Lua. Hence it doesn't even get a lua_State param.
+ */
+
+ErrorData *
+pllua_make_recursive_error(void)
+{
+	ErrorData *volatile edata = NULL;
+
+	/*
+	 * The sole reason for a catch block is to ensure that even if we're called
+	 * from postmaster, we don't promote the error to FATAL on account of
+	 * having an empty catch stack.
+	 */
+	PG_TRY();
+	{
+		MemoryContext oldcontext = CurrentMemoryContext;
+
+		if (!errstart(ERROR, __FILE__, __LINE__, PG_FUNCNAME_MACRO, TEXTDOMAIN))
+			elog(ERROR, "errstart tried to ignore ERROR");
+
+		/* populate error data */
+		errcode(ERRCODE_INTERNAL_ERROR);
+		errmsg("Unexpected error in error handling");
+
+		/* errstart switched to error context. switch back */
+		MemoryContextSwitchTo(oldcontext);
+
+		/* grab copy of error */
+		edata = CopyErrorData();
+
+		/* and flush it back out of the error subsystem */
+		FlushErrorState();
+	}
+	PG_CATCH();
+	{
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+
+	return edata;
+}
+
+/*
  * Execute a Lua protected call without rethrowing any error caught. The caller
  * must arrange the rethrow themselves; this is used when some cleanup is
  * needed between catch and rethrow.
@@ -1263,8 +1311,12 @@ int pllua_open_error(lua_State *L)
 	lua_setfield(L, -2, "__index");
 	lua_pop(L, 1);
 
+	/*
+	 * init.c stored a lightuserdata pointer to the pre-built recursive error
+	 * object; replace it with a full userdata
+	 */
 	lua_pushcfunction(L, pllua_newerror);
-	lua_pushlightuserdata(L, NULL);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
 	lua_call(L, 1, 1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
 	lua_pushnil(L);
