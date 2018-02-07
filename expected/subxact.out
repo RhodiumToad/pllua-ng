@@ -104,15 +104,16 @@ set local client_min_messages = error;
 do language pllua $$
   local function f(e) server.error("nested") end
   local function f2() error("foo") end
-  print("outer pcall",
-        pcall(function()
-                print("entering xpcall");
-                print("inner xpcall", xpcall(f2,f))
-		print("should not be reached")
-              end))
+  -- don't print the result because it differs with luajit, all that
+  -- really matters here is that we don't crash and don't reach the
+  -- last print
+  pcall(function()
+          print("entering xpcall");
+          print("inner xpcall", xpcall(f2,f))
+          print("should not be reached")
+        end)
 $$;
 INFO:  entering xpcall
-INFO:  outer pcall	false	ERROR: XX000 Unexpected error in error handling
 commit;
 do language pllua $$
   local level = 0
