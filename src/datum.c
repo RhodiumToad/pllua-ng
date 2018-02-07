@@ -661,6 +661,14 @@ static int pllua_datum_gc(lua_State *L)
 	 */
 	p->need_gc = false;
 
+	/*
+	 * Remove our metatable. There are ways (using keys of ephemeron tables)
+	 * that Lua code can hold on to references to post-finalized objects; this
+	 * makes sure that all they end up seeing is an opaque and inert userdata.
+	 */
+	lua_pushnil(L);
+	lua_setmetatable(L, 1);
+
 	PLLUA_TRY();
 	{
 		if (VARATT_IS_EXTERNAL_EXPANDED_RW(DatumGetPointer(p->value)))
@@ -3213,7 +3221,8 @@ static int pllua_typeinfo_package_call(lua_State *L)
 		pllua_func_activation *act;
 		Oid oid = InvalidOid;
 		int32 typmod = -1;
-		pllua_get_cur_act(L); /* throws if not in a function */
+		if (!pllua_get_cur_act(L))
+			luaL_error(L, "not in a function");
 		act = pllua_toobject(L, -1, PLLUA_ACTIVATION_OBJECT);
 		if (idx == 0)
 		{
