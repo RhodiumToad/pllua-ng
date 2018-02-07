@@ -320,6 +320,9 @@ typedef struct pllua_activation_record
 	bool		atomic;
 	bool		trusted;
 
+	/* registry ref for current error if any */
+	int			active_error;
+
 	/* for error context stuff */
 	struct pllua_interpreter *interp;
 	const char *err_text;
@@ -725,6 +728,7 @@ int pllua_error_callback_location(lua_State *L);
 /* error.c */
 int pllua_open_error(lua_State *L);
 ErrorData *pllua_make_recursive_error(void);
+void pllua_error_cleanup(pllua_interpreter *interp, pllua_activation_record *act);
 
 int pllua_panic(lua_State *L);
 int pllua_newerror(lua_State *L);

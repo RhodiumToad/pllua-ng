@@ -85,6 +85,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 	act.cblock = NULL;
 	act.validate_func = InvalidOid;
 	act.interp = NULL;
+	act.active_error = LUA_REFNIL;
 	act.err_text = NULL;
 
 #if PG_VERSION_NUM >= 110000
@@ -94,7 +95,10 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
-	/* this catch block exists only to save/restore the error context stack */
+	/*
+	 * this catch block exists to save/restore the error context stack and
+	 * allow cleanup of our internal error state when returning to PG proper
+	 */
 	PG_TRY();
 	{
 		ecxt.callback = pllua_error_callback;
@@ -130,7 +134,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 	PG_CATCH();
 	{
 		if (interp)
-			interp->errdepth = 0;
+			pllua_error_cleanup(interp, &act);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -156,11 +160,15 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 	act.cblock = NULL;
 	act.validate_func = funcoid;
 	act.interp = NULL;
+	act.active_error = LUA_REFNIL;
 	act.err_text = NULL;
 
 	pllua_setcontext(PLLUA_CONTEXT_PG);
 
-	/* this catch block exists only to save/restore the error context stack */
+	/*
+	 * this catch block exists to save/restore the error context stack and
+	 * allow cleanup of our internal error state when returning to PG proper
+	 */
 	PG_TRY();
 	{
 		ecxt.callback = pllua_error_callback;
@@ -175,7 +183,7 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 	PG_CATCH();
 	{
 		if (interp)
-			interp->errdepth = 0;
+			pllua_error_cleanup(interp, &act);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();
@@ -196,6 +204,7 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	act.cblock = (InlineCodeBlock *) PG_GETARG_POINTER(0);
 	act.validate_func = InvalidOid;
 	act.interp = NULL;
+	act.active_error = LUA_REFNIL;
 	act.err_text = "inline block entry";
 
 #if PG_VERSION_NUM >= 110000
@@ -208,7 +217,10 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	if (act.cblock->langIsTrusted != act.trusted)
 		elog(ERROR, "trusted state mismatch");
 
-	/* this catch block exists only to save/restore the error context stack */
+	/*
+	 * this catch block exists to save/restore the error context stack and
+	 * allow cleanup of our internal error state when returning to PG proper
+	 */
 	PG_TRY();
 	{
 		ecxt.callback = pllua_error_callback;
@@ -223,7 +235,7 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	PG_CATCH();
 	{
 		if (interp)
-			interp->errdepth = 0;
+			pllua_error_cleanup(interp, &act);
 		PG_RE_THROW();
 	}
 	PG_END_TRY();

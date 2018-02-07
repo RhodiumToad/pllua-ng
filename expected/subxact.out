@@ -112,7 +112,7 @@ do language pllua $$
               end))
 $$;
 INFO:  entering xpcall
-INFO:  outer pcall	false	ERROR: XX000 nested
+INFO:  outer pcall	false	ERROR: XX000 Unexpected error in error handling
 commit;
 do language pllua $$
   local level = 0

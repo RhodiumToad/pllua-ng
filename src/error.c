@@ -31,6 +31,88 @@ pllua_poperror(lua_State *L)
 }
 
 /*
+ * Register an error object as being active. This can throw.
+ *
+ */
+static int
+pllua_register_error(lua_State *L)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	if (interp)
+	{
+		int oref = interp->cur_activation.active_error;
+		/*
+		 * do the ref call before the unref, so that if luaL_ref throws, the
+		 * old value is unchanged and still valid
+		 */
+		lua_settop(L, 1);
+		interp->cur_activation.active_error = luaL_ref(L, LUA_REGISTRYINDEX);
+		luaL_unref(L, LUA_REGISTRYINDEX, oref);
+	}
+	return 0;
+}
+
+static void
+pllua_register_recursive_error(lua_State *L)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	if (interp)
+	{
+		luaL_unref(L, LUA_REGISTRYINDEX, interp->cur_activation.active_error);
+		interp->cur_activation.active_error = LUA_NOREF;
+	}
+	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+}
+
+static void
+pllua_deregister_error(lua_State *L)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	if (interp)
+	{
+		luaL_unref(L, LUA_REGISTRYINDEX, interp->cur_activation.active_error);
+		interp->cur_activation.active_error = LUA_REFNIL;
+	}
+}
+
+static bool
+pllua_get_active_error(lua_State *L)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	if (interp && interp->cur_activation.active_error != LUA_REFNIL)
+	{
+		if (interp->cur_activation.active_error == LUA_NOREF)
+			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+		else
+			lua_rawgeti(L, LUA_REGISTRYINDEX, interp->cur_activation.active_error);
+		return true;
+	}
+	return false;
+}
+
+/*
+ * This is called as the last thing on the error path before rethrowing the
+ * error completely back to pg (but note that we might still have catch blocks
+ * on the stack from an outer nested activation, e.g. as a result of SPI
+ * calls). Resetting errdepth keeps the error context traversal stuff working
+ * in the event that the context traversal itself raises an error; we can also
+ * safely remove any currently active PG error from the Lua registry because it
+ * must have been copied into the PG error handling. (However, we have to do
+ * this in a way that can't possibly throw a Lua error.)
+ */
+void
+pllua_error_cleanup(pllua_interpreter *interp, pllua_activation_record *act)
+{
+	interp->errdepth = 0;
+	if (act->active_error != LUA_REFNIL)
+	{
+		/* luaL_unref is guaranteed to not throw */
+		luaL_unref(interp->L, LUA_REGISTRYINDEX, act->active_error);
+		act->active_error = LUA_REFNIL;
+	}
+}
+
+/*
  * Create a new error object and record it as entering the error system.
  *
  * lightuserdata param is expected to be an ErrorData.
@@ -40,8 +122,9 @@ pllua_newerror(lua_State *L)
 {
 	void		*p = lua_touserdata(L, 1);
 	pllua_newrefobject(L, PLLUA_ERROR_OBJECT, p, false);
-	lua_pushvalue(L, -1);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+	lua_pushcfunction(L, pllua_register_error);
+	lua_pushvalue(L, -2);
+	lua_call(L, 1, 0);
 	return 1;
 }
 
@@ -262,11 +345,11 @@ pllua_absorb_pg_error(lua_State *L)
 		if (pllua_pcall_nothrow(L, 1, 1, 0) != 0)
 		{
 			pllua_poperror(L);
-			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+			pllua_register_recursive_error(L);
 		}
 	}
 	else
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+		pllua_register_recursive_error(L);
 
 	return edata;
 }
@@ -423,6 +506,8 @@ pllua_initial_protected_call(pllua_interpreter *interp,
 
 	if (rc)
 		pllua_rethrow_from_lua(interp->L, rc);
+
+	Assert(arg->active_error == LUA_REFNIL);
 }
 
 
@@ -516,6 +601,13 @@ static int finishpcall (lua_State *L, int status, lua_KContext extra) {
     lua_pushvalue(L, -2);  /* error message */
 	if (pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
 		pllua_rethrow_from_lua(L, status);
+	/*
+	 * To plug the lxpcall hole (lxpcall's error handler throws a pg error,
+	 * which lua transforms into "error in error handling"), we substitute the
+	 * pg error in the registry if any.
+	 */
+	if (pllua_get_active_error(L))
+		pllua_rethrow_from_lua(L, LUA_ERRERR);
     return 2;  /* return false, msg */
   }
   else
@@ -587,6 +679,8 @@ int pllua_t_lxpcall (lua_State *L) {
     lua_pushvalue(L, -2);  /* error message */
 	if (pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
 		pllua_rethrow_from_lua(L, status);
+	if (pllua_get_active_error(L))
+		pllua_rethrow_from_lua(L, LUA_ERRERR);
     return 2;  /* return false, msg */
   }
   else
@@ -610,8 +704,7 @@ pllua_t_error(lua_State *L)
 
 	if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
 	{
-		lua_pushvalue(L, 1);
-		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+		pllua_register_error(L);
 	}
 	else if (lua_type(L, 1) == LUA_TSTRING && level > 0)
 	{
@@ -711,7 +804,8 @@ pllua_intercept_error(lua_State *L)
 		 */
 		if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
 		{
-			lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+			if (!pllua_get_active_error(L))
+				lua_pushnil(L);
 			Assert(lua_rawequal(L, 1, -1));
 			lua_pop(L, 1);
 		}
@@ -719,7 +813,7 @@ pllua_intercept_error(lua_State *L)
 		 * At this point, the error (which could be either a lua error or a PG
 		 * error) has been caught and is on stack as our first arg; if it's a
 		 * pg error, it's been flushed from PG's error handling but is still
-		 * referenced from reg[LAST_ERROR]. The current subxact is not aborted
+		 * referenced from the registry. The current subxact is not aborted
 		 * yet.
 		 *
 		 * If it's a lua error, we don't actually have to abort the subxact now
@@ -739,14 +833,8 @@ pllua_intercept_error(lua_State *L)
 		 * function and/or the caller of pcall. It's the error handler's
 		 * privilege to throw it away and replace it if they choose to. So we
 		 * deregister it from the registry at this point.
-		 *
-		 * rawsetp can throw error. If it does, we'll recurse (unless it was a
-		 * GC error or some such). The registry may be left unchanged in that
-		 * case; we have to be aware of that (probably very remote) possibility
-		 * elsewhere.
 		 */
-		lua_pushnil(L);
-		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+		pllua_deregister_error(L);
 	}
 
 	/*
@@ -767,7 +855,8 @@ pllua_intercept_error(lua_State *L)
 		 * broke the subtransaction that was the parent of the one we're in
 		 * now. The new error should already be in the registry.
 		 */
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+		if (!pllua_get_active_error(L))
+			lua_pushnil(L);
 		Assert(lua_rawequal(L, -2, -1));
 		lua_pop(L, 1);
 		/*
@@ -789,6 +878,19 @@ pllua_intercept_error(lua_State *L)
  *
  * We don't check "func" except for existence - if it's not a function then the
  * error will happen inside the catch. errfunc must be a function though.
+ *
+ * Subtlety: we could get here with a PG error in flight if we're called from a
+ * user's error handler for lxpcall. If we then catch another pg error inside
+ * the subxact, that would result in deregistering the original error.
+ *
+ * We could preserve the original error for rethrow, but there's a worse
+ * problem: there is no way we can be sure that extended interaction with pg
+ * would be even safe considering that we are supposed to be in error handling.
+ *
+ * So the right thing to do would seem to be to refuse to do anything in the
+ * presence of a pending error; but because this same argument applies to a lot
+ * of other functions too, lxpcall is disabled completely now. If it gets
+ * re-enabled again, a lot of places will need checks added, including here.
  */
 static int
 pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
@@ -900,24 +1002,23 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 		 * something is wrong if there's a pg error still in the registry at
 		 * this point.
 		 */
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
-		Assert(lua_isnil(L, -1));
-		lua_pop(L, 1);
+		if (pllua_get_active_error(L))
+		{
+			Assert(false);
+			lua_pop(L, 1);
+		}
 
 		return lua_gettop(L) - (is_xpcall ? 2 : 0);
 	}
 
 	if (rethrow)
 	{
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
-		if (!lua_isnil(L, -1))
+		if (pllua_get_active_error(L))
 			lua_error(L);
-		lua_pop(L, 1);
 	}
 	else
 	{
-		lua_pushnil(L);
-		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
+		pllua_deregister_error(L);
 	}
 
 	lua_pushboolean(L, 0);
@@ -1293,7 +1394,10 @@ static struct luaL_Reg errfuncs[] = {
 	{ "spcall", pllua_t_pcall },
 	{ "sxpcall", pllua_t_xpcall },
 	{ "lpcall", pllua_t_lpcall },
+#if 0
+	/* unsafe, see comment on pcall */
 	{ "lxpcall", pllua_t_lxpcall },
+#endif
 	{ "subtransaction", pllua_subtransaction },
 	{ "type", pllua_errobject_type },
 	{ NULL, NULL }
@@ -1311,7 +1415,10 @@ static struct luaL_Reg glob_errfuncs[] = {
 	{ "pcall", pllua_t_pcall },
 	{ "xpcall", pllua_t_xpcall },
 	{ "lpcall", pllua_t_lpcall },
+#if 0
+	/* unsafe, see comment on pcall */
 	{ "lxpcall", pllua_t_lxpcall },
+#endif
 	{ NULL, NULL }
 };
 
@@ -1351,8 +1458,6 @@ int pllua_open_error(lua_State *L)
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
 	lua_call(L, 1, 1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
-	lua_pushnil(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_LAST_ERROR);
 
 	lua_pushglobaltable(L);
 	luaL_setfuncs(L, glob_errfuncs, 0);
