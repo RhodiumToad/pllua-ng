@@ -641,7 +641,9 @@ struct global_info {
 };
 static struct global_info sandbox_lua_globals[] = {
 	/* base lib */
+	{ "assert", NULL },
 	{ "collectgarbage", NULL },
+	{ "error", NULL },
 	{ "getmetatable", NULL },
 	{ "ipairs", NULL },
 	{ "next", NULL },
@@ -664,12 +666,9 @@ static struct global_info sandbox_lua_globals[] = {
 	{ NULL, "pllua.print" },
 	{ "print", NULL },
 	{ NULL, "pllua.error" },
-	{ "assert", NULL },
-	{ "error", NULL },
 	{ "pcall", NULL },
 	{ "xpcall", NULL },
 	{ "lpcall", NULL },
-	{ "lxpcall", NULL },
 	{ NULL, "pllua.trusted.package" },
 	{ "require", NULL },
 	{ NULL, NULL }

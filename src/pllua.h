@@ -732,6 +732,7 @@ void pllua_error_cleanup(pllua_interpreter *interp, pllua_activation_record *act
 
 int pllua_panic(lua_State *L);
 int pllua_newerror(lua_State *L);
+int pllua_register_error(lua_State *L);
 void pllua_poperror(lua_State *L);
 void pllua_rethrow_from_lua(lua_State *L, int rc);
 

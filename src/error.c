@@ -34,7 +34,7 @@ pllua_poperror(lua_State *L)
  * Register an error object as being active. This can throw.
  *
  */
-static int
+int
 pllua_register_error(lua_State *L)
 {
 	pllua_interpreter *interp = pllua_getinterpreter(L);
@@ -46,6 +46,19 @@ pllua_register_error(lua_State *L)
 		 * old value is unchanged and still valid
 		 */
 		lua_settop(L, 1);
+		/* if we're in recursive error handling, then don't overwrite that. */
+		if (oref == LUA_NOREF)
+			return 0;
+		/*
+		 * if we're trying to register the current error, skip the luaL_ref
+		 * call (which can throw in extreme cases)
+		 */
+		if (oref != LUA_REFNIL)
+		{
+			lua_rawgeti(L, LUA_REGISTRYINDEX, oref);
+			if (lua_rawequal(L, -1, -2))
+				return 0;
+		}
 		interp->cur_activation.active_error = luaL_ref(L, LUA_REGISTRYINDEX);
 		luaL_unref(L, LUA_REGISTRYINDEX, oref);
 	}
@@ -235,18 +248,26 @@ pllua_rethrow_from_lua(lua_State *L, int rc)
 
 	/*
 	 * The thing on top of the stack is either a lua object with a pg error, a
-	 * string, or something else.
+	 * string, or something else. If it's a pg error, ensure it is registered
+	 * and rethrow it.
 	 */
 	if (pllua_isobject(L, -1, PLLUA_ERROR_OBJECT))
 	{
 		ErrorData **p = lua_touserdata(L, -1);
 		ErrorData *edata = *p;
 
-		/*
-		 * safe to pop the object since it should still be referenced from the
-		 * registry
-		 */
-		lua_pop(L, -1);
+		pllua_pushcfunction(L, pllua_register_error);
+		lua_insert(L, -2);
+		if (pllua_pcall_nothrow(L, 1, 0, 0) != 0)
+		{
+			pllua_poperror(L);
+			pllua_register_recursive_error(L);
+			p = lua_touserdata(L, -1);
+			if (p && *p)
+				edata = *p;
+			/* safe to pop since the value is in the registry */
+			lua_pop(L, 1);
+		}
 
 		if (edata)
 			ReThrowError(edata);
@@ -690,50 +711,6 @@ int pllua_t_lxpcall (lua_State *L) {
 #endif
 
 /*
- * Wrap the user-visible error() and assert() so that we can see when the user
- * throws a pg error object into the lua error handler.
- *
- * error(err[,levelsup])
- */
-int
-pllua_t_error(lua_State *L)
-{
-	int level = (int) luaL_optinteger(L, 2, 1);
-
-	lua_settop(L, 1);
-
-	if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
-	{
-		pllua_register_error(L);
-	}
-	else if (lua_type(L, 1) == LUA_TSTRING && level > 0)
-	{
-		luaL_where(L, level);   /* add extra information */
-		lua_pushvalue(L, 1);
-		lua_concat(L, 2);
-	}
-	return lua_error(L);
-}
-
-/*
- * assert(cond[,error])
- */
-int
-pllua_t_assert(lua_State *L)
-{
-	if (lua_toboolean(L, 1))  /* condition is true? */
-		return lua_gettop(L);  /* return all arguments */
-	else
-	{  /* error */
-		luaL_checkany(L, 1);  /* there must be a condition */
-		lua_remove(L, 1);  /* remove it */
-		lua_pushliteral(L, "assertion failed!");  /* default message */
-		lua_settop(L, 1);  /* leave only message (default if no other one) */
-		return pllua_t_error(L);  /* call 'error' */
-	}
-}
-
-/*
  * Wrap pcall and xpcall for subtransaction handling.
  *
  * pcall func,args...
@@ -801,13 +778,18 @@ pllua_intercept_error(lua_State *L)
 		 * It's possible to get here with a non-pg error as the current error
 		 * value while there's a pg error in the registry. But if we're
 		 * catching a pg error, it should be the most recent one thrown.
+		 *
+		 * However, if the user did error(e) using an old caught error object
+		 * (which is now deregistered), there might not be a pending registered
+		 * pg error at all; this is a valid case.
 		 */
 		if (pllua_isobject(L, 1, PLLUA_ERROR_OBJECT))
 		{
-			if (!pllua_get_active_error(L))
-				lua_pushnil(L);
-			Assert(lua_rawequal(L, 1, -1));
-			lua_pop(L, 1);
+			if (pllua_get_active_error(L))
+			{
+				Assert(lua_rawequal(L, 1, -1));
+				lua_pop(L, 1);
+			}
 		}
 		/*
 		 * At this point, the error (which could be either a lua error or a PG
@@ -829,10 +811,10 @@ pllua_intercept_error(lua_State *L)
 		pllua_subxact_abort(L);
 
 		/*
-		 * The original pg error is now only of interest to the error handler
-		 * function and/or the caller of pcall. It's the error handler's
-		 * privilege to throw it away and replace it if they choose to. So we
-		 * deregister it from the registry at this point.
+		 * The original pg error if any is now only of interest to the error
+		 * handler function and/or the caller of pcall. It's the error
+		 * handler's privilege to throw it away and replace it if they choose
+		 * to. So we deregister it from the registry at this point.
 		 */
 		pllua_deregister_error(L);
 	}
@@ -855,13 +837,14 @@ pllua_intercept_error(lua_State *L)
 		 * broke the subtransaction that was the parent of the one we're in
 		 * now. The new error should already be in the registry.
 		 */
-		if (!pllua_get_active_error(L))
-			lua_pushnil(L);
-		Assert(lua_rawequal(L, -2, -1));
-		lua_pop(L, 1);
+		if (pllua_get_active_error(L))
+		{
+			Assert(lua_rawequal(L, -2, -1));
+			lua_pop(L, 1);
+		}
 		/*
-		 * the pcall wrapper itself will rethrow, since we can't rethrow from
-		 * here without recursing
+		 * the pcall wrapper itself will rethrow if need be, since we can't
+		 * rethrow from here without recursing
 		 */
 		return 1;
 	}
@@ -1387,8 +1370,6 @@ static struct luaL_Reg errobj_mt[] = {
 };
 
 static struct luaL_Reg errfuncs[] = {
-	{ "assert", pllua_t_assert },
-	{ "error", pllua_t_error },
 	{ "pcall", pllua_t_pcall },
 	{ "xpcall", pllua_t_xpcall },
 	{ "spcall", pllua_t_pcall },
@@ -1410,8 +1391,6 @@ static struct luaL_Reg errfuncs2[] = {
 };
 
 static struct luaL_Reg glob_errfuncs[] = {
-	{ "assert", pllua_t_assert },
-	{ "error", pllua_t_error },
 	{ "pcall", pllua_t_pcall },
 	{ "xpcall", pllua_t_xpcall },
 	{ "lpcall", pllua_t_lpcall },
@@ -1431,8 +1410,24 @@ static struct luaL_Reg co_errfuncs[] = {
 int pllua_open_error(lua_State *L)
 {
 	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
+	int i;
+	int refs[30];
 
 	lua_settop(L, 0);
+
+	/*
+	 * Create and drop a few registry reference entries so that there's a
+	 * freelist; this reduces the chance that we have to extend the registry
+	 * table (with the possibility of error) while actually doing error
+	 * handling.
+	 */
+	for (i = 0; i < sizeof(refs)/sizeof(int); ++i)
+	{
+		lua_pushboolean(L, 1);
+		refs[i] = luaL_ref(L, LUA_REGISTRYINDEX);
+	}
+	while (--i >= 0)
+		luaL_unref(L, LUA_REGISTRYINDEX, refs[i]);
 
 	lua_createtable(L, 0, 2 * ncodes);  /* index 1 */
 	lua_newtable(L);
