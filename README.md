@@ -16,9 +16,8 @@ versions 9.5, 9.6 and 10 (and 11devel). It is known that this module
 will never work on pg versions before 9.5 (we rely critically on
 memory context callbacks, which were introduced in that version).
 
-Only Lua 5.3 is fully supported at this time, though it also is
-believed to work if built against LuaJIT with the COMPAT52 option
-(this is included in the Travis-CI test matrix).
+Lua 5.3 and LuaJIT 2.1beta (with COMPAT52) are fully supported at this
+time.
 
 
 CHANGES
