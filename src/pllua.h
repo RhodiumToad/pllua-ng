@@ -20,8 +20,8 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
-#define PLLUA_VERSION_STR "0.2"
-#define PLLUA_VERSION_NUM 2
+#define PLLUA_VERSION_STR "0.9"
+#define PLLUA_VERSION_NUM 9
 
 /* PG version cruft */
 
