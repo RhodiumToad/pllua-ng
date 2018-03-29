@@ -225,6 +225,9 @@ static int pllua_cursor_options(lua_State *L, int nd, int *fetch_count)
 	lua_getfield(L, nd, "no_scroll");
 	flag |= (lua_toboolean(L, -1)) ? CURSOR_OPT_NO_SCROLL : 0;
 	lua_pop(L, 1);
+	lua_getfield(L, nd, "hold");
+	flag |= (lua_toboolean(L, -1)) ? CURSOR_OPT_HOLD : 0;
+	lua_pop(L, 1);
 	lua_getfield(L, nd, "fast_start");
 	flag |= (lua_toboolean(L, -1)) ? CURSOR_OPT_FAST_PLAN : 0;
 	lua_pop(L, 1);

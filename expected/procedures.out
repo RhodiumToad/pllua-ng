@@ -59,6 +59,26 @@ $$;
 call pg_temp.tp3();
 INFO:  1
 ERROR:  pllua: [string "tp3"]:3: cannot iterate a closed cursor
+create procedure pg_temp.tp4()
+  language pllua
+  as $$
+  local stmt = spi.prepare([[ select i from generate_series(1,10) i ]], {}, { hold = true });
+  for r in stmt:rows() do
+    print(r.i)
+    spi.commit();
+  end
+$$;
+call pg_temp.tp4();
+INFO:  1
+INFO:  2
+INFO:  3
+INFO:  4
+INFO:  5
+INFO:  6
+INFO:  7
+INFO:  8
+INFO:  9
+INFO:  10
 -- no commit inside subxact
 truncate table xatst2;
 do language pllua $$

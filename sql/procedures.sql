@@ -61,6 +61,18 @@ $$;
 
 call pg_temp.tp3();
 
+create procedure pg_temp.tp4()
+  language pllua
+  as $$
+  local stmt = spi.prepare([[ select i from generate_series(1,10) i ]], {}, { hold = true });
+  for r in stmt:rows() do
+    print(r.i)
+    spi.commit();
+  end
+$$;
+
+call pg_temp.tp4();
+
 -- no commit inside subxact
 
 truncate table xatst2;
