@@ -844,6 +844,7 @@ pllua_open_trusted(lua_State *L)
 	 * library we're linked to enables bit32 or not. So just check whether
 	 * it exists and if so, run _allow for it as a special case.
 	 */
+#ifdef LUA_BITLIBNAME
 	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
 	lua_getfield(L, -1, LUA_BITLIBNAME);
 	if (!lua_isnil(L, -1))
@@ -856,7 +857,7 @@ pllua_open_trusted(lua_State *L)
 		lua_call(L, 4, 0);
 	}
 	lua_pop(L, 2);
-
+#endif
 	/*
 	 * global "string" is the metatable for all string objects. We don't
 	 * want the sandbox to be able to get it via getmetatable("")

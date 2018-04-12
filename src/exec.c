@@ -262,18 +262,19 @@ pllua_resume_function(lua_State *L)
 	pllua_func_activation *fact = fcinfo->flinfo->fn_extra;
 	lua_State  *thr = fact->thread;
 	int			rc;
+	int			nret;
 
 	Assert(thr != NULL);
 	Assert(lua_gettop(L) == 1);
 
 	fact->onstack = true;
-	rc = lua_resume(thr, L, 0);
+	rc = lua_resume(thr, L, 0, &nret);
 	fact->onstack = false;
 
 	if (rc == LUA_OK)
 	{
 		/* results from function are ignored in this case */
-		lua_settop(thr, 0);
+		lua_pop(thr, nret);
 		pllua_deactivate_thread(L, fact, rsi->econtext);
 		rsi->isDone = ExprEndResult;
 		act->retval = (Datum)0;
@@ -282,8 +283,8 @@ pllua_resume_function(lua_State *L)
 	}
 	else if (rc == LUA_YIELD)
 	{
-		luaL_checkstack(L, lua_gettop(thr) + 10, "in return from set-returning function");
-		lua_xmove(thr, L, lua_gettop(thr));
+		luaL_checkstack(L, nret + 10, "in return from set-returning function");
+		lua_xmove(thr, L, nret);
 		/* leave thread active */
 		rsi->isDone = ExprMultipleResult;
 
@@ -296,7 +297,7 @@ pllua_resume_function(lua_State *L)
 		pllua_rethrow_from_lua(L, rc);
 	}
 
-	act->retval = pllua_return_result(L, lua_gettop(L) - 1,
+	act->retval = pllua_return_result(L, nret,
 									  fact,
 									  &fcinfo->isnull);
 
@@ -317,6 +318,7 @@ pllua_call_function(lua_State *L)
 	pllua_func_activation *fact;
 	int			nstack;
 	int			nargs;
+	int			nret;
 	int			rc;
 
 	pllua_common_lua_init(L, fcinfo);
@@ -347,7 +349,7 @@ pllua_call_function(lua_State *L)
 		lua_xmove(L, thr, nargs + 1);  /* args plus function */
 
 		fact->onstack = true;
-		rc = lua_resume(thr, L, nargs);
+		rc = lua_resume(thr, L, nargs, &nret);
 		fact->onstack = false;
 
 		/*
@@ -364,8 +366,6 @@ pllua_call_function(lua_State *L)
 		 */
 		if (rc == LUA_OK)
 		{
-			int nret = lua_gettop(thr);
-
 			luaL_checkstack(L, 10 + nret, NULL);
 			lua_xmove(thr, L, nret);
 
@@ -383,7 +383,6 @@ pllua_call_function(lua_State *L)
 		}
 		else if (rc == LUA_YIELD)
 		{
-			int nret = lua_gettop(thr);
 			luaL_checkstack(L, 10 + nret, NULL);
 			lua_xmove(thr, L, nret);
 			/* leave thread active */

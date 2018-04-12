@@ -559,6 +559,7 @@ static int pllua_errobject_gc(lua_State *L)
 static int pllua_t_coresume (lua_State *L) {
   lua_State *co = lua_tothread(L, 1);
   int narg = lua_gettop(L) - 1;
+  int nret;
   int rc;
   luaL_argcheck(L, co, 1, "thread expected");
 
@@ -573,18 +574,17 @@ static int pllua_t_coresume (lua_State *L) {
     return 2;  /* error flag */
   }
   lua_xmove(L, co, narg);
-  rc = lua_resume(co, L, narg);
+  rc = lua_resume(co, L, narg, &nret);
   if (rc == LUA_OK || rc == LUA_YIELD) {
-    int nres = lua_gettop(co);
-    if (!lua_checkstack(L, nres + 1)) {
-      lua_settop(co, 0);  /* remove results anyway */
+    if (!lua_checkstack(L, nret + 1)) {
+      lua_pop(co, nret);  /* remove results anyway */
 	  lua_pushboolean(L, 0);
       lua_pushliteral(L, "too many results to resume");
       return 2;  /* error flag */
     }
 	lua_pushboolean(L, 1);
-    lua_xmove(co, L, nres);  /* move yielded values */
-    return nres + 1;
+    lua_xmove(co, L, nret);  /* move yielded values */
+    return nret + 1;
   }
   else {
     lua_pushboolean(L, 0);

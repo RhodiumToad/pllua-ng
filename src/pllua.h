@@ -56,7 +56,7 @@
 /* assume Lua 5.1 is actually luajit, and get the luajit version. */
 #include <luajit.h>
 #else
-#if LUA_VERSION_NUM != 503
+#if LUA_VERSION_NUM < 503
 #error Only Lua 5.3 and Luajit are supported at this time
 #endif
 #endif
@@ -124,7 +124,7 @@ static inline void lua_seti(lua_State *L, int nd, lua_Integer i)
 #define lua_getfield(L_,nd_,i_) ((lua_getfield)(L_,nd_,i_),lua_type(L_, -1))
 #define lua_gettable(L_,nd_) ((lua_gettable)(L_,nd_),lua_type(L_, -1))
 #define luaL_getmetafield(L_,nd_,f_) ((luaL_getmetafield)(L_,nd_,f_) ? lua_type(L_, -1) : LUA_TNIL)
-#define lua_resume(L_,from_,nargs_) ((lua_resume)(L_,nargs_))
+/*#define lua_resume(L_,from_,nargs_) ((lua_resume)(L_,nargs_))*/
 /* luajit 2.1's version of this one is ok. */
 #if LUAJIT_VERSION_NUM < 20100
 static inline lua_Number lua_tonumberx(lua_State *L, int i, int *isnum)
@@ -207,6 +207,20 @@ void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int 
 #define pllua_set_environment(L_,i_) lua_setfenv(L, i_)
 #else
 #define pllua_set_environment(L_,i_) lua_setupvalue(L_, i_, 1)
+#endif
+
+#if LUA_VERSION_NUM < 504
+static inline int pllua_resume(lua_State *L, lua_State *from, int nargs, int *nret)
+{
+#if LUA_VERSION_NUM == 501
+	int rc = (lua_resume)(L, nargs);
+#else
+	int rc = (lua_resume)(L, from, nargs);
+#endif
+	*nret = lua_gettop(L);
+	return rc;
+}
+#define lua_resume(L_,f_,a_,r_) (pllua_resume(L_,f_,a_,r_))
 #endif
 
 /*
