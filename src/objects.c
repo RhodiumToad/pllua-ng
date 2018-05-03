@@ -174,6 +174,8 @@ void *pllua_toobject(lua_State *L, int nd, char *objtype)
  *
  * Normal use would be to reset the context on the normal exit path and
  * leave the rest for GC to clean up.
+ *
+ * "name" must be a compile-time constant
  */
 MemoryContext pllua_newmemcontext(lua_State *L,
 								  const char *name,
@@ -187,7 +189,7 @@ MemoryContext pllua_newmemcontext(lua_State *L,
 	PLLUA_TRY();
 	{
 #if PG_VERSION_NUM >= 110000
-		mcxt = AllocSetContextCreateExtended(parent, name, 0, minsz, initsz, maxsz);
+		mcxt = AllocSetContextCreateExtended(parent, name, minsz, initsz, maxsz);
 #else
 		mcxt = AllocSetContextCreate(parent, name, minsz, initsz, maxsz);
 #endif
