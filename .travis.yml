@@ -21,6 +21,7 @@ addons:
 before_install:
   - sudo /etc/init.d/postgresql stop
   - sudo apt-get -y --purge remove postgresql libpq-dev libpq5 postgresql-client-common postgresql-common
+  - sudo apt-get update
   - sudo rm -rf /var/lib/postgresql
   - sudo apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::="--force-confnew" install postgresql-${PG:?} postgresql-server-dev-${PG:?}
   - |
