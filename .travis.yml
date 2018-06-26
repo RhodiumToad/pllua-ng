@@ -10,11 +10,12 @@ env:
     - PG=9.6 LUA=lua-5.3.4
     - PG=10  LUA=lua-5.3.4
     - PG=10  LUA=LuaJIT-ea7071d
+    - PG=11  LUA=lua-5.3.4
 
 addons:
   apt:
     sources:
-    - sourceline: "deb http://apt.postgresql.org/pub/repos/apt/ trusty-pgdg main"
+    - sourceline: "deb http://apt.postgresql.org/pub/repos/apt/ trusty-pgdg main 11"
       key_url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
 
 before_install:
