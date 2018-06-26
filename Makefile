@@ -51,7 +51,7 @@ SRCOBJS=compile.o datum.o elog.o error.o exec.o globals.o init.o \
 
 OBJS = $(addprefix src/, $(SRCOBJS))
 
-EXTRA_CLEAN = pllua_functable.h
+EXTRA_CLEAN = pllua_functable.h plerrcodes.h
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
 SHLIB_LINK = $(LUALIB)
@@ -74,9 +74,23 @@ endif
 $(OBJS): src/pllua.h
 
 src/init.o: pllua_functable.h
+src/error.o: plerrcodes.h
 
 pllua_functable.h: $(OBJS:.o=.c)
 	cat $(OBJS:.o=.c) | perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call|pllua_register_cfunc)\(\s*([\w.]+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | sort -u >pllua_functable.h
+
+ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
+
+#in pg 11+, we can get the server's errcodes.txt.
+plerrcodes.h: $(datadir)/errcodes.txt
+	perl -lane '/^(?!Section:)[^#\s]/ and @F==4 and printf "{\n    \"%s\", %s\n},\n", $$F[3], $$F[2]' $(datadir)/errcodes.txt >plerrcodes.h
+
+else
+
+plerrcodes.h: src/plerrcodes_old.h
+	cp src/plerrcodes_old.h plerrcodes.h
+
+endif
 
 installcheck-parallel: submake $(REGRESS_PREP)
 	$(pg_regress_installcheck) $(REGRESS_OPTS) $(REGRESS_PARALLEL)
