@@ -585,7 +585,7 @@ pllua_runstring(lua_State *L, const char *chunkname, const char *str, bool use_s
 {
 	if (str)
 	{
-		int rc = luaL_loadbuffer(L, str, strlen(str), chunkname);
+		int rc = luaL_loadbufferx(L, str, strlen(str), chunkname, "t");
 		if (rc)
 			lua_error(L);
 		if (use_sandbox)
@@ -676,8 +676,6 @@ pllua_init_state_phase1(lua_State *L)
 	 * to pre-generate the error tables.)
 	 */
 	luaL_requiref(L, "pllua.elog", pllua_open_elog, 0);
-	if (pllua_do_install_globals)
-		lua_setglobal(L, "server");  /* XXX fixme: needs a better name/location */
 
 	lua_settop(L, 0);
 
@@ -733,6 +731,27 @@ pllua_init_state_phase2(lua_State *L)
 	luaL_requiref(L, "pllua.trusted.late", pllua_open_trusted_late, 0);
 	if (trusted && pllua_do_install_globals)
 		lua_setglobal(L, "trusted");
+
+	lua_settop(L, 0);
+
+	/* set up the compat module for preload */
+	if (trusted)
+	{
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
+		lua_getfield(L, -1, "package");
+		lua_getfield(L, -1, "preload");
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_SANDBOX_META);
+	}
+	else
+	{
+		lua_getglobal(L, "package");
+		lua_getfield(L, -1, "preload");
+		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_GLOBAL_META);
+	}
+
+	lua_pushcclosure(L, pllua_preload_compat, 1);
+	lua_setfield(L, -2, "pllua.compat");
+	lua_settop(L, 0);
 
 	/* enable interrupt checks */
 	if (pllua_do_check_for_interrupts)

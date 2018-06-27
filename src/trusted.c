@@ -704,9 +704,9 @@ static struct module_info sandbox_packages_early[] = {
 };
 
 static struct module_info sandbox_packages_late[] = {
-	{ "pllua.spi",			NULL,	"copy",		"spi"			},
+	{ "pllua.spi",			NULL,	"proxy",	"spi"			},
 	{ "pllua.pgtype",		NULL,	"proxy",	"pgtype"		},
-	{ "pllua.elog",			NULL,	"copy",		"server"		},
+	{ "pllua.elog",			NULL,	"copy",		NULL			},
 	{ "pllua.numeric",		NULL,	"copy",		NULL			},
 	{ NULL, NULL }
 };
@@ -813,6 +813,12 @@ pllua_open_trusted(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
 	lua_pushvalue(L, 2);
 	lua_setfield(L, 1, "sandbox");
+
+	/* proxy metatable for the sandbox */
+	lua_newtable(L);
+	lua_pushvalue(L, 2);
+	lua_setfield(L, -2, "__index");
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_SANDBOX_META);
 
 	/* create the minimal trusted "os" library */
 	luaL_requiref(L, "pllua.trusted.os", pllua_open_trusted_os, 0);

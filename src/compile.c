@@ -54,12 +54,9 @@ static void
 pllua_prepare_function(lua_State *L, bool trusted)
 {
 	lua_newtable(L);
-	lua_newtable(L);
-	if (trusted)
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX);
-	else
-		lua_pushglobaltable(L);
-	lua_setfield(L, -2, "__index");
+	if (lua_rawgetp(L, LUA_REGISTRYINDEX,
+					trusted ? PLLUA_SANDBOX_META : PLLUA_GLOBAL_META) != LUA_TTABLE)
+		luaL_error(L, "missing environment metatable");
 	lua_setmetatable(L, -2);
 	lua_pushvalue(L, -1);
 	pllua_set_environment(L, -3);

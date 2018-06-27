@@ -143,8 +143,8 @@ select pg_temp.f19(3);
 -- address (whereas base C functions do not differ between
 -- interpreters in recent lua versions).
 
-create function pg_temp.f20() returns text language pllua as $$ return tostring(server.error) $$;
-create function pg_temp.f21() returns text language plluau as $$ return tostring(server.error) $$;
+create function pg_temp.f20() returns text language pllua as $$ return tostring(spi.error) $$;
+create function pg_temp.f21() returns text language plluau as $$ return tostring(spi.error) $$;
 select pg_temp.f20() as a intersect select pg_temp.f21();  -- should be empty
 
 -- check the global table

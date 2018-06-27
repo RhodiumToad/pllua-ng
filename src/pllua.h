@@ -20,8 +20,8 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
-#define PLLUA_VERSION_STR "0.9"
-#define PLLUA_VERSION_NUM 9
+#define PLLUA_VERSION_STR "2.0 beta1"
+#define PLLUA_VERSION_NUM 200
 
 /* PG version cruft */
 
@@ -655,6 +655,8 @@ extern char PLLUA_PGFUNC_TABLE_OBJECT[];
 extern char PLLUA_TYPECONV_REGISTRY[];
 extern char PLLUA_ERRCODES_TABLE[];
 extern char PLLUA_PRINT_SEVERITY[];
+extern char PLLUA_GLOBAL_META[];
+extern char PLLUA_SANDBOX_META[];
 
 /* functions */
 
@@ -823,6 +825,9 @@ void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprConte
 void pllua_pgfunc_new(lua_State *L);
 FmgrInfo *pllua_pgfunc_init(lua_State *L, int nd, Oid fnoid, int nargs, Oid *argtypes, Oid rettype);
 void pllua_pgfunc_table_new(lua_State *L);
+
+/* preload.c */
+int pllua_preload_compat(lua_State *L);
 
 /* spi.c */
 int pllua_open_spi(lua_State *L);

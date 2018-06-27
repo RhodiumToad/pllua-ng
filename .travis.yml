@@ -31,13 +31,15 @@ before_install:
         | tar zx --strip-components=1 -C "$LUA"
       make -C "$LUA"/src \
         SYSCFLAGS="-DLUA_USE_LINUX -ULUA_COMPAT_5_2" \
-        MYCFLAGS="-fPIC" liblua.a
+        MYCFLAGS="-fPIC" liblua.a luac
+      export LUAC="$LUA/src/luac"
     elif [[ "$LUA" == LuaJIT-* ]]; then
       wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUA#LuaJIT-}".tar.gz \
         | tar zx --strip-components=1 -C "$LUA"
       make -C "$LUA"/src \
         XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
-        CFLAGS="-fPIC -O3" libluajit.a
+        CFLAGS="-fPIC -O3" libluajit.a luajit
+      export LUAJIT="$LUA/src/luajit"
     fi
     export LUA_INCDIR="$LUA/src"
     mv $LUA/src/liblua*.a ./libcurrent_lua_build.a

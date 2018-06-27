@@ -2,16 +2,7 @@
 
 \set VERBOSITY terse
 
--- old-pllua compat shims
-do language pllua $$
-  function _G.fromstring(t,s) return pgtype(nil,t):fromstring(s) end
-  function _G.setshared(k,v) _G[k] = v end
-  server.execute = spi.execute
-  server.rows = spi.rows
-  server.prepare = spi.prepare
-  _G.shared = _G
-$$;
---
+set pllua.on_common_init = 'require "pllua.compat"';
 
 -- tests taken from old pllua
 -- minimal function
@@ -101,13 +92,11 @@ CREATE FUNCTION makegreeting (g greeting, f text) RETURNS text AS $$
 $$ LANGUAGE pllua;
 SELECT makegreeting(('how', 'who'), '%s, %s!');
 
--- no worky yet
-
 -- array, record output
 CREATE FUNCTION greetingset (how text, who text[])
 RETURNS SETOF greeting AS $$
-  for i = 1,#who do
-    coroutine.yield{how=how, who=who[i]}
+  for _, name in ipairs(who) do
+    coroutine.yield{how=how, who=name}
   end
 $$ LANGUAGE pllua;
 SELECT makegreeting(greetingset, '%s, %s!') FROM
@@ -137,13 +126,13 @@ CREATE FUNCTION getcounter() RETURNS integer AS $$
   if shared.counter == nil then -- not cached?
     setshared("counter", 0)
   end
-  return _G.counter -- _G.counter == shared.counter
+  return counter -- _G.counter == shared.counter
 $$ LANGUAGE pllua;
 CREATE FUNCTION setcounter(c integer) RETURNS void AS $$
   if shared.counter == nil then -- not cached?
     setshared("counter", c)
   else
-    _G.counter = c -- _G.counter == shared.counter
+    counter = c -- _G.counter == shared.counter
   end
 $$ LANGUAGE pllua;
 SELECT getcounter();
@@ -160,10 +149,10 @@ CREATE FUNCTION get_rows (i_name text) RETURNS SETOF sometable AS $$
     local cmd = "SELECT sid, sname, sdata FROM sometable WHERE sname = $1"
     _U = server.prepare(cmd, {"text"}):save()
   end
-  local c = _U:getcursor(i_name)
+  local c = _U:getcursor({i_name}, true) -- read-only
   while true do
     local r = c:fetch(1)
-    if #r < 1 then break end
+    if r == nil then break end
     r = r[1]
     coroutine.yield{sid=r.sid, sname=r.sname, sdata=r.sdata}
   end
@@ -182,15 +171,16 @@ CREATE FUNCTION filltree (t text, n int) RETURNS void AS $$
     {"int4", "int4", "int4"})
   for i = 1, n do
     local lchild, rchild = 2 * i, 2 * i + 1 -- siblings
-    p:execute(i, lchild, rchild) -- insert values
+    p:execute{i, lchild, rchild} -- insert values
   end
 $$ LANGUAGE pllua;
 SELECT filltree('tree', 10);
 
 CREATE FUNCTION preorder (t text, s int) RETURNS SETOF int AS $$
   coroutine.yield(s)
-  local q = server.execute("select * from " .. t .. " where id=" .. s)
-  if #q > 0 then
+  local q = server.execute("select * from " .. t .. " where id=" .. s,
+      true, 1) -- read-only, only 1 result
+  if q ~= nil then
     local lchild, rchild = q[1].lchild, q[1].rchild -- store before next query
     if lchild ~= nil then preorder(t, lchild) end
     if rchild ~= nil then preorder(t, rchild) end
@@ -204,9 +194,9 @@ CREATE FUNCTION postorder (t text, s int) RETURNS SETOF int AS $$
     p = server.prepare("select * from " .. t .. " where id=$1", {"int4"})
     _U[t] = p:save()
   end
-  local c = p:getcursor(s)
+  local c = p:getcursor({s}, true) -- read-only
   local q = c:fetch(1) -- one row
-  if #q > 0 then
+  if q ~= nil then
     local lchild, rchild = q[1].lchild, q[1].rchild -- store before next query
     c:close()
     if lchild ~= nil then postorder(t, lchild) end
@@ -243,7 +233,7 @@ do
   local getter = function(cmd, ...)
     local plan = server.prepare(cmd, {...}):save()
     return function(...)
-      return #(plan:execute(...)) > 0
+      return plan:execute({...}, true) ~= nil
     end
   end
   _U = { -- plan closures
@@ -355,4 +345,3 @@ RETURNS text AS $$
   return string.format("Bye, %s!", name)
 $$ LANGUAGE pllua;
 SELECT hello('PostgreSQL');
---

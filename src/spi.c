@@ -1515,7 +1515,19 @@ int pllua_open_spi(lua_State *L)
 	lua_pop(L, 1);
 
 	lua_newtable(L);
-	lua_pushvalue(L, -1);
 	luaL_setfuncs(L, spi_funcs, 0);
+
+	/*
+	 * Inherit the pllua.elog module via a metatable
+	 */
+	lua_newtable(L);
+	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+	lua_getfield(L, -1, "pllua.elog");
+	lua_setfield(L, -3, "__index");
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -3, "__metatable");
+	lua_pop(L, 1);
+	lua_setmetatable(L, -2);
+
 	return 1;
 }

@@ -791,6 +791,12 @@ int pllua_open_funcmgr(lua_State *L)
 	pllua_newmetatable(L, PLLUA_PGFUNC_TABLE_OBJECT, pgfunctab_mt);
 	lua_pop(L, 4);
 
+	/* proxy metatable for global table */
+	lua_newtable(L);
+	lua_pushglobaltable(L);
+	lua_setfield(L, -2, "__index");
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_GLOBAL_META);
+
 	lua_pushboolean(L, 1);
 	return 1;
 }

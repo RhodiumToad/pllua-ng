@@ -33,7 +33,7 @@ truncate table xatst;
 do language pllua $$
   local stmt = spi.prepare([[ insert into xatst values ($1) ]]);
   stmt:execute(1);
-  print(pcall(function() stmt:execute(2) server.error("foo") end))
+  print(pcall(function() stmt:execute(2) spi.error("foo") end))
   stmt:execute(3);
 $$;
 
@@ -86,7 +86,7 @@ begin;
 -- case. suppress them.
 set local client_min_messages = error;
 do language pllua $$
-  local function f(e) server.error("nested") end
+  local function f(e) spi.error("nested") end
   local function f2() error("foo") end
   -- don't print the result because it differs with luajit, all that
   -- really matters here is that we don't crash and don't reach the
@@ -101,7 +101,7 @@ commit;
 
 do language pllua $$
   local level = 0
-  local function f(e) level = level + 1 if level==1 then print("in error handler",level,e) server.error("nested") end end
+  local function f(e) level = level + 1 if level==1 then print("in error handler",level,e) spi.error("nested") end end
   local function f2() error("foo") end
   print("outer pcall",
         pcall(function()
@@ -117,7 +117,7 @@ do language pllua $$
 $$;
 
 do language pllua $$
-  print(lpcall(function() server.error("not caught") end))
+  print(lpcall(function() spi.error("not caught") end))
 $$;
 
 -- make sure PG errors in coroutines are propagated (but not lua errors)
@@ -129,7 +129,7 @@ do language pllua $$
 $$;
 
 do language pllua $$
-  local c = coroutine.create(function() coroutine.yield() server.error("not caught") end)
+  local c = coroutine.create(function() coroutine.yield() spi.error("not caught") end)
   print(coroutine.resume(c))
   print(coroutine.resume(c))
 $$;
@@ -138,7 +138,7 @@ $$;
 
 do language pllua $$
   local err = require 'pllua.error'
-  local r,e = pcall(function() server.error("22003", "foo", "bar", "baz") end)
+  local r,e = pcall(function() spi.error("22003", "foo", "bar", "baz") end)
   print(err.type(e), err.category(e), err.errcode(e))
   print(e.severity, e.category, e.errcode, e.sqlstate, e.message, e.detail, e.hint)
   local r,e = pcall(function() error("foo") end)

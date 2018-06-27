@@ -15,12 +15,14 @@ PLLUA_CONFIG_OPTS ?=
 # General
 LUA_INCDIR ?= /usr/local/include/lua53
 LUALIB ?= -L/usr/local/lib -llua-5.3
+LUAC ?= luac53
 
 # LuaJIT
 #LUA_INCDIR = /usr/local/include/luajit-2.0
 #LUALIB = -L/usr/local/lib -lluajit-5.1
 #LUA_INCDIR = /usr/local/include/luajit-2.1
 #LUALIB = -L/usr/local/lib -lluajit-5.1
+#LUAJIT = luajit
 
 # Debian/Ubuntu
 #LUA_INCDIR = /usr/include/lua5.1
@@ -37,7 +39,8 @@ LUALIB ?= -L/usr/local/lib -llua-5.3
 # no need to edit below here
 MODULE_big = pllua
 EXTENSION = pllua plluau
-DATA = pllua--1.0.sql plluau--1.0.sql
+DATA = 	pllua--2.0.sql pllua--1.0--2.0.sql \
+	plluau--2.0.sql plluau--1.0--2.0.sql
 
 REGRESS = --schedule=$(srcdir)/serial_schedule
 REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule
@@ -46,15 +49,26 @@ REGRESS_10 = triggers_10
 # only on pg10+
 REGRESS_11 = procedures
 
-SRCOBJS=compile.o datum.o elog.o error.o exec.o globals.o init.o \
-	jsonb.o numeric.o objects.o pllua.o spi.o trigger.o trusted.o
+OBJS_C= compile.o datum.o elog.o error.o exec.o globals.o init.o \
+	jsonb.o numeric.o objects.o pllua.o preload.o spi.o trigger.o \
+	trusted.o
+SRCS_C = $(addprefix src/, $(OBJS_C:.o=.c))
 
-OBJS = $(addprefix src/, $(SRCOBJS))
+OBJS_LUA=compat.o
 
-EXTRA_CLEAN = pllua_functable.h plerrcodes.h
+ALLOBJS=$(OBJS_C) $(OBJS_LUA)
+
+OBJS = $(addprefix src/, $(ALLOBJS))
+
+EXTRA_CLEAN = pllua_functable.h plerrcodes.h src/*.luac
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
 SHLIB_LINK = $(LUALIB)
+
+# not done except for testing, for portability
+ifdef HIDE_SYMBOLS
+SHLIB_LINK += -Wl,--version-script=src/exports.x
+endif
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
@@ -76,8 +90,26 @@ $(OBJS): src/pllua.h
 src/init.o: pllua_functable.h
 src/error.o: plerrcodes.h
 
-pllua_functable.h: $(OBJS:.o=.c)
-	cat $(OBJS:.o=.c) | perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call|pllua_register_cfunc)\(\s*([\w.]+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | sort -u >pllua_functable.h
+ifdef HIDE_SYMBOLS
+$(MODULE_big).so: src/exports.x
+endif
+
+ifdef LUAJIT
+%.luac: %.lua
+	$(LUAJIT) -b -g -t raw $< $@
+else
+%.luac: %.lua
+	$(LUAC) -o $@ $<
+endif
+
+%.o: %.luac
+	$(LD) -r -b binary -o $@ $<
+	-objcopy --rename-section .data=.rodata,contents,alloc,load,readonly $@
+
+pllua_functable.h: $(SRCS_C)
+	cat $(SRCS_C) | \
+	  perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call|pllua_register_cfunc)\(\s*([\w.]+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | \
+	  sort -u >$@
 
 ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
 

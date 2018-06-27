@@ -5,6 +5,8 @@
             (fill-column . 78)
             (indent-tabs-mode . t)
             (tab-width . 4)))
+ (lua-mode . ((indent-tabs-mode . t)
+	      (tab-width . 4)))
  (dsssl-mode . ((indent-tabs-mode . nil)))
  (nxml-mode . ((indent-tabs-mode . nil)))
  (perl-mode . ((perl-indent-level . 4)

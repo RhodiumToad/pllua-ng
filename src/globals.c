@@ -49,6 +49,8 @@ char PLLUA_PGFUNC_TABLE_OBJECT[] = "pgfunc table object";
 char PLLUA_TYPECONV_REGISTRY[] = "typeconv registry table";
 char PLLUA_ERRCODES_TABLE[] = "errcodes table";
 char PLLUA_PRINT_SEVERITY[] = "severity level for print() output";
+char PLLUA_GLOBAL_META[] = "global table proxy metatable";
+char PLLUA_SANDBOX_META[] = "sandbox table proxy metatable";
 
 #if LUA_VERSION_NUM == 501
 int pllua_getsubtable(lua_State *L, int i, const char *name)

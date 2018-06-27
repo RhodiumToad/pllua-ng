@@ -6,18 +6,62 @@ Embeds Lua into PostgreSQL as a procedural language module.
 
 Please report any remaining bugs or missing functionality on github.
 
-This is not yet a "stable" release from the point of view of
-interfaces; I'm still debating whether to rename many of the tables
-and functions. However, it should be stable in the sense of "doesn't
-crash".
-
 Currently it should build against (recent point releases of) pg
-versions 9.5, 9.6 and 10 (and 11devel). It is known that this module
-will never work on pg versions before 9.5 (we rely critically on
-memory context callbacks, which were introduced in that version).
+versions 9.5, 9.6, 10, and 11. It is known that this module will never
+work on pg versions before 9.5 (we rely critically on memory context
+callbacks, which were introduced in that version).
 
 Lua 5.3 and LuaJIT 2.1beta (with COMPAT52) are fully supported at this
 time.
+
+
+COMPATIBILITY WITH 0.x (previous pllua-ng releases)
+---------------------------------------------------
+
+The server.* namespace is removed, to facilitate the compatibility
+option described below.
+
+server.error, server.debug, etc. are now available via spi.error,
+spi.debug, or can be obtained from the 'pllua.elog' package via
+require().  If you want, you can do:
+
+        pllua.on_common_init='server = require "pllua.elog"'
+
+to restore the previous behavior.
+
+
+COMPATIBILITY WITH 1.x (old pllua)
+----------------------------------
+
+This version permits a degree of compatibility with pllua 1.x via
+the following setting:
+
+        pllua.on_common_init='require "pllua.compat"'
+
+This creates the server.* namespace with functions that match the 1.x
+calling conventions (e.g. passing args as tables). It also creates
+global functions fromstring(), subtransaction(), debug(), log(),
+info(), notice(), warning(), and setshared().
+
+The following incompatibilities remain:
+
+ + coroutine.yield() with no result values in 1.x ended execution of
+   the SRF; in this version it returns a NULL row and continues.
+
+ + The global error() is not modified, so using it to throw a table
+   has the same effect it would have in plain Lua. In 1.x, a metatable
+   was added to the thrown value in this case.
+
+ + The pgfunc library is not supported at all.
+
+ + The "readonly" parameter to server.execute and friends is ignored.
+   All queries in a stable function are readonly, and all queries in
+   a volatile function are read-write.
+
+The pllua.compat module is implemented in pure Lua (inside the sandbox
+in trusted mode), see src/compat.lua for the implementation.
+
+Please report any incompatibilities discovered.
 
 
 CHANGES
@@ -116,27 +160,24 @@ something more compatible with client-side database APIs)
 
 print() is still a global function to print an informational message,
 but other error levels such as debug, notice are installed as
-server.debug(), server.warning() etc.  server.elog('error', ...)
-is equivalent to server.error(...) and so on.
+spi.debug(), spi.warning() etc. spi.elog('error', ...) is equivalent
+to spi.error(...) and so on.
 
-server.error() and friends can take optional args:
+spi.error() and friends can take optional args:
 
-      server.error('message')
-      server.error('sqlstate', 'message')
-      server.error('sqlstate', 'message', 'detail')
-      server.error('sqlstate', 'message', 'detail', 'hint')
-      server.error({ sqlstate = ?,
-                     message = ?,
-                     detail = ?,
-                     hint = ?,
-                     table = ?,
-                     column = ?, ...})
-
-(I'd like to deprecate the server.* namespace but I don't have a good
-alternative place to put these functions. Suggestions welcome.)
+      spi.error('message')
+      spi.error('sqlstate', 'message')
+      spi.error('sqlstate', 'message', 'detail')
+      spi.error('sqlstate', 'message', 'detail', 'hint')
+      spi.error({ sqlstate = ?,
+                  message = ?,
+                  detail = ?,
+                  hint = ?,
+                  table = ?,
+                  column = ?, ...})
 
 Sqlstates can be given either as 5-character strings or as the string
-names used in plpgsql: server.error('invalid_argument', 'message')
+names used in plpgsql: spi.error('invalid_argument', 'message')
 
 Subtransactions are implemented via pcall() and xpcall(), which now
 run the called function in a subtransaction. In the case of xpcall,
@@ -152,12 +193,12 @@ e.g.
       local ok,err = pcall(function() --[[ do stuff in subxact ]] end)
       if not ok then print("subxact failed with error",err) end
 
-Currently there's also lpcall and lxpcall functions which do NOT
-create subtransactions, but which will catch only Lua errors and not
-PG errors (which are immediately rethrown). It's not clear yet how
-useful this is; it saves the (possibly significant) subxact overhead,
-but it can be quite unpredictable whether any given error will
-manifest as a Lua error or a PG error.
+Currently there's also an lpcall function which does NOT create
+subtransactions, but which will catch only Lua errors and not PG
+errors (which are immediately rethrown). It's not clear yet how useful
+this is; it saves the (possibly significant) subxact overhead, but it
+can be quite unpredictable whether any given error will manifest as a
+Lua error or a PG error.
 
 The readonly-global-table and setshared() hacks are omitted. As the
 trusted language now creates an entirely separate lua_State for each
