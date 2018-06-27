@@ -15,6 +15,7 @@ objfiles.txt
 *.gcda
 *.gcov
 *.gcov.out
+*.luac
 lcov.info
 coverage/
 /results/
