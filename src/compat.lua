@@ -16,7 +16,7 @@ do
 end
 
 do
-	local meta = getmetatable(_ENV)
+	local meta = ...
 	local shared = setmetatable({}, { __index = _G })
 	_G.shared = shared
 	local rawget, rawset = rawget, rawset

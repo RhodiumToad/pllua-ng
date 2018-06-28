@@ -30,6 +30,7 @@ pllua_preload_compat(lua_State *L)
 	lua_pushvalue(L, lua_upvalueindex(1));
 	lua_setmetatable(L, -2);
 	pllua_set_environment(L, -2);
-	lua_call(L, 0, 1);
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_call(L, 1, 1);
 	return 1;
 }
