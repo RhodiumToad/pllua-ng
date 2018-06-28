@@ -12,7 +12,7 @@ extern const char _binary_src_compat_luac_end[];
 static void
 pllua_load_binary_chunk(lua_State *L, const char *chunkname, const char *start, const char *end)
 {
-	int rc = luaL_loadbufferx(L, start, (size_t)(end - start), chunkname, "b");
+	int rc = luaL_loadbuffer(L, start, (size_t)(end - start), chunkname);
 	if (rc)
 		lua_error(L);
 }

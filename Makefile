@@ -96,8 +96,12 @@ $(shlib): src/exports.x
 endif
 
 ifdef LUAJIT
+# hack: rather than figure out how to make this work with travis-CI,
+# just copy the plaintext source rather than doing a bytecode compile.
 %.luac: %.lua
-	$(LUAJIT) -b -g -t raw $< $@
+	$(CP) $< $@
+
+#	$(LUAJIT) -b -g -t raw $< $@
 else
 %.luac: %.lua
 	$(LUAC) -o $@ $<
