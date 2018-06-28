@@ -99,7 +99,7 @@ ifdef LUAJIT
 # hack: rather than figure out how to make this work with travis-CI,
 # just copy the plaintext source rather than doing a bytecode compile.
 %.luac: %.lua
-	$(CP) $< $@
+	cp $< $@
 
 #	$(LUAJIT) -b -g -t raw $< $@
 else
