@@ -56,14 +56,13 @@ SRCS_C = $(addprefix src/, $(OBJS_C:.o=.c))
 
 OBJS_LUA=compat.o
 
-ALLOBJS=$(OBJS_C) $(OBJS_LUA)
+OBJS = $(addprefix src/, $(OBJS_C))
+EXTRA_OBJS = $(addprefix src/, $(OBJS_LUA))
 
-OBJS = $(addprefix src/, $(ALLOBJS))
-
-EXTRA_CLEAN = pllua_functable.h plerrcodes.h src/*.luac
+EXTRA_CLEAN = pllua_functable.h plerrcodes.h src/*.luac $(EXTRA_OBJS)
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
-SHLIB_LINK = $(LUALIB)
+SHLIB_LINK = $(EXTRA_OBJS) $(LUALIB)
 
 # not done except for testing, for portability
 ifdef HIDE_SYMBOLS
@@ -90,8 +89,10 @@ $(OBJS): src/pllua.h
 src/init.o: pllua_functable.h
 src/error.o: plerrcodes.h
 
+$(shlib): $(EXTRA_OBJS)
+
 ifdef HIDE_SYMBOLS
-$(MODULE_big).so: src/exports.x
+$(shlib): src/exports.x
 endif
 
 ifdef LUAJIT
