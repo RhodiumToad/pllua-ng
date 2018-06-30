@@ -31,7 +31,7 @@ before_install:
         | tar zx --strip-components=1 -C "$LUAV"
       make -C "$LUAV"/src \
         SYSCFLAGS="-DLUA_USE_POSIX -DLUA_USE_DLOPEN -ULUA_COMPAT_5_2" \
-	SYSLIBS="-Wl,-E -ldl" \
+        SYSLIBS="-Wl,-E -ldl" \
         MYCFLAGS="-fPIC" liblua.a lua luac
       export LUAC="$LUAV/src/luac"
       export LUA="$LUAV/src/lua"
