@@ -6,11 +6,11 @@ compiler:
 
 env:
   matrix:
-    - PG=9.5 LUA=lua-5.3.4
-    - PG=9.6 LUA=lua-5.3.4
-    - PG=10  LUA=lua-5.3.4
-    - PG=10  LUA=LuaJIT-ea7071d
-    - PG=11  LUA=lua-5.3.4
+    - PG=9.5 LUAV=lua-5.3.4
+    - PG=9.6 LUAV=lua-5.3.4
+    - PG=10  LUAV=lua-5.3.4
+    - PG=10  LUAV=LuaJIT-ea7071d
+    - PG=11  LUAV=lua-5.3.4
 
 addons:
   apt:
@@ -25,24 +25,25 @@ before_install:
   - sudo rm -rf /var/lib/postgresql
   - sudo apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::="--force-confnew" install postgresql-${PG:?} postgresql-server-dev-${PG:?}
   - |
-    mkdir "$LUA"
-    if [[ "$LUA" == lua-* ]]; then
-      wget -O- http://www.lua.org/ftp/"$LUA".tar.gz \
-        | tar zx --strip-components=1 -C "$LUA"
-      make -C "$LUA"/src \
+    mkdir "$LUAV"
+    if [[ "$LUAV" == lua-* ]]; then
+      wget -O- http://www.lua.org/ftp/"$LUAV".tar.gz \
+        | tar zx --strip-components=1 -C "$LUAV"
+      make -C "$LUAV"/src \
         SYSCFLAGS="-DLUA_USE_LINUX -ULUA_COMPAT_5_2" \
-        MYCFLAGS="-fPIC" liblua.a luac
-      export LUAC="$LUA/src/luac"
-    elif [[ "$LUA" == LuaJIT-* ]]; then
-      wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUA#LuaJIT-}".tar.gz \
-        | tar zx --strip-components=1 -C "$LUA"
-      make -C "$LUA"/src \
+        MYCFLAGS="-fPIC" liblua.a lua luac
+      export LUAC="$LUAV/src/luac"
+      export LUA="$LUAV/src/lua"
+    elif [[ "$LUAV" == LuaJIT-* ]]; then
+      wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUAV#LuaJIT-}".tar.gz \
+        | tar zx --strip-components=1 -C "$LUAV"
+      make -C "$LUAV"/src \
         XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
         CFLAGS="-fPIC -O3" libluajit.a luajit
-      export LUAJIT="$LUA/src/luajit"
+      export LUAJIT="$LUAV/src/luajit"
     fi
-    export LUA_INCDIR="$LUA/src"
-    mv $LUA/src/liblua*.a ./libcurrent_lua_build.a
+    export LUA_INCDIR="$LUAV/src"
+    mv $LUAV/src/liblua*.a ./libcurrent_lua_build.a
     export LUALIB="-L. -lcurrent_lua_build"
 
 before_script:

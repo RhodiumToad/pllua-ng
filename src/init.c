@@ -634,10 +634,12 @@ pllua_init_state_phase1(lua_State *L)
 	lua_pushlightuserdata(L, 0);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
 
+#if LUA_VERSION_NUM < 504
 	/* install our hack to push C functions without throwing error */
 #define PLLUA_DECL_CFUNC(f_) lua_pushcfunction(L, f_); lua_rawsetp(L, LUA_REGISTRYINDEX, f_);
 #include "pllua_functable.h"
 #undef PLLUA_DECL_CFUNC
+#endif
 
 	luaL_openlibs(L);
 

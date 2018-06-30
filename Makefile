@@ -16,25 +16,16 @@ PLLUA_CONFIG_OPTS ?=
 LUA_INCDIR ?= /usr/local/include/lua53
 LUALIB ?= -L/usr/local/lib -llua-5.3
 LUAC ?= luac53
+LUA ?= lua53
 
 # LuaJIT
-#LUA_INCDIR = /usr/local/include/luajit-2.0
-#LUALIB = -L/usr/local/lib -lluajit-5.1
 #LUA_INCDIR = /usr/local/include/luajit-2.1
 #LUALIB = -L/usr/local/lib -lluajit-5.1
 #LUAJIT = luajit
 
-# Debian/Ubuntu
-#LUA_INCDIR = /usr/include/lua5.1
-#LUALIB = -llua5.1
-
-# Fink
-#LUA_INCDIR = /sw/include -I/sw/include/postgresql
-#LUALIB = -L/sw/lib -llua
-
-# Lua for Windows
-#LUA_INCDIR = C:/PROGRA~1/Lua/5.1/include
-#LUALIB = -LC:/PROGRA~1/Lua/5.1/lib -llua5.1
+ifdef LUAJIT
+LUA = $(LUAJIT)
+endif
 
 # no need to edit below here
 MODULE_big = pllua
@@ -46,20 +37,26 @@ REGRESS = --schedule=$(srcdir)/serial_schedule
 REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule
 # only on pg10+
 REGRESS_10 = triggers_10
-# only on pg10+
+# only on pg11+
 REGRESS_11 = procedures
+
+INCS=   pllua.h pllua_pgver.h pllua_luaver.h pllua_luajit.h
 
 OBJS_C= compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	jsonb.o numeric.o objects.o pllua.o preload.o spi.o trigger.o \
 	trusted.o
+
 SRCS_C = $(addprefix src/, $(OBJS_C:.o=.c))
 
 OBJS_LUA=compat.o
 
+SRCS_LUA = $(addprefix src/, $(OBJS_LUA:.o=.lua))
+
 OBJS = $(addprefix src/, $(OBJS_C))
+
 EXTRA_OBJS = $(addprefix src/, $(OBJS_LUA))
 
-EXTRA_CLEAN = pllua_functable.h plerrcodes.h src/*.luac $(EXTRA_OBJS)
+EXTRA_CLEAN = pllua_functable.h plerrcodes.h $(SRCS_LUA:.lua=.luac) $(EXTRA_OBJS)
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
 SHLIB_LINK = $(EXTRA_OBJS) $(LUALIB)
@@ -84,8 +81,9 @@ REGRESS += $(REGRESS_11)
 REGRESS_PARALLEL += $(REGRESS_11)
 endif
 
-$(OBJS): src/pllua.h
+$(OBJS): $(addprefix src/, $(INCS))
 
+# explicit deps on generated includes
 src/init.o: pllua_functable.h
 src/error.o: plerrcodes.h
 
@@ -111,16 +109,14 @@ endif
 	$(LD) -r -b binary -o $@ $<
 	-objcopy --rename-section .data=.rodata,contents,alloc,load,readonly $@
 
-pllua_functable.h: $(SRCS_C)
-	cat $(SRCS_C) | \
-	  perl -lne '/(pllua_pushcfunction|pllua_cpcall|pllua_initial_protected_call|pllua_register_cfunc)\(\s*([\w.]+)\s*,\s*(pllua_\w+)\s*/ and print "PLLUA_DECL_CFUNC($$3)"' | \
-	  sort -u >$@
+pllua_functable.h: $(SRCS_C) tools/functable.lua
+	$(LUA) tools/functable.lua $(SRCS_C) | sort -u >$@
 
 ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
 
 #in pg 11+, we can get the server's errcodes.txt.
-plerrcodes.h: $(datadir)/errcodes.txt
-	perl -lane '/^(?!Section:)[^#\s]/ and @F==4 and printf "{\n    \"%s\", %s\n},\n", $$F[3], $$F[2]' $(datadir)/errcodes.txt >plerrcodes.h
+plerrcodes.h: $(datadir)/errcodes.txt tools/errcodes.lua
+	$(LUA) tools/errcodes.lua $(datadir)/errcodes.txt >plerrcodes.h
 
 else
 
