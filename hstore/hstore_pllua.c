@@ -8,6 +8,10 @@
 
 PG_MODULE_MAGIC;
 
+#if PG_VERSION_NUM < 110000
+#define PG_GETARG_HSTORE_P(h_) PG_GETARG_HS(h_)
+#endif
+
 extern void _PG_init(void);
 
 /* Linkage to functions in hstore module */
