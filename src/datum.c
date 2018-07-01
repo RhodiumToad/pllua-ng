@@ -3951,6 +3951,7 @@ int pllua_datum_transform_fromsql(lua_State *L, Datum val, int nidx, pllua_typei
 	if (!OidIsValid(t->fromsql))
 		return LUA_TNONE;
 
+	nidx = lua_absindex(L, nidx);
 	nd = lua_gettop(L);
 	lua_pushvalue(L, nidx);
 	tmpd = lua_newuserdata(L, sizeof(Datum));

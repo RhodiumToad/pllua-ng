@@ -4,7 +4,7 @@ PG_CONFIG ?= pg_config
 
 # unfortunately, this needs access to a PG source tree to get hstore.h,
 # which is never installed anywhere
-HSTORE_SRC = /home/andrew/work/pgsql/head/postgresql/contrib/hstore
+HSTORE_SRC ?= ../../hstore
 
 # Lua specific
 
@@ -37,7 +37,9 @@ DATA = hstore_pllua--1.0.sql hstore_plluau--1.0.sql
 
 OBJS =	hstore_pllua.o
 
-PG_CPPFLAGS = -I$(LUA_INCDIR) -I.. -I$(HSTORE_SRC) #-DPLLUA_DEBUG
+REGRESS = hstore
+
+PG_CPPFLAGS = -I$(LUA_INCDIR) -I../src -I$(HSTORE_SRC) #-DPLLUA_DEBUG
 SHLIB_LINK = $(LUALIB)
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
