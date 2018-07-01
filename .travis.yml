@@ -38,19 +38,19 @@ before_install:
         SYSCFLAGS="-DLUA_USE_POSIX -DLUA_USE_DLOPEN -ULUA_COMPAT_5_2" \
         SYSLIBS="-Wl,-E -ldl" \
         MYCFLAGS="-fPIC" liblua.a lua luac
-      export LUAC="$LUAV/src/luac"
-      export LUA="$LUAV/src/lua"
+      export LUAC="$PWD/$LUAV/src/luac"
+      export LUA="$PWD/$LUAV/src/lua"
     elif [[ "$LUAV" == LuaJIT-* ]]; then
       wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUAV#LuaJIT-}".tar.gz \
         | tar zx --strip-components=1 -C "$LUAV"
       make -C "$LUAV"/src \
         XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
         CFLAGS="-fPIC -O3" libluajit.a luajit
-      export LUAJIT="$LUAV/src/luajit"
+      export LUAJIT="$PWD/$LUAV/src/luajit"
     fi
-    export LUA_INCDIR="$LUAV/src"
+    export LUA_INCDIR="$PWD/$LUAV/src"
     mv $LUAV/src/liblua*.a ./libcurrent_lua_build.a
-    export LUALIB="-L. -lcurrent_lua_build"
+    export LUALIB="-L$PWD -lcurrent_lua_build"
     if [[ -n "$HSTORE" ]]; then
       wget -O- "https://raw.githubusercontent.com/postgres/postgres/${HSTORE}/contrib/hstore/hstore.h" >hstore.h
     fi
