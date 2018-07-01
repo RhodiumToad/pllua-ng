@@ -4,7 +4,7 @@ PG_CONFIG ?= pg_config
 
 # unfortunately, this needs access to a PG source tree to get hstore.h,
 # which is never installed anywhere
-HSTORE_SRC ?= ../../hstore
+HSTORE_SRC ?= ..
 
 # Lua specific
 
