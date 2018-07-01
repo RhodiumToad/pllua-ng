@@ -8,7 +8,7 @@ env:
   matrix:
     - PG=9.5 LUAV=lua-5.3.4
     - PG=9.6 LUAV=lua-5.3.4
-    - PG=10  LUAV=lua-5.3.4
+    - PG=10  LUAV=lua-5.3.4 HSTORE=REL_10_STABLE
     - PG=10  LUAV=lua-5.4.0-work2
     - PG=10  LUAV=LuaJIT-b025b01
     - PG=11  LUAV=lua-5.3.4
@@ -51,12 +51,19 @@ before_install:
     export LUA_INCDIR="$LUAV/src"
     mv $LUAV/src/liblua*.a ./libcurrent_lua_build.a
     export LUALIB="-L. -lcurrent_lua_build"
+    if [[ -n "$HSTORE" ]]; then
+      wget -O- "https://raw.githubusercontent.com/postgres/postgres/${HSTORE}/contrib/hstore/hstore.h" >hstore.h
+    fi
 
 before_script:
   - sudo -u postgres createuser -s "$USER"
 
 script:
-  - make && sudo make install && time make installcheck
+  - |
+    make && sudo make install && time make installcheck &&
+      if [[ -n "$HSTORE" ]]; then
+        make -C hstore && sudo make -C hstore install && time make -C hstore installcheck
+      fi
 
 after_script:
   - cat regression.diffs || true
