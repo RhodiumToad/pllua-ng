@@ -9,7 +9,8 @@ env:
     - PG=9.5 LUAV=lua-5.3.4
     - PG=9.6 LUAV=lua-5.3.4
     - PG=10  LUAV=lua-5.3.4
-    - PG=10  LUAV=LuaJIT-ea7071d
+    - PG=10  LUAV=lua-5.4.0-work2
+    - PG=10  LUAV=LuaJIT-b025b01
     - PG=11  LUAV=lua-5.3.4
 
 addons:
@@ -27,7 +28,11 @@ before_install:
   - |
     mkdir "$LUAV"
     if [[ "$LUAV" == lua-* ]]; then
-      wget -O- http://www.lua.org/ftp/"$LUAV".tar.gz \
+      LUA_URL="http://www.lua.org/ftp/"
+      if [[ "$LUAV" == *-work* ]]; then
+        LUA_URL="http://www.lua.org/work/"
+      fi
+      wget -O- "${LUA_URL}${LUAV}".tar.gz \
         | tar zx --strip-components=1 -C "$LUAV"
       make -C "$LUAV"/src \
         SYSCFLAGS="-DLUA_USE_POSIX -DLUA_USE_DLOPEN -ULUA_COMPAT_5_2" \
