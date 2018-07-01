@@ -35,10 +35,9 @@ end
 do
 	local pcall = pcall
 	local error = error
+	local err = require 'pllua.error'
 
-	function _G.subtransaction(...)
-		return pcall(...)
-	end
+	_G.subtransaction = err.spcall
 
 	function _G.pgfunc(...)
 		error('pgfunc is not implemented')

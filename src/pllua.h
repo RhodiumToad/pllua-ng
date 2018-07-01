@@ -79,10 +79,6 @@
 #undef PLLUA_INT8_LUAJIT_HACK
 #endif
 
-#if LUAJIT_VERSION_NUM > 0 && !defined(NO_LUAJIT)
-#define LUA_TCDATA 10
-#endif
-
 /*
  * Track what error handling context we're in, to try and detect any violations
  * of error-handling protocol (lua errors thrown through pg catch blocks and

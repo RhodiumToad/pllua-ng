@@ -166,4 +166,8 @@ void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int 
 #define LUA_MAXINTEGER (INT64CONST(9007199254740991))
 #define LUA_MININTEGER (-INT64CONST(9007199254740991))
 
+#if LUAJIT_VERSION_NUM > 0 && !defined(NO_LUAJIT)
+#define LUA_TCDATA 10
+#endif
+
 #endif
