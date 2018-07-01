@@ -66,4 +66,7 @@ script:
       fi
 
 after_script:
-  - cat regression.diffs || true
+  - |
+    cat regression.diffs || true
+    cat hstore/regression.diffs || true
+
