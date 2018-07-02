@@ -1,7 +1,5 @@
 --
 
-create extension hstore_pllua cascade;
-
 \set VERBOSITY terse
 
 -- smoke tests

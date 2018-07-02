@@ -1,7 +1,4 @@
 --
-create extension hstore_pllua cascade;
-NOTICE:  installing required extension "hstore"
-NOTICE:  installing required extension "pllua"
 \set VERBOSITY terse
 -- smoke tests
 do language pllua $$

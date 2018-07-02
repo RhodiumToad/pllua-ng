@@ -37,10 +37,10 @@ DATA = hstore_pllua--1.0.sql hstore_plluau--1.0.sql
 
 OBJS =	hstore_pllua.o
 
-REGRESS = hstore
+REGRESS = create_ext hstore
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) -I../src -I$(HSTORE_SRC) #-DPLLUA_DEBUG
-SHLIB_LINK = $(LUALIB)
+# SHLIB_LINK = $(LUALIB)
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)

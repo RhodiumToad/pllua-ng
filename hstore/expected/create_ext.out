@@ -1,0 +1,5 @@
+--
+create extension hstore_pllua cascade;
+NOTICE:  installing required extension "hstore"
+NOTICE:  installing required extension "pllua"
+--end
