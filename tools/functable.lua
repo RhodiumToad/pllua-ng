@@ -21,6 +21,11 @@ for i,fn in ipairs{...} do
 	end
 end
 
+local out = {}
 for k,_ in pairs(funcnames) do
-	io.write("PLLUA_DECL_CFUNC(",k,")\n")
+	out[1+#out] = k
+end
+table.sort(out)
+for i,v in ipairs(out) do
+	io.write("PLLUA_DECL_CFUNC(",v,")\n")
 end

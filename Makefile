@@ -126,7 +126,7 @@ endif
 	-$(OBJCOPY) --rename-section .data=.rodata,contents,alloc,load,readonly $@
 
 pllua_functable.h: $(SRCS_C) tools/functable.lua
-	$(LUA) tools/functable.lua $(SRCS_C) | sort -u >$@
+	$(LUA) tools/functable.lua $(SRCS_C) >$@
 
 ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
 
