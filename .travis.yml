@@ -60,8 +60,8 @@ script:
   - |
     make && sudo make install && time make installcheck &&
         if [ -z "$NO_HSTORE" ]; then
-          make -C hstore && sudo make -C hstore install && time make -C hstore installcheck
-	fi
+            make -C hstore && sudo make -C hstore install && time make -C hstore installcheck
+        fi
 
 after_script:
   - |
