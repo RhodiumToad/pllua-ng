@@ -24,7 +24,30 @@ LUA ?= lua53
 #LUAJIT = luajit
 
 ifdef LUAJIT
+LUAJITC ?= $(LUAJIT) -b -g -t raw
 LUA = $(LUAJIT)
+LUAC = $(REORDER_O) $(LUAJITC)
+endif
+
+# if no OBJCOPY or not needed, this can be set to true (or false)
+OBJCOPY ?= objcopy
+
+# We expect $(BIN_LD) -o foo.o foo.luac to create a foo.o with the
+# content of foo.luac as a data section (plus appropriate symbols).
+# GNU LD and compatible linkers (including recent clang lld) should be
+# fine with -r -b binary, but this does break on some ports.
+
+BIN_LD ?= $(LD) -r -b binary
+
+# If BIN_ARCH and BIN_FMT are defined, we assume LD_BINARY is broken
+# and do this instead. This is apparently needed for linux-mips64el,
+# for which BIN_ARCH=mips:isa64r2 BIN_FMT=elf64-tradlittlemips seems
+# to work.
+
+ifdef BIN_ARCH
+ifdef BIN_FMT
+BIN_LD = $(REORDER_O) $(OBJCOPY) -B $(BIN_ARCH) -I binary -O $(BIN_FMT)
+endif
 endif
 
 # no need to edit below here
@@ -39,6 +62,8 @@ REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule
 REGRESS_10 = triggers_10
 # only on pg11+
 REGRESS_11 = procedures
+
+REORDER_O = tools/reorder-o.sh
 
 INCS=   pllua.h pllua_pgver.h pllua_luaver.h pllua_luajit.h
 
@@ -93,21 +118,12 @@ ifdef HIDE_SYMBOLS
 $(shlib): src/exports.x
 endif
 
-ifdef LUAJIT
-# hack: rather than figure out how to make this work with travis-CI,
-# just copy the plaintext source rather than doing a bytecode compile.
-%.luac: %.lua
-	cp $< $@
-
-#	$(LUAJIT) -b -g -t raw $< $@
-else
 %.luac: %.lua
 	$(LUAC) -o $@ $<
-endif
 
 %.o: %.luac
-	$(LD) -r -b binary -o $@ $<
-	-objcopy --rename-section .data=.rodata,contents,alloc,load,readonly $@
+	$(BIN_LD) -o $@ $<
+	-$(OBJCOPY) --rename-section .data=.rodata,contents,alloc,load,readonly $@
 
 pllua_functable.h: $(SRCS_C) tools/functable.lua
 	$(LUA) tools/functable.lua $(SRCS_C) | sort -u >$@

@@ -39,7 +39,21 @@ OBJS =	hstore_pllua.o
 
 REGRESS = create_ext hstore
 
-PG_CPPFLAGS = -I$(LUA_INCDIR) -I../src -I$(HSTORE_SRC) #-DPLLUA_DEBUG
+# MAJORVERSION and includedir_server are not defined yet, but will be
+# defined before PG_CPPFLAGS is expanded
+
+# for pg11+, hstore.h will eventually be installed
+HSTORE_INCDIR = $(includedir_server)/extension/hstore
+
+# for pg 9.5/9.6/10, we have a local copy of hstore.h since it happens
+# to be the same, barring non-semantic whitespace, between the three
+# versions
+HSTORE_INCDIR_OLD = old_inc
+
+HSTORE_INC = -I$(HSTORE_INCDIR$(if $(filter 9.% 10,$(MAJORVERSION)),_OLD))
+
+PG_CPPFLAGS = -I$(LUA_INCDIR) -I../src $(HSTORE_INC) #-DPLLUA_DEBUG
+
 # SHLIB_LINK = $(LUALIB)
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)

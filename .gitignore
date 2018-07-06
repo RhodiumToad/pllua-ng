@@ -22,5 +22,4 @@ coverage/
 /hstore/results/
 pllua_functable.h
 plerrcodes.h
-hstore.h
 src/.dir-locals.el

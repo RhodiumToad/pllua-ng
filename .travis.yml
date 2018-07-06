@@ -8,10 +8,10 @@ env:
   matrix:
     - PG=9.5 LUAV=lua-5.3.4
     - PG=9.6 LUAV=lua-5.3.4
-    - PG=10  LUAV=lua-5.3.4 HSTORE=REL_10_STABLE
+    - PG=10  LUAV=lua-5.3.4
     - PG=10  LUAV=lua-5.4.0-work2
-    - PG=10  LUAV=LuaJIT-b025b01 HSTORE=REL_10_STABLE
-    - PG=11  LUAV=lua-5.3.4
+    - PG=10  LUAV=LuaJIT-b025b01
+    - PG=11  LUAV=lua-5.3.4  NO_HSTORE=1
 
 addons:
   apt:
@@ -24,7 +24,7 @@ before_install:
   - sudo apt-get -y --purge remove postgresql libpq-dev libpq5 postgresql-client-common postgresql-common
   - sudo apt-get update
   - sudo rm -rf /var/lib/postgresql
-  - sudo apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::="--force-confnew" install postgresql-${PG:?} postgresql-server-dev-${PG:?}
+  - sudo apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::="--force-confnew" install postgresql-${PG:?} postgresql-contrib-${PG:?} postgresql-server-dev-${PG:?}
   - |
     mkdir "$LUAV"
     if [[ "$LUAV" == lua-* ]]; then
@@ -47,13 +47,11 @@ before_install:
         XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
         CFLAGS="-fPIC -O3" libluajit.a luajit
       export LUAJIT="$PWD/$LUAV/src/luajit"
+      export LUAJITC="cp"
     fi
     export LUA_INCDIR="$PWD/$LUAV/src"
     mv $LUAV/src/liblua*.a ./libcurrent_lua_build.a
     export LUALIB="-L$PWD -lcurrent_lua_build"
-    if [[ -n "$HSTORE" ]]; then
-      wget -O- "https://raw.githubusercontent.com/postgres/postgres/${HSTORE}/contrib/hstore/hstore.h" >hstore.h
-    fi
 
 before_script:
   - sudo -u postgres createuser -s "$USER"
@@ -61,9 +59,9 @@ before_script:
 script:
   - |
     make && sudo make install && time make installcheck &&
-      if [[ -n "$HSTORE" ]]; then
-        make -C hstore && sudo make -C hstore install && time make -C hstore installcheck
-      fi
+        if [ -z "$NO_HSTORE" ]; then
+          make -C hstore && sudo make -C hstore install && time make -C hstore installcheck
+	fi
 
 after_script:
   - |
