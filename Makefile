@@ -50,20 +50,33 @@ BIN_LD = $(REORDER_O) $(OBJCOPY) -B $(BIN_ARCH) -I binary -O $(BIN_FMT)
 endif
 endif
 
-# no need to edit below here
+# should be no need to edit below here
+
 MODULE_big = pllua
+
 EXTENSION = pllua plluau
+
 DATA = 	pllua--2.0.sql pllua--1.0--2.0.sql \
 	plluau--2.0.sql plluau--1.0--2.0.sql
 
-REGRESS = --schedule=$(srcdir)/serial_schedule
-REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule
-# only on pg10+
-REGRESS_10 = triggers_10
-# only on pg11+
-REGRESS_11 = procedures
+objdir := src
 
-REORDER_O = tools/reorder-o.sh
+# variables like $(srcdir) and $(MAJORVERSION) are not yet set, but
+# are safe to use in recursively-expanded variables since they will be
+# set before most values are needed. Can't use them in conditionals
+# until after pgxs is loaded though.
+
+# version-dependent regression tests
+REGRESS_10 := triggers_10
+REGRESS_11 := $(REGRESS_10) procedures
+REGRESS_12 := $(REGRESS_11)
+
+EXTRA_REGRESS = $(REGRESS_$(MAJORVERSION))
+
+REGRESS = --schedule=$(srcdir)/serial_schedule $(EXTRA_REGRESS)
+REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule $(EXTRA_REGRESS)
+
+REORDER_O = $(srcdir)/tools/reorder-o.sh
 
 INCS=   pllua.h pllua_pgver.h pllua_luaver.h pllua_luajit.h
 
@@ -71,42 +84,54 @@ OBJS_C= compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	jsonb.o numeric.o objects.o pllua.o preload.o spi.o trigger.o \
 	trusted.o
 
-SRCS_C = $(addprefix src/, $(OBJS_C:.o=.c))
+SRCS_C = $(addprefix $(srcdir)/src/, $(OBJS_C:.o=.c))
 
-OBJS_LUA=compat.o
+OBJS_LUA = compat.o
 
-SRCS_LUA = $(addprefix src/, $(OBJS_LUA:.o=.lua))
+SRCS_LUA = $(addprefix $(srcdir)/src/, $(OBJS_LUA:.o=.lua))
 
 OBJS = $(addprefix src/, $(OBJS_C))
 
 EXTRA_OBJS = $(addprefix src/, $(OBJS_LUA))
 
-EXTRA_CLEAN = pllua_functable.h plerrcodes.h $(SRCS_LUA:.lua=.luac) $(EXTRA_OBJS)
+EXTRA_CLEAN = pllua_functable.h plerrcodes.h $(addprefix src/,$(OBJS_LUA:.o=.luac)) $(EXTRA_OBJS)
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
+
 SHLIB_LINK = $(EXTRA_OBJS) $(LUALIB)
 
-# not done except for testing, for portability
-ifdef HIDE_SYMBOLS
-SHLIB_LINK += -Wl,--version-script=src/exports.x
+# if VPATH is not already set, but the makefile is not in the current
+# dir, then assume a vpath build using the makefile's directory as
+# source. PGXS will set $(srcdir) accordingly.
+ifndef VPATH
+ifneq ($(realpath $(CURDIR)),$(realpath $(dir $(firstword $(MAKEFILE_LIST)))))
+VPATH := $(dir $(firstword $(MAKEFILE_LIST)))
 endif
+endif
+
+# actually load pgxs
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
+# definitions that must follow pgxs
+
 ifeq ($(filter-out 7.% 8.% 9.0 9.1 9.2 9.3 9.4, $(MAJORVERSION)),)
 $(error unsupported PostgreSQL version)
 endif
-ifneq ($(filter-out 9.%, $(MAJORVERSION)),)
-REGRESS += $(REGRESS_10)
-REGRESS_PARALLEL += $(REGRESS_10)
-endif
-ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
-REGRESS += $(REGRESS_11)
-REGRESS_PARALLEL += $(REGRESS_11)
-endif
 
-$(OBJS): $(addprefix src/, $(INCS))
+$(OBJS): $(addprefix $(srcdir)/src/, $(INCS))
+
+# for a vpath build, we need src/ to exist in the build dir before
+# building any objects.
+ifdef VPATH
+all: vpath-mkdirs
+.PHONY: vpath-mkdirs
+$(OBJS) $(EXTRA_OBJS): | vpath-mkdirs
+
+vpath-mkdirs:
+	$(MKDIR_P) $(objdir)
+endif # VPATH
 
 # explicit deps on generated includes
 src/init.o: pllua_functable.h
@@ -114,32 +139,34 @@ src/error.o: plerrcodes.h
 
 $(shlib): $(EXTRA_OBJS)
 
-ifdef HIDE_SYMBOLS
-$(shlib): src/exports.x
-endif
-
 %.luac: %.lua
 	$(LUAC) -o $@ $<
+
+# The objcopy here is optional, it's just cleaner for the loaded data
+# to be in a readonly section. So we ignore errors on it.
 
 %.o: %.luac
 	$(BIN_LD) -o $@ $<
 	-$(OBJCOPY) --rename-section .data=.rodata,contents,alloc,load,readonly $@
 
-pllua_functable.h: $(SRCS_C) tools/functable.lua
-	$(LUA) tools/functable.lua $(SRCS_C) >$@
+pllua_functable.h: $(SRCS_C) $(srcdir)/tools/functable.lua
+	$(LUA) $(srcdir)/tools/functable.lua $(SRCS_C) >$@
 
 ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
 
 #in pg 11+, we can get the server's errcodes.txt.
-plerrcodes.h: $(datadir)/errcodes.txt tools/errcodes.lua
-	$(LUA) tools/errcodes.lua $(datadir)/errcodes.txt >plerrcodes.h
+plerrcodes.h: $(datadir)/errcodes.txt $(srcdir)/tools/errcodes.lua
+	$(LUA) $(srcdir)/tools/errcodes.lua $(datadir)/errcodes.txt >plerrcodes.h
 
 else
 
-plerrcodes.h: src/plerrcodes_old.h
-	cp src/plerrcodes_old.h plerrcodes.h
+plerrcodes.h: $(srcdir)/src/plerrcodes_old.h
+	cp $(srcdir)/src/plerrcodes_old.h plerrcodes.h
 
 endif
 
 installcheck-parallel: submake $(REGRESS_PREP)
 	$(pg_regress_installcheck) $(REGRESS_OPTS) $(REGRESS_PARALLEL)
+
+pllua.html: $(srcdir)/doc/building.md $(srcdir)/doc/pllua.md $(srcdir)/doc/template.xsl $(srcdir)/tools/doc.sh
+	$(srcdir)/tools/doc.sh $(srcdir)/doc/building.md $(srcdir)/doc/pllua.md >$@

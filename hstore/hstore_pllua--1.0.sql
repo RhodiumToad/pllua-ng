@@ -3,6 +3,11 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "CREATE EXTENSION hstore_pllua" to load this file. \quit
 
+-- force module load; at runtime this doesn't matter because the transforms
+-- can't be legitimately called except from within pllua.so, but we want
+-- CREATE EXTENSION to work even in a cold session
+do language pllua $$ $$;
+
 CREATE FUNCTION hstore_to_pllua(val internal) RETURNS internal
 LANGUAGE C STRICT IMMUTABLE
 AS 'MODULE_PATHNAME';

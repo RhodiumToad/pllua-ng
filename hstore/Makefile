@@ -2,15 +2,11 @@
 
 PG_CONFIG ?= pg_config
 
-# unfortunately, this needs access to a PG source tree to get hstore.h,
-# which is never installed anywhere
-HSTORE_SRC ?= ..
-
 # Lua specific
 
 # General
 LUA_INCDIR ?= /usr/local/include/lua53
-LUALIB ?= -L/usr/local/lib -llua-5.3
+#LUALIB ?= -L/usr/local/lib -llua-5.3
 
 # LuaJIT
 #LUA_INCDIR = /usr/local/include/luajit-2.0
@@ -31,8 +27,11 @@ LUALIB ?= -L/usr/local/lib -llua-5.3
 #LUALIB = -LC:/PROGRA~1/Lua/5.1/lib -llua5.1
 
 # no need to edit below here
+
 MODULE_big = hstore_pllua
+
 EXTENSION = hstore_pllua hstore_plluau
+
 DATA = hstore_pllua--1.0.sql hstore_plluau--1.0.sql
 
 OBJS =	hstore_pllua.o
@@ -52,9 +51,18 @@ HSTORE_INCDIR_OLD = old_inc
 
 HSTORE_INC = -I$(HSTORE_INCDIR$(if $(filter 9.% 10,$(MAJORVERSION)),_OLD))
 
-PG_CPPFLAGS = -I$(LUA_INCDIR) -I../src $(HSTORE_INC) #-DPLLUA_DEBUG
+PG_CPPFLAGS = -I$(LUA_INCDIR) -I$(srcdir)/../src $(HSTORE_INC) #-DPLLUA_DEBUG
 
-# SHLIB_LINK = $(LUALIB)
+SHLIB_LINK = $(LUALIB)
+
+# if VPATH is not already set, but the makefile is not in the current
+# dir, then assume a vpath build using the makefile's directory as
+# source. PGXS will set $(srcdir) accordingly.
+ifndef VPATH
+ifneq ($(CURDIR),$(dir $(firstword $(MAKEFILE_LIST))))
+VPATH := $(dir $(firstword $(MAKEFILE_LIST)))
+endif
+endif
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
