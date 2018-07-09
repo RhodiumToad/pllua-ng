@@ -6,7 +6,7 @@ that allows server-side functions to be written in Lua.
 
 
 Quick start
-===========
+-----------
 
 	create extension pllua;
 
@@ -18,7 +18,7 @@ Quick start
 
 
 PostgreSQL environment
-======================
+----------------------
 
 PL/Lua provides two extensions:
 
@@ -140,7 +140,7 @@ them require superuser privileges to set.
 
 
 Lua environment
-===============
+---------------
 
 The Lua interpreters are initialized as follows.
 
@@ -250,7 +250,7 @@ own first-call initialization by ending the function block early:
 
 
 pllua.elog
-==========
+----------
 
 The pllua.elog module is a table of simple functions:
 
@@ -283,13 +283,13 @@ By default these functions are also available via the `spi` module.
 
 
 pllua.funcmgr
-=============
+-------------
 
 This module exposes nothing to Lua.
 
 
 pllua.pgtype
-============
+------------
 
 The pgtype object provides the following functionality:
 
@@ -562,7 +562,7 @@ conversion, which uses the PG text representation.
 
 
 pllua.spi
-=========
+---------
 
 The spi module provides the following functionality (as a table of
 functions):
@@ -745,8 +745,128 @@ function, it should be explicitly disowned to ensure that garbage
 collection won't close it from under the caller's use of it.
 
 
+pllua.trusted
+-------------
+
+The trusted interpreter is implemented using a sandbox system;
+trusted-language code is run in an environment into which only safe
+functions have been copied (or proxied).
+
+However, in order to allow administrators to provide access to
+additional modules inside the sandbox in a controlled manner, the
+initialization strings on_init and on_trusted_init are run outside
+the sandbox and the functions in pllua.trusted can be used by those
+strings to make additional modules accessible.
+
+For example, setting
+
+	pllua.on_trusted_init='trusted.allow{"lpeg","re"}'
+
+would load the `lpeg` and `re` modules and make them accessible inside
+the sandbox via `require "lpeg"` etc.
+
+**THE ADMINISTRATOR IS RESPONSIBLE FOR ASSESSING THE SECURITY
+AND SAFETY OF MODULES.** It must be stressed that many modules,
+whether implemented in Lua or C, perform operations that will either
+violate security or risk crashing the server. A non-exhausive list of
+things that are dangerous in modules would include:
+
+<div class="no-dl-fudge">
+
+* any assumption that the caller's `_G` or `_ENV` is the same as the module's,
+  or any exposure of the module's `_G` to the caller
+
+* any i/o or networking functionality exposed by the module to the caller
+
+* any use of `lua_pcall` or `lua_resume` from C to call code that might
+  throw an SQL error
+
+</div>
+
+The available functions are:
+
++ `trusted.allow(module, newname, mode, global, preload)`
+
+  This makes the module `module` accessible via `require 'newname'`
+  (`newname` is defaulted to `module` if nil or omitted) inside the
+  sandbox using the adapter specified by `mode` (default `"proxy"`).
+  The module is not actually loaded until the first `require` unless
+  either `global` or `preload` is a true value.
+
+  Then, if `global` is true or a string, it executes the equivalent
+  of:
+
+		_G[ (type(global)=="string" and global) or newname or module ]
+		  = require(newname or module)
+
+  inside the sandbox.
+
+  Mode can be `"direct"` (exposes the module to the sandbox directly),
+  `"copy"` (makes a recursive copy of it and any contained tables,
+  without copying metatables, otherwise as `"direct"`), and `"proxy"`
+  which returns a proxy table having the module in the metatable index
+  slot (and any table members in the module proxied likewise;
+  `"sproxy"` omits this step). All modes behave like `"direct"` if the
+  module's value is not a table.
+
+  **PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER FOR
+  ARBITRARY MODULES.** It's intended to make it _possible_ for simple
+  and well-behaved modules or adapters to be used easily while
+  protecting the "outside" copy from direct modification from inside.
+  If the module returns any table from a function, that table might be
+  modified from inside the sandbox.
+
+  **NEITHER PROXY MODE NOR COPY MODE ARE GUARANTEED TO WORK ON ALL
+  MODULES.** The following constructs (for example) will typically
+  defeat usage of either mode:
+
+  <div class="no-dl-fudge">
+
+    * use of empty tables as unique identifiers
+
+    * use of table values as keys
+
+    * metatables on the module table or its contents with anything
+      other than `__call` methods
+
+  </div>
+
+  If you find yourself wanting to use this on a module more complex
+  than (for example) "lpeg" or "re", then consider whether you ought
+  to be using the untrusted language instead.
+
+  If the `module` parameter is actually a table, it is treated as a
+  sequence, each element of which is either a module name or a table
+  `{ 'module', newname, mode, global, preload }` with missing values
+  defaulted to the original arguments. This enables the common case
+  usage to be just:
+
+			trusted.allow{"foo", "bar", "baz"}
+
++ `trusted.require(module, newname, mode)`
+
+  equiv. to `trusted.allow(module, newname, mode, true, true)`
+
++ `trusted.remove('newname','global')`
+
+  undoes either of the above (probably not very useful, but you could
+  do trusted.remove('os') or whatever)
+
+To use these functions from the on_init string, you must
+`require 'pllua.trusted'` explicitly, and use the return value of that to
+access the functions. Passing a true value for the `preload` argument
+of `trusted.allow` allows for preloading of modules before forking
+when using prebuilt interpreters.
+
+The trusted environment's version of `load` overrides the text/binary
+mode field (loading binary functions is unsafe) and overrides the
+environment to be the trusted sandbox if the caller didn't provide one
+itself (but the caller can still give an explicit environment of nil
+or anything else).
+
+
 pllua.trigger
-=============
+-------------
 
 This module provides nothing directly to Lua, but a `trigger`
 parameter is passed as the first parameter to trigger functions (and
@@ -830,7 +950,7 @@ things:
 
 
 pllua.numeric
-=============
+-------------
 
 PostgreSQL values of `numeric` type (henceforth Numeric values) are
 converted to `Datum` objects as normal, but this module provides
@@ -883,7 +1003,7 @@ The function `num.new(x)` will construct a new Numeric datum, as will
 
 
 pllua.jsonb
-===========
+-----------
 
 `jsonb` supports an inverse mapping operation for construction of JSON
 values from Lua data:
@@ -936,3 +1056,5 @@ values from Lua data:
 Unlike the other mapping functions, the map function for this
 operation is called only for values (including collections), not
 keys, and is not passed any path information.
+
+<!--eof-->

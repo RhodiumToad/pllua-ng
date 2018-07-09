@@ -68,6 +68,13 @@ Example:
          LUAC="luac5.3" LUA="lua5.3" install
 
 
+Building the documentation
+--------------------------
+
+Specifying BUILD_DOCS=1 will build the HTML documentation from the
+Markdown doc sources; this requires `cmark` and `xsltproc`.
+
+
 `VPATH` builds
 --------------
 
@@ -147,3 +154,5 @@ is otherwise needed, the bytecode compilation step can be skipped by
 setting `LUAJITC="cp"`. (The bytecode compile can also be skipped in
 non-luajit builds by setting `LUAC='$(REORDER_O) cp'` but this is not
 expected to be useful.)
+
+<!--eof-->

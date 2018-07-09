@@ -245,13 +245,48 @@ pllua_bind_one_value(lua_State *L)
 	return 1;
 }
 
+static int
+pllua_bind_one_call(lua_State *L)
+{
+	int i;
+	lua_settop(L, 0);
+	for (i = 1; !lua_isnone(L, lua_upvalueindex(i)); ++i)
+	{
+		if (i >= 10 && (i % 10) == 0)
+			luaL_checkstack(L, 20, NULL);
+		lua_pushvalue(L, lua_upvalueindex(i));
+	}
+	if (i < 2)
+		return 0;
+	lua_call(L, i-2, LUA_MULTRET);
+	return lua_gettop(L);
+}
+
 /*
- * _allow(modname,newname,mode,global)
+ * f(modefunc,requirefunc,modulename)
+ *   = return modefunc(requirefunc(modulename))
+ *
+ * This does the actual out-of-sandbox require, it's split into its own
+ * function so that we can wrap it up as a closure for deferred execution
+ */
+static int
+pllua_do_trusted_require(lua_State *L)
+{
+	lua_settop(L, 3);
+	lua_call(L, 1, 1);
+	lua_call(L, 1, 1);
+	return 1;
+}
+
+/*
+ * _allow(modname,newname,mode,global,load_now)
  */
 static int
 pllua_trusted_allow(lua_State *L)
 {
-	lua_settop(L, 4);
+	bool load_now = false;
+
+	lua_settop(L, 5);
 	luaL_checkstring(L, 1);
 	luaL_optstring(L, 2, NULL);
 	if (lua_isnil(L, 2))
@@ -270,6 +305,9 @@ pllua_trusted_allow(lua_State *L)
 	else
 		luaL_optstring(L, 4, NULL);
 
+	if (!lua_isnil(L, 4) || lua_toboolean(L, 5))
+		load_now = true;
+
 	if (!lua_isfunction(L, 3))
 	{
 		const char *mode = luaL_optstring(L, 3, "proxy");
@@ -279,23 +317,30 @@ pllua_trusted_allow(lua_State *L)
 		lua_replace(L, 3);
 	}
 
+	lua_pushcfunction(L, pllua_do_trusted_require);
+	lua_pushvalue(L, 3);
 	lua_pushvalue(L, lua_upvalueindex(3));  /* _G.require */
 	lua_pushvalue(L, 1);
-	lua_call(L, 1, 1);
 
-	lua_pushvalue(L, 3);
-	lua_insert(L, -2);
-	lua_call(L, 1, 1);
+	if (load_now)
+	{
+		lua_call(L, 3, 1);
+		lua_pushvalue(L, -1);
+		lua_pushcclosure(L, pllua_bind_one_value, 1);
+	}
+	else
+		lua_pushcclosure(L, pllua_bind_one_call, 4);
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX_ALLOW);
 	lua_pushvalue(L, 2);
 	lua_pushvalue(L, -3);
-	lua_pushcclosure(L, pllua_bind_one_value, 1);
 	lua_rawset(L, -3);
 	lua_pop(L, 1);
 
 	if (lua_isnil(L, 4))
 		return 0;
+
+	lua_pop(L, 1);
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TRUSTED_SANDBOX_LOADED);
 	lua_pushvalue(L, 2);
@@ -608,15 +653,16 @@ static const char *trusted_lua =
 #if LUA_VERSION_NUM >= 502
 "_ENV = nil\n"
 #endif
-"function lib.allow(mod,new,mode,glob)\n"
+"function lib.allow(mod,new,mode,glob,immed)\n"
 "    if type(mod)==\"string\" then\n"
-"        allow(mod,new,mode,glob)\n"
+"        allow(mod,new,mode,glob,immed)\n"
 "    elseif type(mod)==\"table\" then\n"
 "        for i,v in ipairs(mod) do\n"
-"            local e_mod, e_new, e_mode, e_glob\n"
-"              = unpack(type(v)==\"table\" and v or { v },1,4)\n"
+"            local e_mod, e_new, e_mode, e_glob, e_immed\n"
+"              = unpack(type(v)==\"table\" and v or { v },1,5)\n"
 "            if e_glob == nil then e_glob = glob end\n"
-"            allow(e_mod, e_new, e_mode or mode, e_glob)\n"
+"            if e_immed == nil then e_immed = immed end\n"
+"            allow(e_mod, e_new, e_mode or mode, e_glob, e_immed)\n"
 "        end\n"
 "    end\n"
 "end\n"
@@ -737,7 +783,8 @@ pllua_open_trusted_late(lua_State *L)
 			lua_pushstring(L, np->globname);
 		else
 			lua_pushnil(L);
-		lua_call(L, 4, 0);
+		lua_pushboolean(L, 1);
+		lua_call(L, 5, 0);
 	}
 
 	lua_pushvalue(L, 1);
@@ -841,7 +888,8 @@ pllua_open_trusted(lua_State *L)
 			lua_pushstring(L, np->globname);
 		else
 			lua_pushnil(L);
-		lua_call(L, 4, 0);
+		lua_pushboolean(L, 1);
+		lua_call(L, 5, 0);
 	}
 	lua_pop(L, 1);
 

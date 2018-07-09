@@ -1,6 +1,7 @@
 #
 test: pllua
 test: pllua_old
+test: trusted
 test: arrays
 test: jsonb
 test: numerics

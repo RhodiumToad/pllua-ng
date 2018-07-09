@@ -59,6 +59,12 @@ EXTENSION = pllua plluau
 DATA = 	pllua--2.0.sql pllua--1.0--2.0.sql \
 	plluau--2.0.sql plluau--1.0--2.0.sql
 
+DOC_HTML = pllua.html
+
+ifdef BUILD_DOCS
+DOCS =  $(DOC_HTML)
+endif
+
 objdir := src
 
 # variables like $(srcdir) and $(MAJORVERSION) are not yet set, but
@@ -78,6 +84,10 @@ REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule $(EXTRA_REGRESS)
 
 REORDER_O = $(srcdir)/tools/reorder-o.sh
 
+DOC_MD = pllua.md building.md
+
+DOC_SRCS = $(addprefix $(srcdir)/doc/, $(DOC_MD))
+
 INCS=   pllua.h pllua_pgver.h pllua_luaver.h pllua_luajit.h
 
 OBJS_C= compile.o datum.o elog.o error.o exec.o globals.o init.o \
@@ -94,7 +104,7 @@ OBJS = $(addprefix src/, $(OBJS_C))
 
 EXTRA_OBJS = $(addprefix src/, $(OBJS_LUA))
 
-EXTRA_CLEAN = pllua_functable.h plerrcodes.h $(addprefix src/,$(OBJS_LUA:.o=.luac)) $(EXTRA_OBJS)
+EXTRA_CLEAN = pllua_functable.h plerrcodes.h $(addprefix src/,$(OBJS_LUA:.o=.luac)) $(EXTRA_OBJS) $(DOC_HTML)
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
 
@@ -133,6 +143,8 @@ vpath-mkdirs:
 	$(MKDIR_P) $(objdir)
 endif # VPATH
 
+all: $(DOCS)
+
 # explicit deps on generated includes
 src/init.o: pllua_functable.h
 src/error.o: plerrcodes.h
@@ -168,5 +180,5 @@ endif
 installcheck-parallel: submake $(REGRESS_PREP)
 	$(pg_regress_installcheck) $(REGRESS_OPTS) $(REGRESS_PARALLEL)
 
-pllua.html: $(srcdir)/doc/building.md $(srcdir)/doc/pllua.md $(srcdir)/doc/template.xsl $(srcdir)/tools/doc.sh
-	$(srcdir)/tools/doc.sh $(srcdir)/doc/building.md $(srcdir)/doc/pllua.md >$@
+$(DOC_HTML): $(DOC_SRCS) $(srcdir)/doc/template.xsl $(srcdir)/tools/doc.sh
+	$(srcdir)/tools/doc.sh $(DOC_SRCS) >$@

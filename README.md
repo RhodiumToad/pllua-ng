@@ -14,6 +14,11 @@ callbacks, which were introduced in that version).
 Lua 5.3 and LuaJIT 2.1beta (with COMPAT52) are fully supported at this
 time.
 
+Documentation is being migrated from this README to other files:
+
+[pllua.md](doc/pllua.md)
+[building.md](doc/building.md)
+
 
 COMPATIBILITY WITH 0.x (previous pllua-ng releases)
 ---------------------------------------------------
@@ -406,76 +411,8 @@ environment, allowing package.preload and package.searchers to work
 (the user can install their own function into package.searchers to
 load modules from database queries if they so wish).
 
-pllua.on_init and pllua.on_trusted_init are run in trusted
-interpreters in the global env (not the sandbox env). They can do:
-
-      trusted.allow('module', newname, mode, global)
-
-        -- requires 'module' outside the sandbox, and then makes it
-           accessible via  require 'newname' (newname is defaulted to
-           'module' if nil or omitted) inside the sandbox using
-           the adapter specified by "mode" (default "proxy"). Then, if
-           "global" is true or a string, it executes the equivalent of:
-             _G[ (type(global)=="string" and global)
-                 or newname or module ] = require(newname or module)
-           inside the sandbox.
-
-           Mode can be "direct" (exposes the module to the sandbox
-           directly), "copy" (makes a recursive copy of it and any
-           contained tables, without copying metatables, otherwise as
-           "direct"), and "proxy" which returns a proxy table having
-           the module in the metatable index slot (and any table
-           members in the module proxied likewise; "sproxy" omits this
-           step). All modes behave like "direct" if the module's value
-           is not a table.
-
-           **PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER
-           FOR ARBITRARY MODULES**. It's intended to make it
-           _possible_ for simple modules or adapters to be used easily
-           while protecting the "outside" copy from direct
-           modification from inside. If the module returns any table
-           from a function, that table might be modified from inside
-           the sandbox.
-
-           **NEITHER PROXY MODE NOR COPY MODE ARE GUARANTEED TO WORK
-           ON ALL MODULES**. The following constructs (for example)
-           will typically defeat usage of either mode:
-
-             -- use of empty tables as unique identifiers
-
-             -- use of table values as keys
-
-             -- metatables on the module table or its contents with
-                anything other than __call methods
-
-           If you find yourself wanting to use this on a module more
-           complex than (for example) "lpeg" or "re", then consider
-           whether you ought to be using the untrusted language
-           instead.
-
-           If 'module' is actually a table, it is treated as a
-           sequence, each element of which is either a module name
-           or a table { 'module', newname, mode, global } with missing
-           values of mode/global defaulted to the original arguments.
-           This enables the common case usage to be just:
-
-             trusted.allow{"foo", "bar", "baz"}
-
-      trusted.require(module, newname, mode)
-        -- equiv. to  trusted.allow(module, newname, mode, true)
-
-      trusted.remove('newname','global')
-        -- undoes either of the above (probably not very useful, but you
-           could do  trusted.remove('os')  or whatever)
-
-(However, to use these from on_init, you must require 'pllua.trusted'
-explicitly, and use the return value of that to access the functions.)
-
-The trusted environment's version of "load" overrides the text/binary
-mode field (loading binary functions is unsafe) and overrides the
-environment to be the trusted sandbox if the caller didn't provide one
-itself (but the caller can still give an explicit environment of nil
-or anything else).
+See the main documentation for details on making additional modules
+available to the trusted language.
 
 A set-returning function isn't considered to end until it either
 returns or throws an error; yielding with no results is considered the
@@ -497,28 +434,8 @@ trigger.row unchanged. Note that returning nil or assigning row=nil to
 suppress the triggered operation is in general a bad idea; if you need
 to prevent an action, then throw an error instead.
 
-An interface to pg's "numeric" type (decimal arithmetic) is provided.
-Datums of numeric type can be used with Lua arithmetic operators, with
-the other argument being converted to numeric if necessary. Supported
-functions are available as method calls on a numeric datum or in the
-package 'pllua.numeric' (which can be require'd normally):
-
- *  abs ceil equal exp floor isnan sign sqrt
- *  tointeger (returns nil if not representable as a Lua integer)
- *  tonumber  (returns a Lua number, not exact)
- *  log       (with optional base, defaults to natural log)
- *  trunc round  (with optional number of digits)
-
-Values can be constructed with pgtype.numeric(blah) or, if you
-require'd the pllua.numeric package, with the .new function.
-
-NOTE: PG semantics, not Lua semantics, are used for the // and %
-operators on numerics (pg uses truncate-to-zero and sign-of-dividend
-rules, vs. Lua's truncate-to-minus-infinity and sign-of-divisor rules).
-Also beware that == does not work to compare a numeric datum against
-another number (this is a limitation of Lua), so use the :equal method
-for such cases. (Other comparisons work, though note that PG semantics
-are used for NaN.)
+An interface to pg's "numeric" type (decimal arithmetic) is provided;
+see the main documentation for details.
 
 Polymorphic and variadic functions are fully supported, including
 VARIADIC "any". VARIADIC of non-"any" type is passed as an array as
