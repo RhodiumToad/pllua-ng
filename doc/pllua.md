@@ -36,107 +36,109 @@ These allow direct conversions between hstore values and Lua tables.
 The following optional configuration settings apply to PL/Lua. Most of
 them require superuser privileges to set.
 
-+ `shared_preload_libraries='pllua'`
+  + `shared_preload_libraries='pllua'`
 
-  If set, `pllua.so` will be loaded in the postmaster process and the
-  `pllua.on_init` string run there. Be careful with this, since errors
-  in the init string will prevent PostgreSQL from starting. The
-  benefit of this is that additional modules can be require'd into
-  the interpreter and inherited by child processes via `fork()`. Most
-  applications will likely not need this.
+    If set, `pllua.so` will be loaded in the postmaster process and
+    the `pllua.on_init` string run there. Be careful with this, since
+    errors in the init string will prevent PostgreSQL from starting.
+    The benefit of this is that additional modules can be require'd
+    into the interpreter and inherited by child processes via
+    `fork()`. Most applications will likely not need this.
 
-  By default, `pllua.so` is loaded and the init strings run on the
-  first use within each database session.
+    By default, `pllua.so` is loaded and the init strings run on the
+    first use within each database session.
 
-+ `pllua.check_for_interrupts=boolean` (default: `true`)
+  + `pllua.check_for_interrupts=boolean` (default: `true`)
 
-  If set, a hook function checks for a query cancel interrupt at
-  intervals while running Lua code.
+    If set, a hook function checks for a query cancel interrupt at
+    intervals while running Lua code.
 
-+ `pllua.on_init='lua code chunk'`
+  + `pllua.on_init='lua code chunk'`
 
-  If set, this string is loaded and run early in the interpreter
-  setup process. If `shared_preload_libraries` is used (see below),
-  this string is run in the postmaster process (which is useful for
-  preloading code to be inherited via `fork()`). No database access is
-  possible. The `print()` function will output to the server log.
+    If set, this string is loaded and run early in the interpreter
+    setup process. If `shared_preload_libraries` is used (see below),
+    this string is run in the postmaster process (which is useful for
+    preloading code to be inherited via `fork()`). No database access
+    is possible. The `print()` function will output to the server log.
 
-+ `pllua.on_trusted_init='lua code chunk'`
+  + `pllua.on_trusted_init='lua code chunk'`
 
-+ `pllua.on_untrusted_init='lua code chunk'`
+  + `pllua.on_untrusted_init='lua code chunk'`
 
-  This string is run late in initialization of a trusted or untrusted
-  interpreter, as applicable. It can do database access. The trusted
-  init string is run outside the trusted environment, so it has full
-  access to the system; if it wishes to expose loaded modules to the
-  trusted environment, this must be done explicitly with the
-  `trusted.allow()` or `trusted.require()` functions described below.
+    This string is run late in initialization of a trusted or
+    untrusted interpreter, as applicable. It can do database access.
+    The trusted init string is run outside the trusted environment, so
+    it has full access to the system; if it wishes to expose loaded
+    modules to the trusted environment, this must be done explicitly
+    with the `trusted.allow()` or `trusted.require()` functions
+    described below.
 
-+ `pllua.on_common_init='lua code chunk'`
+  + `pllua.on_common_init='lua code chunk'`
 
-  This string is run late (after the previous init strings) in
-  initialization of any interpreter. It can do database access. For
-  trusted interpreter, the string is run inside the sandbox.
+    This string is run late (after the previous init strings) in
+    initialization of any interpreter. It can do database access. For
+    trusted interpreter, the string is run inside the sandbox.
 
-+ `pllua.install_globals=boolean` (default: `true`)
+  + `pllua.install_globals=boolean` (default: `true`)
 
-  If true, the `spi` and `pgtype` modules are stored as global tables,
-  as if by:
+    If true, the `spi` and `pgtype` modules are stored as global
+    tables, as if by:
 
-	   _G.spi = require 'pllua.spi'
-	   _G.pgtype = require 'pllua.pgtype'
+		_G.spi = require 'pllua.spi'
+		_G.pgtype = require 'pllua.pgtype'
 
-  If false, this is not done, and functions wanting to access these
-  modules will need to require them explicitly.
+     If false, this is not done, and functions wanting to access these
+     modules will need to require them explicitly.
 
-+ `pllua.prebuilt_interpreters=integer` (default: 1)
+  + `pllua.prebuilt_interpreters=integer` (default: 1)
 
-  If `pllua.so` was loaded in `shared_preload_libraries`, this specifies
-  how many Lua states (interpreters) to prebuild. The `on_init` string
-  is run independently in each one.
+    If `pllua.so` was loaded in `shared_preload_libraries`, this
+    specifies how many Lua states (interpreters) to prebuild. The
+    `on_init` string is run independently in each one.
 
-  The sole benefit of prebuilding more than one interpreter is if
-  you expect most database sessions to use both trusted and
-  untrusted language functions, or trusted language functions called
-  from `SECURITY DEFINER` functions under more than one user. New
-  states are always created on demand as needed within each session
-  if the prebuilt ones are used up.
+    The sole benefit of prebuilding more than one interpreter is if
+    you expect most database sessions to use both trusted and
+    untrusted language functions, or trusted language functions called
+    from `SECURITY DEFINER` functions under more than one user. New
+    states are always created on demand as needed within each session
+    if the prebuilt ones are used up.
 
-  The default is to create 1 prebuilt state if loaded from
-  `shared_preload_libraries`.
+    The default is to create 1 prebuilt state if loaded from
+    `shared_preload_libraries`.
 
-+ `pllua.interpreter_reload_ident='arbitrary string'` (default: unset)
+  + `pllua.interpreter_reload_ident='arbitrary string'` (default: unset)
 
-  If `pllua.so` is loaded in the postmaster, then altering this setting
-  will cause any prebuilt interpreters to be destroyed and recreated.
-  Also, if this value is set to a nonempty string, altering the value
-  of `pllua.on_init` will also cause prebuilt interpreters to be rebuilt.
-  The value of `pllua.interpreter_reload_ident` is stored in the created
-  interpreters (as `_G._PL_IDENT`) for verification purposes.
+    If `pllua.so` is loaded in the postmaster, then altering this
+    setting will cause any prebuilt interpreters to be destroyed and
+    recreated. Also, if this value is set to a nonempty string,
+    altering the value of `pllua.on_init` will also cause prebuilt
+    interpreters to be rebuilt. The value of
+    `pllua.interpreter_reload_ident` is stored in the created
+    interpreters (as `_G._PL_IDENT`) for verification purposes.
 
-  If this value is unset or empty then prebuilt interpreters are not
-  reloaded except by postmaster restart.
+    If this value is unset or empty then prebuilt interpreters are not
+    reloaded except by postmaster restart.
 
-  Additionally, altering the value causes `_G._PL_IDENT_NEW` to be set
-  to the new value in existing active interpreters before their next
-  use after the value changes.
+    Additionally, altering the value causes `_G._PL_IDENT_NEW` to be
+    set to the new value in existing active interpreters before their
+    next use after the value changes.
 
-+ `pllua.extra_gc_multiplier=real` (min 0, default 0, max 1000000)
+  + `pllua.extra_gc_multiplier=real` (min 0, default 0, max 1000000)
 
-+ `pllua.extra_gc_threshold=real` (min 0, default 0)
+  + `pllua.extra_gc_threshold=real` (min 0, default 0)
 
-  These options do not require superuser privilege.
+    These options do not require superuser privilege.
 
-  If `multiplier` is 0 (the default), then no additional garbage
-  collection is done.
+    If `multiplier` is 0 (the default), then no additional garbage
+    collection is done.
 
-  If `multiplier` is set to a value greater than 0 but less than
-  1000000, then the amount of non-Lua memory newly allocated by the
-  module is estimated, and before each return to the user, if that
-  amount is at least `threshold` kbytes, then a `LUA_GCSTEP` call
-  is made with a parameter of `(allocated_kbytes * multiplier)`. If
-  `multiplier` is set to 1000000, then a `LUA_GCCOLLECT` call is made
-  instead.
+    If `multiplier` is set to a value greater than 0 but less than
+    1000000, then the amount of non-Lua memory newly allocated by the
+    module is estimated, and before each return to the user, if that
+    amount is at least `threshold` kbytes, then a `LUA_GCSTEP` call is
+    made with a parameter of `(allocated_kbytes * multiplier)`. If
+    `multiplier` is set to 1000000, then a `LUA_GCCOLLECT` call is
+    made instead.
 
 
 Lua environment
@@ -147,26 +149,26 @@ The Lua interpreters are initialized as follows.
 The standard Lua libraries are installed and a number of global functions
 are replaced:
 
-+ `print()`
+  + `print()`
 
-  replaced with a version that outputs `INFO:` messages to the
-  client (except in the init strings, where it outputs `LOG:`
-  to the server log)
+    replaced with a version that outputs `INFO:` messages to the
+    client (except in the init strings, where it outputs `LOG:`
+    to the server log)
 
-+ `pcall()`
+  + `pcall()`
 
-+ `xpcall()`
+  + `xpcall()`
 
-  replaced with versions that provide subtransaction support
+    replaced with versions that provide subtransaction support
 
-+ `lpcall()`
+  + `lpcall()`
 
-  "light" pcall with no subtransactions, but which doesn't
-  catch all errors
+    "light" pcall with no subtransactions, but which doesn't
+    catch all errors
 
-+ `coroutine.resume()`
+  + `coroutine.resume()`
 
-  replaced with a version that propagates PG errors, like lpcall
+    replaced with a version that propagates PG errors, like lpcall
 
 Then the `pllua.trusted` module is loaded and initialized, but not
 stored into any global variable (it can be accessed with `require`).
@@ -342,81 +344,79 @@ functionality:
 The type constructor call has the following forms according to the
 type category (scalar, row, array, range)
 
-+ `scalartype(nondatum...)`
+  + `scalartype(nondatum...)`
 
-  In order, stopping on the first success:
+    In order, stopping on the first success:
 
-  1. If the input value is not a single string, and a transform
-     function exists for this type, then the transform function
-     is called to try and convert the value.
+    1. If the input value is not a single string, and a transform
+       function exists for this type, then the transform function is
+       called to try and convert the value.
 
-  0. If there is more than one input value, an error is raised.
+    0. If there is more than one input value, an error is raised.
 
-  0. The built-in simple transforms from Lua values to SQL types
-     are tried, including checking for domains over known types.
-     Note: in some cases, especially `bytea`, this gives a different
-     result for string input than `:fromstring` would.
+    0. The built-in simple transforms from Lua values to SQL types are
+       tried, including checking for domains over known types. Note:
+       in some cases, especially `bytea`, this gives a different
+       result for string input than `:fromstring` would.
 
-  0. If the input is a single string, it is processed as if by
-	 `scalartype:fromstring(str)`
+    0. If the input is a single string, it is processed as if by
+       `scalartype:fromstring(str)`
 
-  0. Otherwise an error is raised.
+    0. Otherwise an error is raised.
 
-+ `rowtype(table)`
+  + `rowtype(table)`
 
-  If passed a single Lua table or userdata (other than a `Datum`),
-  this is assumed to be indexable by column names, and a row is
-  constructed by applying the typeinfo operation of each column
-  type to the indexed value.
+    If passed a single Lua table or userdata (other than a `Datum`),
+    this is assumed to be indexable by column names, and a row is
+    constructed by applying the typeinfo operation of each column type
+    to the indexed value.
 
-+ `rowtype(...)`
+  + `rowtype(...)`
 
-  otherwise, the number of arguments must equal the arity of the
-  row (i.e. the number of undropped columns). Each argument is
-  matched positionally to its column, converted to the column's
-  type, and then has typmod coercion applied if necessary (e.g.
-  length checks for `varchar(n)`, padding for `char(n)` etc.)
+    otherwise, the number of arguments must equal the arity of the row
+    (i.e. the number of undropped columns). Each argument is matched
+    positionally to its column, converted to the column's type, and
+    then has typmod coercion applied if necessary (e.g. length checks
+    for `varchar(n)`, padding for `char(n)` etc.)
 
-+ `arraytype()`
+  + `arraytype()`
 
-  constructs an empty array.
+    constructs an empty array.
 
-+ `arraytype(val,val,val,...)`
+  + `arraytype(val,val,val,...)`
 
-  constructs a one-dimensional array of the specified values.
-  _(currently, the ambiguous case where one single Datum is
-  passed is resolved as the generic typeinfo(datum) call, NOT
-  this one)_
+    constructs a one-dimensional array of the specified values.
+    _(currently, the ambiguous case where one single Datum is passed
+    is resolved as the generic typeinfo(datum) call, NOT this one)_
 
-+ `arraytype(table, dim...)`
+  + `arraytype(table, dim...)`
 
-  One integer value must be given for each dimension of the
-  array. The table is indexed accordingly to populate the
-  new array.
+    One integer value must be given for each dimension of the array.
+    The table is indexed accordingly to populate the new array.
 
-+ `rangetype()`
+  + `rangetype()`
 
-  constructs an empty range
+    constructs an empty range
 
-+ `rangetype(string)`
+  + `rangetype(string)`
 
-  as for `rangetype:fromstring(string)`
+    as for `rangetype:fromstring(string)`
 
-+ `rangetype(lo,hi[,bounds])`
+  + `rangetype(lo,hi[,bounds])`
 
-  Constructs a range from specified bounds, with nil values
-  treated as infinities, and the "bounds" string interpreted
-  in the usual way (i.e. `"[]"`, `"[)"`, `"(]"`, `"()"`).
+    Constructs a range from specified bounds, with nil values treated
+    as infinities, and the "bounds" string interpreted in the usual
+    way (i.e. `"[]"`, `"[)"`, `"(]"`, `"()"`).
 
 Some specific types have additional functions: see the `pllua.jsonb`
 and `pllua.numeric` modules.
 
 `Datum` values themselves provide the following:
 
-+ `tostring(datum)`
+  + `tostring(datum)`
 
-  returns the datum's standard text representation (inverse
-  of `typeinfo:fromstring()`)
+    returns the datum's standard text representation (inverse
+    of `typeinfo:fromstring()`)
 
 (tobinary function/syntax TBD)
 
@@ -567,150 +567,150 @@ pllua.spi
 The spi module provides the following functionality (as a table of
 functions):
 
-+ `spi.execute("query text", arg, arg, ...)`
+  + `spi.execute("query text", arg, arg, ...)`
 
-+ `spi.execute_count("query text", maxrows, arg, arg, ...)`
+  + `spi.execute_count("query text", maxrows, arg, arg, ...)`
 
-  execute the given query text as SQL with the given arguments.
-  Returns a table containing a sequence (possibly empty) of rows for
-  queries that return rows, otherwise returns an integer count.
+    execute the given query text as SQL with the given arguments.
+    Returns a table containing a sequence (possibly empty) of rows for
+    queries that return rows, otherwise returns an integer count.
 
-  For all query execution methods, if called from a nonvolatile
-  function, the query will be run in "readonly" mode using the
-  caller's snapshot. Otherwise a new snapshot is taken.
+    For all query execution methods, if called from a nonvolatile
+    function, the query will be run in "readonly" mode using the
+    caller's snapshot. Otherwise a new snapshot is taken.
 
-+ `spi.prepare("query text", {argtypes}, [{options}])`
+  + `spi.prepare("query text", {argtypes}, [{options}])`
 
-  returns a statement object. `{argtypes}` is a table containing
-  type names or typeinfo objects. Allowed options are:
+    returns a statement object. `{argtypes}` is a table containing
+    type names or typeinfo objects. Allowed options are:
 
-  * `scroll = true or false`
-  * `no_scroll = true`
-  * `fast_start = true`
-  * `custom_plan = true`
-  * `generic_plan = true`
-  * `fetch_count = integer`
+    * `scroll = true or false`
+    * `no_scroll = true`
+    * `fast_start = true`
+    * `custom_plan = true`
+    * `generic_plan = true`
+    * `fetch_count = integer`
 
-  The `fetch_count` option is used only by `rows()` iterators.
+    The `fetch_count` option is used only by `rows()` iterators.
 
-+ `spi.rows("query text", args...)`
+  + `spi.rows("query text", args...)`
 
-  returns an iterator:
+    returns an iterator:
 
 		for r in spi.rows("query") do ...
 
-+ `spi.findcursor("name")`
+  + `spi.findcursor("name")`
 
-  if "name" is the name of an open portal (i.e. cursor), then
-  returns a cursor object to access this portal. Otherwise
-  returns nil. The cursor is marked as unowned (it will not
-  be closed by garbage collection).
+    if "name" is the name of an open portal (i.e. cursor), then
+    returns a cursor object to access this portal. Otherwise returns
+    nil. The cursor is marked as unowned (it will not be closed by
+    garbage collection).
 
-+ `spi.newcursor(["name"])`
+  + `spi.newcursor(["name"])`
 
-  if "name" is the name of an open portal (i.e. cursor), then
-  returns a cursor object (unowned) to access this portal.
-  Otherwise creates a new cursor object with no portal,
-  recording the name given for use with a later open() call.
+    if "name" is the name of an open portal (i.e. cursor), then
+    returns a cursor object (unowned) to access this portal. Otherwise
+    creates a new cursor object with no portal, recording the name
+    given for use with a later open() call.
 
-+ `spi.is_atomic()`
+  + `spi.is_atomic()`
 
-  returns true if the call context is atomic with respect to
-  (top-level) transactions; this is always true in pg versions before
-  PostgreSQL 11; it is only false when code is being executed in
-  PostgreSQL 11+ in a `CALL` or `DO` statement which is outside any
-  explicit transaction. (These are the only contexts in which
-  `spi.commit` and `spi.rollback` are allowed.)
+    returns true if the call context is atomic with respect to
+    (top-level) transactions; this is always true in pg versions
+    before PostgreSQL 11; it is only false when code is being executed
+    in PostgreSQL 11+ in a `CALL` or `DO` statement which is outside
+    any explicit transaction. (These are the only contexts in which
+    `spi.commit` and `spi.rollback` are allowed.)
 
-+ `spi.commit()`
+  + `spi.commit()`
 
-+ `spi.rollback()`
+  + `spi.rollback()`
 
-  (Not defined in pg versions before 11). If in a non-atomic
-  context, these commit or abort the current transaction, and
-  immediately start a new one. An error is raised if they are
-  attempted in an atomic context or inside a subtransaction.
+    (Not defined in pg versions before 11). If in a non-atomic
+    context, these commit or abort the current transaction, and
+    immediately start a new one. An error is raised if they are
+    attempted in an atomic context or inside a subtransaction.
 
-+ `spi.elog(...)`
+  + `spi.elog(...)`
 
-+ `spi.error(...), .warning(...), .notice(...), .info(...), .debug(...), .log(...)`
+  + `spi.error(...), .warning(...), .notice(...), .info(...), .debug(...), .log(...)`
 
-  These functions from pllua.elog are accessible via spi.* for
-  convenience.
+    These functions from pllua.elog are accessible via spi.* for
+    convenience.
 
 SPI statement objects have the following functionality:
 
-+ `stmt:execute(arg, arg, ...)`
+  + `stmt:execute(arg, arg, ...)`
 
-+ `stmt:execute_count(maxrows, arg, arg, ...)`
+  + `stmt:execute_count(maxrows, arg, arg, ...)`
 
-  execute the statement, with the same result as spi.execute
+    execute the statement, with the same result as spi.execute
 
-+ `stmt:getcursor(arg, arg, ...)`
+  + `stmt:getcursor(arg, arg, ...)`
 
-  return an open cursor (with an arbitrarily assigned name) for
-  the statement. The cursor is marked as owned.
+    return an open cursor (with an arbitrarily assigned name) for
+    the statement. The cursor is marked as owned.
 
-+ `stmt:rows(arg, arg, ...)`
+  + `stmt:rows(arg, arg, ...)`
 
-  return an iterator for the statement execution, as `spi.rows()`
+    return an iterator for the statement execution, as `spi.rows()`
 
-+ `stmt:numargs()`
+  + `stmt:numargs()`
 
-  returns an integer giving the expected number of arguments
-  (including any unused numbered params) expected
+    returns an integer giving the expected number of arguments
+    (including any unused numbered params) expected
 
-+ `stmt:argtype(argnum)`
+  + `stmt:argtype(argnum)`
 
-  returns the typeinfo for the expected type of the specified arg
+    returns the typeinfo for the expected type of the specified arg
 
 SPI cursor objects have the following functionality:
 
-+ `cur:open(stmt,arg,arg...)`
+  + `cur:open(stmt,arg,arg...)`
 
-+ `cur:open(query_string,arg,arg...)`
+  + `cur:open(query_string,arg,arg...)`
 
-  The cursor object must not be already open. The specified
-  statement or query string is executed in a new portal whose
-  name is given by the cursor name (if one has been assigned).
+    The cursor object must not be already open. The specified
+    statement or query string is executed in a new portal whose name
+    is given by the cursor name (if one has been assigned).
 
-  The original cursor object is returned. Cursors returned by
-  an `open()` call are marked as owned.
+    The original cursor object is returned. Cursors returned by an
+    `open()` call are marked as owned.
 
-+ `cur:isopen()`
+  + `cur:isopen()`
 
-  returns true if the cursor is open
+    returns true if the cursor is open
 
-+ `cur:close()`
+  + `cur:close()`
 
-  close the portal (whether or not we created it or own it)
+    close the portal (whether or not we created it or own it)
 
-+ `cur:isowned()`
+  + `cur:isowned()`
 
-  returns true if the cursor is marked as owned. An "owned" cursor has
-  its portal closed (if it's still open) if the cursor object is
-  garbage-collected; this is intended for cursors opened by Lua
-  functions and not returned to callers. An unowned cursor's portal is
-  not affected by the collection of the cursor object.
+    returns true if the cursor is marked as owned. An "owned" cursor
+    has its portal closed (if it's still open) if the cursor object is
+    garbage-collected; this is intended for cursors opened by Lua
+    functions and not returned to callers. An unowned cursor's portal
+    is not affected by the collection of the cursor object.
 
-+ `cur:own()`
+  + `cur:own()`
 
-+ `cur:disown()`
+  + `cur:disown()`
 
-  mark the cursor as owned or not. Returns the cursor.
+    mark the cursor as owned or not. Returns the cursor.
 
-  Typical intended use is `return c:disown()` when returning a
-  cursor opened by a function to its caller.
+    Typical intended use is `return c:disown()` when returning a
+    cursor opened by a function to its caller.
 
-+ `cur:name()`
+  + `cur:name()`
 
-  returns the open portal name (if the cursor is open) or the
-  assigned name (if not).
+    returns the open portal name (if the cursor is open) or the
+    assigned name (if not).
 
-+ `cur:fetch([n, [dir]])`
+  + `cur:fetch([n, [dir]])`
 
-  Fetch according to the specified number and direction
-  parameters. `"dir"` can be:
+    Fetch according to the specified number and direction parameters.
+    `"dir"` can be:
 
     * `"forward" / "next"`\
        fetch N rows forward
@@ -721,14 +721,14 @@ SPI cursor objects have the following functionality:
     * `"relative"`\
        fetch row at relative position `n`
 
-  By default, fetch one row in the forward direction.
+    By default, fetch one row in the forward direction.
 
-+ `cur:move([n, [dir]])`
+  + `cur:move([n, [dir]])`
 
-  Move the cursor without fetching. Note that the cursor is left at
-  the same position it would be _after_ executing the same operation
-  as a fetch. So to position the cursor such that the next forward
-  fetch will return the first row, use `cur:move(0, 'absolute')`
+    Move the cursor without fetching. Note that the cursor is left at
+    the same position it would be _after_ executing the same operation
+    as a fetch. So to position the cursor such that the next forward
+    fetch will return the first row, use `cur:move(0, 'absolute')`
 
 There can only be one cursor object for a given open portal - doing a
 findcursor on an existing cursor will always return the same object.
@@ -773,84 +773,84 @@ things that are dangerous in modules would include:
 
 <div class="no-dl-fudge">
 
-* any assumption that the caller's `_G` or `_ENV` is the same as the module's,
-  or any exposure of the module's `_G` to the caller
+  * any assumption that the caller's `_G` or `_ENV` is the same as the
+    module's, or any exposure of the module's `_G` to the caller
 
-* any i/o or networking functionality exposed by the module to the caller
+  * any i/o or networking functionality exposed by the module to the caller
 
-* any use of `lua_pcall` or `lua_resume` from C to call code that might
-  throw an SQL error
+  * any use of `lua_pcall` or `lua_resume` from C to call code that
+    might throw an SQL error
 
 </div>
 
 The available functions are:
 
-+ `trusted.allow(module, newname, mode, global, preload)`
+  + `trusted.allow(module, newname, mode, global, preload)`
 
-  This makes the module `module` accessible via `require 'newname'`
-  (`newname` is defaulted to `module` if nil or omitted) inside the
-  sandbox using the adapter specified by `mode` (default `"proxy"`).
-  The module is not actually loaded until the first `require` unless
-  either `global` or `preload` is a true value.
+    This makes the module `module` accessible via `require 'newname'`
+    (`newname` is defaulted to `module` if nil or omitted) inside the
+    sandbox using the adapter specified by `mode` (default `"proxy"`).
+    The module is not actually loaded until the first `require` unless
+    either `global` or `preload` is a true value.
 
-  Then, if `global` is true or a string, it executes the equivalent
-  of:
+    Then, if `global` is true or a string, it executes the equivalent
+    of:
 
 		_G[ (type(global)=="string" and global) or newname or module ]
 		  = require(newname or module)
 
-  inside the sandbox.
+    inside the sandbox.
 
-  Mode can be `"direct"` (exposes the module to the sandbox directly),
-  `"copy"` (makes a recursive copy of it and any contained tables,
-  without copying metatables, otherwise as `"direct"`), and `"proxy"`
-  which returns a proxy table having the module in the metatable index
-  slot (and any table members in the module proxied likewise;
-  `"sproxy"` omits this step). All modes behave like `"direct"` if the
-  module's value is not a table.
+    Mode can be `"direct"` (exposes the module to the sandbox
+    directly), `"copy"` (makes a recursive copy of it and any
+    contained tables, without copying metatables, otherwise as
+    `"direct"`), and `"proxy"` which returns a proxy table having the
+    module in the metatable index slot (and any table members in the
+    module proxied likewise; `"sproxy"` omits this step). All modes
+    behave like `"direct"` if the module's value is not a table.
 
-  **PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER FOR
-  ARBITRARY MODULES.** It's intended to make it _possible_ for simple
-  and well-behaved modules or adapters to be used easily while
-  protecting the "outside" copy from direct modification from inside.
-  If the module returns any table from a function, that table might be
-  modified from inside the sandbox.
+    **PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER FOR
+    ARBITRARY MODULES.** It's intended to make it _possible_ for
+    simple and well-behaved modules or adapters to be used easily
+    while protecting the "outside" copy from direct modification from
+    inside. If the module returns any table from a function, that
+    table might be modified from inside the sandbox.
 
-  **NEITHER PROXY MODE NOR COPY MODE ARE GUARANTEED TO WORK ON ALL
-  MODULES.** The following constructs (for example) will typically
-  defeat usage of either mode:
+    **NEITHER PROXY MODE NOR COPY MODE ARE GUARANTEED TO WORK ON ALL
+    MODULES.** The following constructs (for example) will typically
+    defeat usage of either mode:
 
-  <div class="no-dl-fudge">
+    <div class="no-dl-fudge">
 
-    * use of empty tables as unique identifiers
+      * use of empty tables as unique identifiers
 
-    * use of table values as keys
+      * use of table values as keys
 
-    * metatables on the module table or its contents with anything
-      other than `__call` methods
+      * metatables on the module table or its contents with anything
+        other than `__call` methods
 
-  </div>
+    </div>
 
-  If you find yourself wanting to use this on a module more complex
-  than (for example) "lpeg" or "re", then consider whether you ought
-  to be using the untrusted language instead.
+    If you find yourself wanting to use this on a module more complex
+    than (for example) "lpeg" or "re", then consider whether you ought
+    to be using the untrusted language instead.
 
-  If the `module` parameter is actually a table, it is treated as a
-  sequence, each element of which is either a module name or a table
-  `{ 'module', newname, mode, global, preload }` with missing values
-  defaulted to the original arguments. This enables the common case
-  usage to be just:
+    If the `module` parameter is actually a table, it is treated as a
+    sequence, each element of which is either a module name or a table
+    `{ 'module', newname, mode, global, preload }` with missing values
+    defaulted to the original arguments. This enables the common case
+    usage to be just\:
 
-			trusted.allow{"foo", "bar", "baz"}
+		trusted.allow{"foo", "bar", "baz"}
 
-+ `trusted.require(module, newname, mode)`
+  + `trusted.require(module, newname, mode)`
 
-  equiv. to `trusted.allow(module, newname, mode, true, true)`
+    equiv. to `trusted.allow(module, newname, mode, true, true)`
 
-+ `trusted.remove('newname','global')`
+  + `trusted.remove('newname','global')`
 
-  undoes either of the above (probably not very useful, but you could
-  do trusted.remove('os') or whatever)
+    undoes either of the above (probably not very useful, but you
+    could do trusted.remove('os') or whatever)
 
 To use these functions from the on_init string, you must
 `require 'pllua.trusted'` explicitly, and use the return value of that to

@@ -1,7 +1,5 @@
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
-  <!--<xsl:key name="h1" match="h1" use="1 + count(preceding-sibling:h1)" />-->
-
   <!--
       Break up a list of nodes at each top-level <br>, and turn each
       sublist into a <dt>...</dt> node. Initially nfirst is empty and
@@ -83,15 +81,27 @@
 
   <xsl:template match="*|@*">
     <xsl:copy>
-      <xsl:apply-templates select="node()" />
+      <xsl:apply-templates select="@*|node()" />
     </xsl:copy>
   </xsl:template>
 
   <xsl:template match="code[not(ancestor::pre)]">
     <xsl:copy>
-      <xsl:if test="string-length() &lt; 40">
-        <xsl:attribute name="class">shortcode</xsl:attribute>
-      </xsl:if>
+      <xsl:choose>
+        <xsl:when test="string-length() &lt; 40">
+          <xsl:attribute name="class">shortcode</xsl:attribute>
+        </xsl:when>
+        <xsl:otherwise>
+          <xsl:attribute name="class">longcode</xsl:attribute>
+        </xsl:otherwise>
+      </xsl:choose>
+      <xsl:apply-templates select="node()" />
+    </xsl:copy>
+  </xsl:template>
+
+  <xsl:template match="pre[child::code]">
+    <xsl:copy>
+      <xsl:attribute name="class">codeblock</xsl:attribute>
       <xsl:apply-templates select="node()" />
     </xsl:copy>
   </xsl:template>
@@ -142,15 +152,22 @@
   <xsl:template match="/">
     <html>
       <head>
-        <title>Title</title>
+        <title>PL/Lua Documentation</title>
+        <xsl:copy-of select="//body/style" />
       </head>
       <body>
-        <ol>
-          <xsl:for-each select="//body/h1">
-            <xsl:call-template name="toc1" />
-          </xsl:for-each>
-        </ol>
-        <xsl:apply-templates select="//body/node()" />
+        <div id="headContainer">
+          <h1>Contents</h1>
+          <ol>
+            <xsl:for-each select="//body/h1">
+              <xsl:call-template name="toc1" />
+            </xsl:for-each>
+          </ol>
+        </div>
+        <div id="bodyContainer">
+          <xsl:apply-templates select="//body/node()[not(self::style) and not(@id='footerContainer')]" />
+        </div>
+        <xsl:apply-templates select="//body/div[@id='footerContainer']" />
       </body>
     </html>
   </xsl:template>
