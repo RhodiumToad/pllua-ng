@@ -26,4 +26,14 @@ do language pllua $$
   print(res.eq)
 $$;
 
+-- make sure that non-table types don't crash the transform
+
+do language pllua $$
+  print(pgtype.hstore(123))
+$$;
+
+do language pllua $$
+  print(pgtype.hstore(function() end))
+$$;
+
 --end

@@ -3925,7 +3925,10 @@ static bool pllua_datum_transform_tosql(lua_State *L, int nargs, int argbase, in
 	for (i = 0; i < nargs; ++i)
 		lua_pushvalue(L, argbase+i);
 	lua_call(L, nargs, 1);
-	return true;
+	if (!lua_isnil(L, -1))
+		return true;
+	lua_pop(L, 1);
+	return false;
 }
 
 int pllua_datum_transform_fromsql(lua_State *L, Datum val, int nidx, pllua_typeinfo *t)
@@ -4138,11 +4141,9 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 	const char *str = NULL;
 
 	/*
-	 * If there's a transform, it might accept multiple args, so try it first,
-	 * but only if the input isn't a single string arg.
+	 * If there's a transform, it might accept multiple args, so try it first.
 	 */
-	if ((nargs > 1 || lua_type(L,2) != LUA_TSTRING) &&
-		pllua_datum_transform_tosql(L, nargs, 2, 1, t))
+	if (pllua_datum_transform_tosql(L, nargs, 2, 1, t))
 	{
 		Datum *nvaluep = &nvalue;
 		if (!lua_isnil(L, -1))

@@ -8,7 +8,7 @@
 
 PG_MODULE_MAGIC;
 
-#if PG_VERSION_NUM < 110000
+#ifndef PG_GETARG_HSTORE_P
 #define PG_GETARG_HSTORE_P(h_) PG_GETARG_HS(h_)
 #endif
 
@@ -133,10 +133,12 @@ pllua_to_hstore_real(lua_State *L)
 	int			idx = 0;
 	int			pcount = 0;
 
-	lua_settop(L, 1);
-
-	if (lua_isnil(L, 1))
+	/*
+	 * Decline if there isn't exactly 1 arg.
+	 */
+	if (lua_gettop(L) != 1)
 	{
+		lua_pushnil(L);
 		lua_pushnil(L);
 		return 2;
 	}
@@ -146,6 +148,16 @@ pllua_to_hstore_real(lua_State *L)
 
 	if (luaL_getmetafield(L, 1, "__pairs") == LUA_TNIL)
 	{
+		/*
+		 * If it doesn't have a pairs metamethod and it's not a plain table,
+		 * then we have to decline it.
+		 */
+		if (!lua_istable(L, 1))
+		{
+			lua_pushnil(L);
+			lua_pushnil(L);
+			return 2;
+		}
 		lua_pushcfunction(L, do_next);
 		lua_pushvalue(L, 1);
 		lua_pushnil(L);
@@ -282,7 +294,7 @@ pllua_to_hstore(PG_FUNCTION_ARGS)
 		out = hstorePairs(pairs, pcount, buflen);
 	}
 
-	lua_pop(L, 1);
+	lua_pop(L, 2);
 
 	if (out)
 		PG_RETURN_POINTER(out);

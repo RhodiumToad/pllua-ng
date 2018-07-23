@@ -29,4 +29,13 @@ INFO:  baz	quux
 INFO:  foo	bar
 INFO:  hstore
 INFO:  true
+-- make sure that non-table types don't crash the transform
+do language pllua $$
+  print(pgtype.hstore(123))
+$$;
+ERROR:  pllua: incompatible value type
+do language pllua $$
+  print(pgtype.hstore(function() end))
+$$;
+ERROR:  pllua: incompatible value type
 --end
