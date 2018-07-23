@@ -2720,6 +2720,8 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 	 * over the typeinfo object itself for easy access.
 	 */
 	lua_getuservalue(L, -1);
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__metatable");
 	lua_pushcfunction(L, pllua_datum_gc);
 	lua_setfield(L, -2, "__gc");
 	lua_pushvalue(L, -2);
