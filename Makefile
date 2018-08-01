@@ -56,8 +56,9 @@ MODULE_big = pllua
 
 EXTENSION = pllua plluau
 
-DATA = 	pllua--2.0.sql pllua--1.0--2.0.sql \
-	plluau--2.0.sql plluau--1.0--2.0.sql
+SQL_SRC = pllua--2.0.sql pllua--1.0--2.0.sql \
+		plluau--2.0.sql plluau--1.0--2.0.sql
+DATA = $(addprefix scripts/, $(SQL_SRC))
 
 DOC_HTML = pllua.html
 

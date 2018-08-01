@@ -4,14 +4,19 @@ body {
 	margin: 0;
 	padding: 0;
 	font-family: verdana, sans-serif;
-	font-size: 1em;
 	color: #000;
 	background-color: #fff;
 }
 
 #headContainer, #bodyContainer, #footer {
 	margin: 0 auto;
-	width: 85%;
+	width: 95%;
+}
+
+@media (min-width:950px) {
+	#headContainer, #bodyContainer, #footer {
+		width: 85%;
+	}
 }
 
 #footerContainer {
@@ -50,9 +55,10 @@ pre code {
 code.shortcode, code.longcode {
 	padding: 2px;
 	font-size: 130%;
-	background-color: #f7f7f7;
+	background-color: #eee;
 }
 
+/* prevent line-breaks in short code spans */
 code.shortcode {
 	white-space: pre;
 }
@@ -63,9 +69,9 @@ pre.codeblock {
 	border-radius: 8px;
 	border-width: 1px;
 	border-style: solid;
-	background-color: #f7f7f7;
-	box-shadow: 3px 3px 5px #dfdfdf;
-	border-color: #cfcfcf;
+	background-color: #eee;
+	box-shadow: 3px 3px 5px #ddd;
+	border-color: #ccc;
 }
 
 </style>

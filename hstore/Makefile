@@ -8,24 +8,6 @@ PG_CONFIG ?= pg_config
 LUA_INCDIR ?= /usr/local/include/lua53
 #LUALIB ?= -L/usr/local/lib -llua-5.3
 
-# LuaJIT
-#LUA_INCDIR = /usr/local/include/luajit-2.0
-#LUALIB = -L/usr/local/lib -lluajit-5.1
-#LUA_INCDIR = /usr/local/include/luajit-2.1
-#LUALIB = -L/usr/local/lib -lluajit-5.1
-
-# Debian/Ubuntu
-#LUA_INCDIR = /usr/include/lua5.1
-#LUALIB = -llua5.1
-
-# Fink
-#LUA_INCDIR = /sw/include -I/sw/include/postgresql
-#LUALIB = -L/sw/lib -llua
-
-# Lua for Windows
-#LUA_INCDIR = C:/PROGRA~1/Lua/5.1/include
-#LUALIB = -LC:/PROGRA~1/Lua/5.1/lib -llua5.1
-
 # no need to edit below here
 
 MODULE_big = hstore_pllua
@@ -41,7 +23,7 @@ REGRESS = create_ext hstore
 # MAJORVERSION and includedir_server are not defined yet, but will be
 # defined before PG_CPPFLAGS is expanded
 
-# for pg11+, hstore.h will eventually be installed
+# for pg11+, hstore.h will have been installed
 HSTORE_INCDIR = $(includedir_server)/extension/hstore
 
 # for pg 9.5/9.6/10, we have a local copy of hstore.h since it happens
