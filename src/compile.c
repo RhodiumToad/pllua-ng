@@ -300,6 +300,7 @@ pllua_resolve_activation(lua_State *L,
 		act->typefuncclass = TYPEFUNC_SCALAR;
 	}
 
+	act->retdomain = get_typtype(act->rettype) == TYPTYPE_DOMAIN;
 	act->polymorphic = func_info->polymorphic;
 	act->variadic_call = get_fn_expr_variadic(fcinfo->flinfo);
 	act->nargs = func_info->nargs;

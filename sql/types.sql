@@ -132,23 +132,23 @@ create function pg_temp.f4d2(a text) returns mydom2 language pllua as $$
 $$;
 select pg_temp.f4d2('bar   ');
 select pg_temp.f4d2('bad');
-select pg_temp.f4d1('toolong');
+select pg_temp.f4d2('toolong');
 select pg_temp.f4d2(null);
 
 create function pg_temp.f4d3(a text) returns mydom3 language pllua as $$
   return a
 $$;
 select pg_temp.f4d3('bar   ');
-select pg_temp.f4d1('toolong');
+select pg_temp.f4d3('toolong');
 select pg_temp.f4d3(null);
 
 create function pg_temp.f4d4(a text) returns mydom4 language pllua as $$
   return a
 $$;
-select pg_temp.f4d3('bar   ');
-select pg_temp.f4d2('bad');
-select pg_temp.f4d2('toolong');
-select pg_temp.f4d3(null);
+select pg_temp.f4d4('bar   ');
+select pg_temp.f4d4('bad');
+select pg_temp.f4d4('toolong');
+select pg_temp.f4d4(null);
 
 -- array typmod coercions
 

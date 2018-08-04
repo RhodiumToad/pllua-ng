@@ -243,6 +243,26 @@ select * from pg_temp.f16(4);
  4 | row 4
 (4 rows)
 
+-- SRF vs null returns
+create function pg_temp.f16b(a integer) returns table(x text, y integer)
+  language pllua as $$ coroutine.yield() $$;  -- 1 row, null
+select * from pg_temp.f16b(1);
+ x | y 
+---+---
+   |  
+(1 row)
+
+create function pg_temp.f16c(a integer) returns table(x text, y integer)
+  language pllua as $$ coroutine.yield() for i = 1,a do coroutine.yield('foo',i) end $$;
+select * from pg_temp.f16c(3);
+  x  | y 
+-----+---
+     |  
+ foo | 1
+ foo | 2
+ foo | 3
+(4 rows)
+
 -- compiler and validator code paths
 do language pllua $$ _G.rdepth = 40 $$;  -- global var hack
 -- This function will try and call itself at a point where it is visible

@@ -283,6 +283,7 @@ typedef struct pllua_func_activation
 	Oid			rettype;
 	TupleDesc	tupdesc;
 	TypeFuncClass typefuncclass;
+	bool		retdomain;
 
 	int			nargs;
 	Oid		   *argtypes;	/* with polymorphism resolved */
@@ -536,6 +537,9 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 int pllua_typeinfo_parsetype(lua_State *L);
 int pllua_datum_single(lua_State *L, Datum res, bool isnull, int nt, pllua_typeinfo *t);
 int pllua_typeconv_invalidate(lua_State *L);
+void pllua_typeinfo_check_domain(lua_State *L,
+								 Datum *val, bool *isnull, int32 typmod,
+								 int nt, pllua_typeinfo *t);
 
 /* elog.c */
 int pllua_open_elog(lua_State *L);

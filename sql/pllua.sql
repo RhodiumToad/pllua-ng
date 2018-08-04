@@ -96,6 +96,16 @@ create function pg_temp.f16(a inout integer, x out text) returns setof record
   language pllua as $$ for i = 1,a do coroutine.yield(i, "row "..i) end $$;
 select * from pg_temp.f16(4);
 
+-- SRF vs null returns
+
+create function pg_temp.f16b(a integer) returns table(x text, y integer)
+  language pllua as $$ coroutine.yield() $$;  -- 1 row, null
+select * from pg_temp.f16b(1);
+
+create function pg_temp.f16c(a integer) returns table(x text, y integer)
+  language pllua as $$ coroutine.yield() for i = 1,a do coroutine.yield('foo',i) end $$;
+select * from pg_temp.f16c(3);
+
 -- compiler and validator code paths
 
 do language pllua $$ _G.rdepth = 40 $$;  -- global var hack

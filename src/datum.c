@@ -3581,9 +3581,9 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
  *
  * "typmod" is "val's" existing typmod if known, or -1.
  */
-static void pllua_typeinfo_check_domain(lua_State *L,
-										Datum *val, bool *isnull, int32 typmod,
-										int nt, pllua_typeinfo *t)
+void pllua_typeinfo_check_domain(lua_State *L,
+								 Datum *val, bool *isnull, int32 typmod,
+								 int nt, pllua_typeinfo *t)
 {
 	int oldtop = lua_gettop(L);
 
@@ -4141,7 +4141,8 @@ static int pllua_typeinfo_scalar_call(lua_State *L)
 	const char *str = NULL;
 
 	/*
-	 * If there's a transform, it might accept multiple args, so try it first.
+	 * If there's a transform, it might accept zero or multiple args, so try it
+	 * first.
 	 */
 	if (pllua_datum_transform_tosql(L, nargs, 2, 1, t))
 	{
@@ -4321,6 +4322,7 @@ static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd,
 /*
  * arraytype(val,val,val,...)
  * arraytype()  empty array
+ * arraytype(table)
  * arraytype(table, dim1, dim2, ...)
  *
  * idiom:  arraytype(table, #table)

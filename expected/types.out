@@ -194,7 +194,7 @@ select pg_temp.f4d2('bar   ');
 
 select pg_temp.f4d2('bad');
 ERROR:  value for domain mydom2 violates check constraint "mydom2_check"
-select pg_temp.f4d1('toolong');
+select pg_temp.f4d2('toolong');
 ERROR:  value too long for type character varying(3)
 select pg_temp.f4d2(null);
  f4d2 
@@ -211,25 +211,25 @@ select pg_temp.f4d3('bar   ');
  bar
 (1 row)
 
-select pg_temp.f4d1('toolong');
+select pg_temp.f4d3('toolong');
 ERROR:  value too long for type character varying(3)
 select pg_temp.f4d3(null);
 ERROR:  domain mydom3 does not allow null values
 create function pg_temp.f4d4(a text) returns mydom4 language pllua as $$
   return a
 $$;
-select pg_temp.f4d3('bar   ');
- f4d3 
+select pg_temp.f4d4('bar   ');
+ f4d4 
 ------
  bar
 (1 row)
 
-select pg_temp.f4d2('bad');
-ERROR:  value for domain mydom2 violates check constraint "mydom2_check"
-select pg_temp.f4d2('toolong');
+select pg_temp.f4d4('bad');
+ERROR:  value for domain mydom4 violates check constraint "mydom4_check"
+select pg_temp.f4d4('toolong');
 ERROR:  value too long for type character varying(3)
-select pg_temp.f4d3(null);
-ERROR:  domain mydom3 does not allow null values
+select pg_temp.f4d4(null);
+ERROR:  domain mydom4 does not allow null values
 -- array typmod coercions
 create temp table atc (a varchar(10)[], b char(10)[]);
 do language pllua $$

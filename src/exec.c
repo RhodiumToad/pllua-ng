@@ -35,10 +35,17 @@ pllua_common_lua_exit(lua_State *L)
  *
  * Note that this is not used for triggers, which have their own function.
  *
- * nret==0 is taken as returning null for non-SRFs; the case of the initial
- * call of an SRF returning nret==0 without yielding is handled elsewhere.
+ * The case of nret==0 from the initial call of an SRF does not reach here:
+ * that's treated as returning 0 rows. nret==0 from yield() within an SRF do
+ * come through here.
  *
- * Otherwise, we simply pass the whole list of values to the type constructor
+ * If nret==0, or nret==1 with a nil value and the return type is not
+ * composite, then we're trying to return NULL (which is not quite the same as
+ * calling the explicit type constructor with the same values). We can't simply
+ * return the null because the return type might be a domain type, so we check
+ * that.
+ *
+ * Otherwise we simply pass the whole list of values to the type constructor
  * for the return type, which does all the work. We then copy the result to the
  * current memory context (presumed to be the caller's), in order to avoid any
  * uncertainty regarding garbage collection.
@@ -51,11 +58,43 @@ pllua_return_result(lua_State *L,
 {
 	pllua_typeinfo *ti;
 	pllua_datum *d;
+	int			nt;
+	bool		isnil = (nret == 0) || (nret == 1 && lua_isnil(L, -1));
 
-	if (nret == 0 || act->rettype == VOIDOID)
+	if (act->rettype == VOIDOID)
 	{
 		*isnull = true;
 		return (Datum)0;
+	}
+
+	if (!act->retdomain && isnil)
+	{
+		/*
+		 * PG 9.6+ lets us just return plain NULL from SRFs for a row of null
+		 * values, but 9.5 chokes on that. So only do this for 9.5 if we're
+		 * a non-SRF or returning a scalar. For 9.5 composite SRF, drop all
+		 * the way through to the return type constructor call when nret==0.
+		 */
+		if (nret == 0)
+		{
+#if PG_VERSION_NUM < 90600
+			if (act->typefuncclass==TYPEFUNC_SCALAR && !act->retset)
+			{
+				*isnull = true;
+				return (Datum)0;
+			}
+			else
+				isnil = false;
+#else
+			*isnull = true;
+			return (Datum)0;
+#endif
+		}
+		else if (act->typefuncclass==TYPEFUNC_SCALAR)
+		{
+			*isnull = true;
+			return (Datum)0;
+		}
 	}
 
 	lua_pushcfunction(L, pllua_typeinfo_lookup);
@@ -70,7 +109,29 @@ pllua_return_result(lua_State *L,
 		lua_pushinteger(L, (lua_Integer)(act->tupdesc->tdtypmod));
 		lua_call(L, 2, 1);
 	}
-	lua_insert(L, -(nret+1));
+
+	/* stick two copies of the typeinfo below the args */
+	lua_pushvalue(L, -1);
+	lua_insert(L, -(nret+2));
+	lua_insert(L, -(nret+2));
+	nt = lua_absindex(L, -(nret+2));
+
+	ti = pllua_checktypeinfo(L, nt, true);
+	if (ti->obsolete || ti->modified)
+		luaL_error(L, "cannot create values for a dropped or modified type");
+
+	if (isnil)
+	{
+		Datum	d_value = (Datum)0;
+		bool	d_isnull = true;
+
+		pllua_typeinfo_check_domain(L, &d_value, &d_isnull, ti->typmod, nt, ti);
+
+		*isnull = true;
+		return (Datum)0;
+	}
+
+	/* actually call the type constructor */
 	lua_call(L, nret, 1);
 
 	if (lua_type(L, -1) == LUA_TNIL)
@@ -80,10 +141,19 @@ pllua_return_result(lua_State *L,
 	}
 	else
 	{
-		d = pllua_checkanydatum(L, -1, &ti);
+		volatile Datum	d_value;
+
+		d = pllua_checkdatum(L, -1, nt);
 
 		*isnull = false;
-		return datumCopy(d->value, ti->typbyval, ti->typlen);
+
+		PLLUA_TRY();
+		{
+			d_value = datumCopy(d->value, ti->typbyval, ti->typlen);
+		}
+		PLLUA_CATCH_RETHROW();
+
+		return d_value;
 	}
 }
 
