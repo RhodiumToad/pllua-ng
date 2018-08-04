@@ -4554,8 +4554,14 @@ static int pllua_typeinfo_row_call(lua_State *L)
 				lua_pop(L, 1);
 		}
 	}
-
-	if (nargs != t->arity)
+	else if (nargs == 0)
+	{
+		nargs = t->arity;
+		luaL_checkstack(L, 20 + nargs, NULL);
+		for (i = 1; i <= nargs; ++i)
+			lua_pushnil(L);
+	}
+	else if (nargs != t->arity)
 		luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
 				   t->arity, nargs);
 

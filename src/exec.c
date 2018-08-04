@@ -78,7 +78,7 @@ pllua_return_result(lua_State *L,
 		if (nret == 0)
 		{
 #if PG_VERSION_NUM < 90600
-			if (act->typefuncclass==TYPEFUNC_SCALAR && !act->retset)
+			if (act->typefuncclass==TYPEFUNC_SCALAR || !act->retset)
 			{
 				*isnull = true;
 				return (Datum)0;

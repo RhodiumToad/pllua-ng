@@ -68,6 +68,8 @@ $f$;
 
 select * from tf2();
 
+do language pllua $$ print(pgtype.ctype3()) $$;
+
 -- ensure detoasting of nested composites works right
 
 do language pllua $f$

@@ -80,6 +80,8 @@ select * from tf2();
       3 | row 3   | padded with blanks               | not padded | (x,"(y,3333)","(333,33.3)") | (33,3.3)
 (3 rows)
 
+do language pllua $$ print(pgtype.ctype3()) $$;
+INFO:  (,)
 -- ensure detoasting of nested composites works right
 do language pllua $f$
   for r in spi.rows("select * from tdata") do
