@@ -3454,7 +3454,9 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 											CoercionPathType elempath,
 											int nf, Oid fnoid, int nf2, Oid fnoid2,
 											pllua_typeinfo *st,
+											pllua_typeinfo *est,
 											pllua_typeinfo *dt,
+											pllua_typeinfo *edt,
 											int32 typmod,
 											bool is_explicit)
 {
@@ -3482,6 +3484,7 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 		Assert(elempath != COERCION_PATH_NONE);
 		Assert(elempath != COERCION_PATH_ARRAYCOERCE);
 		Assert(elempath != COERCION_PATH_COERCEVIAIO || !separate_typmod);
+		Assert(elempath != COERCION_PATH_COERCEVIAIO || (est && edt));
 
 		if (OidIsValid(fnoid) && (!fn || !OidIsValid(fn->fn_oid)))
 			fn = pllua_pgfunc_init(L, nf, fnoid, -1, NULL, InvalidOid);
@@ -3518,8 +3521,8 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 					 */
 					if (!fcinfo.argnull[0])
 					{
-						const char *str = pllua_typeinfo_raw_output(L, fcinfo.arg[0], st);
-						pllua_typeinfo_raw_input(L, &values[idx], dt, str, typmod);
+						const char *str = pllua_typeinfo_raw_output(L, fcinfo.arg[0], est);
+						pllua_typeinfo_raw_input(L, &values[idx], edt, str, typmod);
 						isnull[idx] = (str == NULL);
 					}
 					else
@@ -3603,7 +3606,7 @@ void pllua_typeinfo_check_domain(lua_State *L,
 			if (t->coerce_typmod_element)
 				pllua_typeinfo_raw_coerce_array(L, val, isnull, COERCION_PATH_FUNC,
 												-1, t->typmod_funcid, 0, InvalidOid,
-												t, t, t->basetypmod, false);
+												t, NULL, t, NULL, t->basetypmod, false);
 			else
 				pllua_typeinfo_raw_coerce(L, val, isnull, -1, t->typmod_funcid, t->basetypmod, false);
 		}
@@ -3750,7 +3753,7 @@ static void pllua_typeinfo_coerce_typmod(lua_State *L,
 			Assert(t->is_array);
 			pllua_typeinfo_raw_coerce_array(L, val, isnull, COERCION_PATH_FUNC,
 											-1, t->typmod_funcid, 0, InvalidOid,
-											t, t, typmod, false);
+											t, NULL, t, NULL, typmod, false);
 		}
 		else
 			pllua_typeinfo_raw_coerce(L, val, isnull, -1, t->typmod_funcid, typmod, false);
@@ -4797,12 +4800,16 @@ pllua_typeconv_scalar_coerce_via_io(lua_State *L)
  * upvalue 3 is cast function oid, InvalidOid for i/o cast, or nil for no cast
  * upvalue 4 is pgfunc or nil
  * upvalue 5 is second pgfunc or nil
+ * upvalue 6 is src element typeinfo for IO casts
+ * upvalue 7 is dst element typeinfo for IO casts
  */
 static int
 pllua_typeconv_array_coerce(lua_State *L)
 {
 	pllua_typeinfo *src_t = pllua_checktypeinfo(L, lua_upvalueindex(1), false);
 	pllua_typeinfo *dst_t = pllua_checktypeinfo(L, lua_upvalueindex(2), true);
+	pllua_typeinfo *src_et = NULL;
+	pllua_typeinfo *dst_et = NULL;
 	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
 	pllua_datum *newd;
 	bool isnull = false;
@@ -4818,7 +4825,13 @@ pllua_typeconv_array_coerce(lua_State *L)
 	if (binary_compat)
 		elempath = COERCION_PATH_RELABELTYPE;
 	else if (!OidIsValid(fnoid))
+	{
 		elempath = COERCION_PATH_COERCEVIAIO;
+		src_et = pllua_checktypeinfo(L, lua_upvalueindex(6), false);
+		dst_et = pllua_checktypeinfo(L, lua_upvalueindex(7), true);
+		if (dst_et->modified || dst_et->obsolete)
+			luaL_error(L, "cannot cast value to modified or obsolete type");
+	}
 	else
 		elempath = COERCION_PATH_FUNC;
 
@@ -4830,7 +4843,7 @@ pllua_typeconv_array_coerce(lua_State *L)
 
 		pllua_typeinfo_raw_coerce_array(L, &val, &isnull, elempath,
 										lua_upvalueindex(4), fnoid, lua_upvalueindex(5), fnoid2,
-										src_t, dst_t, dst_t->basetypmod, false);
+										src_t, src_et, dst_t, dst_et, dst_t->basetypmod, false);
 
 		if (dst_t->basetype != dst_t->typeoid)
 			domain_check(val, isnull, dst_t->typeoid, &dst_t->domain_extra, dst_t->mcxt);
@@ -5028,11 +5041,21 @@ pllua_typeconv_create(lua_State *L)
 					pllua_pgfunc_new(L);
 				else
 					lua_pushnil(L);
+				if (elempathtype == COERCION_PATH_COERCEVIAIO)
+				{
+					pllua_get_user_field(L, 1, "elemtypeinfo");
+					pllua_get_user_field(L, 2, "elemtypeinfo");
+				}
+				else
+				{
+					lua_pushnil(L);
+					lua_pushnil(L);
+				}
 				lua_pushcclosure(L,
 								 ((pathtype == COERCION_PATH_ARRAYCOERCE)
 								  ? pllua_typeconv_array_coerce
 								  : pllua_typeconv_scalar_coerce_func),
-								 5);
+								 7);
 				return 1;
 			case COERCION_PATH_COERCEVIAIO:
 				lua_pushvalue(L, 1);

@@ -232,6 +232,28 @@ select pg_temp.f4d4('toolong');
 ERROR:  value too long for type character varying(3)
 select pg_temp.f4d4(null);
 ERROR:  domain mydom4 does not allow null values
+-- array coercions
+-- relabeltype path
+do language pllua $$
+  local a = pgtype.array.varchar("foo","bar")
+  local b = pgtype.array.text(a)
+  print(b)
+$$;
+INFO:  {foo,bar}
+-- cast function path
+do language pllua $$
+  local a = pgtype.array.boolean(false,true)
+  local b = pgtype.array.text(a)
+  print(b)
+$$;
+INFO:  {false,true}
+-- IO path
+do language pllua $$
+  local a = pgtype.array.integer(10,20)
+  local b = pgtype.array.text(a)
+  print(b)
+$$;
+INFO:  {10,20}
 -- array typmod coercions
 create temp table atc (a varchar(10)[], b char(10)[]);
 do language pllua $$

@@ -152,6 +152,29 @@ select pg_temp.f4d4('bad');
 select pg_temp.f4d4('toolong');
 select pg_temp.f4d4(null);
 
+-- array coercions
+
+-- relabeltype path
+do language pllua $$
+  local a = pgtype.array.varchar("foo","bar")
+  local b = pgtype.array.text(a)
+  print(b)
+$$;
+
+-- cast function path
+do language pllua $$
+  local a = pgtype.array.boolean(false,true)
+  local b = pgtype.array.text(a)
+  print(b)
+$$;
+
+-- IO path
+do language pllua $$
+  local a = pgtype.array.integer(10,20)
+  local b = pgtype.array.text(a)
+  print(b)
+$$;
+
 -- array typmod coercions
 
 create temp table atc (a varchar(10)[], b char(10)[]);
