@@ -1,8 +1,9 @@
 /* hstore_pllua.c */
 
+/* note, we do not support out-of-pllua-tree building */
 #include "pllua.h"
 
-#include "hstore.h"
+#include "hstore/hstore.h"
 
 #include "mb/pg_wchar.h"
 
@@ -29,7 +30,12 @@ static hstoreCheckValLen_t hstoreCheckValLen_p;
 /* Linkage to functions in pllua module */
 typedef void (*pllua_pcall_t)(lua_State *L, int nargs, int nresults, int msgh);
 static pllua_pcall_t pllua_pcall_p;
+typedef lua_CFunction pllua_trampoline_t;
 static lua_CFunction pllua_trampoline_p;
+typedef bool (*pllua_pairs_start_t) (lua_State *L, int nd, bool noerror);
+static pllua_pairs_start_t pllua_pairs_start_p;
+typedef int (*pllua_pairs_next_t) (lua_State *L);
+static pllua_pairs_next_t pllua_pairs_next_p;
 
 /*
  * Module initialize function: fetch function pointers for cross-module calls.
@@ -37,35 +43,24 @@ static lua_CFunction pllua_trampoline_p;
 void
 _PG_init(void)
 {
-	/* Asserts verify that typedefs above match original declarations */
-	AssertVariableIsOfType(&hstoreUpgrade, hstoreUpgrade_t);
-	hstoreUpgrade_p = (hstoreUpgrade_t)
-		load_external_function("$libdir/hstore", "hstoreUpgrade",
-							   true, NULL);
-	AssertVariableIsOfType(&hstoreUniquePairs, hstoreUniquePairs_t);
-	hstoreUniquePairs_p = (hstoreUniquePairs_t)
-		load_external_function("$libdir/hstore", "hstoreUniquePairs",
-							   true, NULL);
-	AssertVariableIsOfType(&hstorePairs, hstorePairs_t);
-	hstorePairs_p = (hstorePairs_t)
-		load_external_function("$libdir/hstore", "hstorePairs",
-							   true, NULL);
-	AssertVariableIsOfType(&hstoreCheckKeyLen, hstoreCheckKeyLen_t);
-	hstoreCheckKeyLen_p = (hstoreCheckKeyLen_t)
-		load_external_function("$libdir/hstore", "hstoreCheckKeyLen",
-							   true, NULL);
-	AssertVariableIsOfType(&hstoreCheckValLen, hstoreCheckValLen_t);
-	hstoreCheckValLen_p = (hstoreCheckValLen_t)
-		load_external_function("$libdir/hstore", "hstoreCheckValLen",
-							   true, NULL);
+#define EXTFUNCS(x_) #x_
+#define EXTFUNCT(xp_) xp_##_t
+#define EXTFUNCP(xp_) xp_##_p
+#define EXTFUNC(lib_, n_)									\
+	AssertVariableIsOfType(&n_, EXTFUNCT(n_));				\
+	EXTFUNCP(n_) = (EXTFUNCT(n_))							\
+		load_external_function(lib_, EXTFUNCS(n_), true, NULL);
 
-	AssertVariableIsOfType(&pllua_pcall, pllua_pcall_t);
-	pllua_pcall_p = (pllua_pcall_t)
-		load_external_function("$libdir/pllua", "pllua_pcall",
-							   true, NULL);
-	pllua_trampoline_p = (lua_CFunction)
-		load_external_function("$libdir/pllua", "pllua_trampoline",
-							   true, NULL);
+	EXTFUNC("$libdir/hstore", hstoreUpgrade);
+	EXTFUNC("$libdir/hstore", hstoreUniquePairs);
+	EXTFUNC("$libdir/hstore", hstorePairs);
+	EXTFUNC("$libdir/hstore", hstoreCheckKeyLen);
+	EXTFUNC("$libdir/hstore", hstoreCheckValLen);
+
+	EXTFUNC("$libdir/pllua", pllua_pcall);
+	EXTFUNC("$libdir/pllua", pllua_trampoline);
+	EXTFUNC("$libdir/pllua", pllua_pairs_start);
+	EXTFUNC("$libdir/pllua", pllua_pairs_next);
 }
 
 
@@ -78,6 +73,8 @@ _PG_init(void)
 
 #define pllua_pcall pllua_pcall_p
 #define pllua_trampoline pllua_trampoline_p
+#define pllua_pairs_start pllua_pairs_start_p
+#define pllua_pairs_next pllua_pairs_next_p
 
 
 static int
@@ -108,16 +105,6 @@ hstore_to_pllua_real(lua_State *L)
 	return 1;
 }
 
-
-static int do_next (lua_State *L)
-{
-	lua_settop(L, 2);
-	if (lua_next(L, 1))
-		return 2;
-	lua_pushnil(L);
-    return 1;
-}
-
 /*
  * equivalent to:
  *
@@ -132,6 +119,7 @@ pllua_to_hstore_real(lua_State *L)
 	Pairs	   *pairs = NULL;
 	int			idx = 0;
 	int			pcount = 0;
+	bool		metaloop;
 
 	/*
 	 * Decline if there isn't exactly 1 arg.
@@ -146,38 +134,21 @@ pllua_to_hstore_real(lua_State *L)
 	lua_newtable(L); /* index 2: keys */
 	lua_newtable(L); /* index 3: vals */
 
-	if (luaL_getmetafield(L, 1, "__pairs") == LUA_TNIL)
-	{
-		/*
-		 * If it doesn't have a pairs metamethod and it's not a plain table,
-		 * then we have to decline it.
-		 */
-		if (!lua_istable(L, 1))
-		{
-			lua_pushnil(L);
-			lua_pushnil(L);
-			return 2;
-		}
-		lua_pushcfunction(L, do_next);
-		lua_pushvalue(L, 1);
-		lua_pushnil(L);
-	}
-	else
-	{
-		lua_pushvalue(L, 1);
-		lua_call(L, 1, 3);
-	}
-	/* index 4-6: iter, state, key */
+	metaloop = pllua_pairs_start(L, 1, true);
 
-	for (;;)
+	/*
+	 * If it doesn't have a pairs metamethod and it's not a plain table,
+	 * then we have to decline it.
+	 */
+	if (!metaloop && !lua_istable(L, 1))
 	{
-		lua_pushvalue(L, 4);
-		lua_insert(L, -2);    /* ... iter key */
-		lua_pushvalue(L, 5);
-		lua_insert(L, -2);    /* ... iter state key */
-		lua_call(L, 2, 2);    /* iter state key val */
-		if (lua_isnil(L, -2))
-			break;
+		/* pairs_start already pushed one nil */
+		lua_pushnil(L);
+		return 2;
+	}
+
+	while (metaloop ? pllua_pairs_next(L) : lua_next(L, 1))
+	{
 		++idx;
 		if (lua_isnil(L, -1) || (lua_isboolean(L, -1) && !lua_toboolean(L, -1)))
 		{

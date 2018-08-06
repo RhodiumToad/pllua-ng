@@ -6,7 +6,7 @@ PG_CONFIG ?= pg_config
 
 # General
 LUA_INCDIR ?= /usr/local/include/lua53
-#LUALIB ?= -L/usr/local/lib -llua-5.3
+LUALIB ?= -L/usr/local/lib -llua-5.3
 
 # no need to edit below here
 
@@ -23,17 +23,20 @@ REGRESS = create_ext hstore
 # MAJORVERSION and includedir_server are not defined yet, but will be
 # defined before PG_CPPFLAGS is expanded
 
-# for pg11+, hstore.h will have been installed
-HSTORE_INCDIR = $(includedir_server)/extension/hstore
+# for pg11+, hstore.h will have been installed here as hstore/hstore.h,
+# but pllua.h might also have been installed as pllua/pllua.h and we don't
+# want to take that in preference to ../src/pllua.h. So we use
+# #include "hstore/hstore.h" but #include "pllua.h"
+
+EXT_INCDIR = $(includedir_server)/extension
 
 # for pg 9.5/9.6/10, we have a local copy of hstore.h since it happens
 # to be the same, barring non-semantic whitespace, between the three
 # versions
-HSTORE_INCDIR_OLD = old_inc
+EXT_INCDIR_OLD = $(srcdir)/old_inc
 
-HSTORE_INC = -I$(HSTORE_INCDIR$(if $(filter 9.% 10,$(MAJORVERSION)),_OLD))
-
-PG_CPPFLAGS = -I$(LUA_INCDIR) -I$(srcdir)/../src $(HSTORE_INC) #-DPLLUA_DEBUG
+PG_CPPFLAGS = -I$(LUA_INCDIR) -I$(srcdir)/../src
+PG_CPPFLAGS += -I$(EXT_INCDIR$(if $(filter 9.% 10,$(MAJORVERSION)),_OLD))
 
 SHLIB_LINK = $(LUALIB)
 
@@ -41,7 +44,7 @@ SHLIB_LINK = $(LUALIB)
 # dir, then assume a vpath build using the makefile's directory as
 # source. PGXS will set $(srcdir) accordingly.
 ifndef VPATH
-ifneq ($(CURDIR),$(dir $(firstword $(MAKEFILE_LIST))))
+ifneq ($(realpath $(CURDIR)),$(realpath $(dir $(firstword $(MAKEFILE_LIST)))))
 VPATH := $(dir $(firstword $(MAKEFILE_LIST)))
 endif
 endif
@@ -52,4 +55,3 @@ include $(PGXS)
 ifeq ($(filter-out 7.% 8.% 9.0 9.1 9.2 9.3 9.4, $(MAJORVERSION)),)
 $(error unsupported PostgreSQL version)
 endif
-
