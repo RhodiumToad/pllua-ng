@@ -188,4 +188,19 @@ do language pllua $$
   print(b)
 $$;
 
+-- composite type construction edge cases
+
+do language pllua $$
+  print(pgtype.ctype3())
+  print(pgtype.ctype3(nil))
+$$;
+
+do language pllua $$
+  print(pgtype.ctype3(1))  -- error
+$$;
+
+do language pllua $$
+  print(pgtype.ctype3(1,2))
+$$;
+
 --end

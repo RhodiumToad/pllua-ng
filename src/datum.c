@@ -3132,6 +3132,60 @@ static int pllua_typeinfo_gc(lua_State *L)
 	return 0;
 }
 
+static int pllua_typeinfo_element(lua_State *L)
+{
+	pllua_typeinfo *t = pllua_checktypeinfo(L, 1, false);
+	if (t->is_array || t->is_range)
+	{
+		if (!lua_isnone(L, 2))
+			luaL_error(L, "unexpected argument to :element method");
+		pllua_get_user_field(L, 1, "elemtypeinfo");
+		return 1;
+	}
+	else if (t->tupdesc)
+	{
+		lua_Integer attno = 0;
+
+		lua_settop(L, 2);
+
+		switch (lua_type(L, 2))
+		{
+			default:
+				luaL_argerror(L, 2, "expected string or number");
+				return 1;
+
+			case LUA_TSTRING:
+				pllua_get_user_field(L, 1, "attrs");
+				/* stack: attrs{ attname = attno } */
+				lua_pushvalue(L, 2);
+				if (lua_gettable(L, -2) != LUA_TNUMBER)
+					luaL_error(L, "type has no column \"%s\"", lua_tostring(L, 2));
+				/*FALLTHROUGH*/
+
+			case LUA_TNUMBER:		/* column number */
+				attno = lua_tointeger(L, -1);
+				if (((attno != ObjectIdAttributeNumber || !t->hasoid)
+					 && (attno < 1 || attno > t->natts))
+					|| TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
+					luaL_error(L, "type has no column number %d", attno);
+				if (attno == ObjectIdAttributeNumber)
+				{
+					lua_pushcfunction(L, pllua_typeinfo_lookup);
+					lua_pushinteger(L, (lua_Integer) OIDOID);
+					lua_call(L, 1, 1);
+				}
+				else
+				{
+					pllua_get_user_field(L, 1, "attrtypes");
+					lua_geti(L, -1, attno);
+				}
+				return 1;
+		}
+	}
+	else
+		return 0;
+}
+
 static int pllua_dump_typeinfo(lua_State *L)
 {
 	pllua_typeinfo *obj = pllua_checktypeinfo(L, 1, false);
@@ -4106,11 +4160,15 @@ static int pllua_typeinfo_call(lua_State *L)
 		 *      source type is a scalar,
 		 *      or: destination is arity 1
 		 *          and source is not the same type oid
+		 * or
+		 *    destination type is an array
+		 *      source type is not an array
 		 * This is because all of those cases should be treated as
 		 * constructing from the first element value
 		 */
-		if (!(t->natts >= 0
-			  && (dt->natts < 0 || (t->arity == 1 && t->typeoid != dt->typeoid))))
+		if (!((t->natts >= 0
+			   && (dt->natts < 0 || (t->arity == 1 && t->typeoid != dt->typeoid)))
+			  || (t->is_array && !dt->is_array)))
 			return pllua_typeinfo_call_datum(L, 2, 1, -1, d, t);
 		lua_pop(L, 1);
 	}
@@ -4322,6 +4380,31 @@ static int pllua_typeinfo_range_call(lua_State *L)
 static int pllua_typeinfo_array_fromtable(lua_State *L, int nt, int nte, int nd, int ndim, int *dims,
 										  pllua_typeinfo *t, pllua_typeinfo *et);
 
+/* assume table is at index nd */
+
+static int pllua_largest_int_key(lua_State *L, int nd)
+{
+	int n = 0;
+	bool metaloop;
+
+	nd = lua_absindex(L, nd);
+
+	metaloop = pllua_pairs_start(L, nd, false);
+
+	while (metaloop ? pllua_pairs_next(L) : lua_next(L, nd))
+	{
+		lua_pop(L, 1);
+		if (lua_isnumber(L, -1))
+		{
+			int isint = 0;
+			lua_Integer k = lua_tointegerx(L, -1, &isint);
+			if (isint && k > 0 && k <= INT_MAX && k > n)
+				n = k;
+		}
+	}
+	return n;
+}
+
 /*
  * arraytype(val,val,val,...)
  * arraytype()  empty array
@@ -4366,6 +4449,16 @@ static int pllua_typeinfo_array_call(lua_State *L)
 					|| (dims[i] == 0 && ndim > 1))
 					luaL_error(L, "invalid dimension %d (%d) for array", i, dims[i]);
 			}
+			return pllua_typeinfo_array_fromtable(L, 1, -1, 2, ndim, dims, t, et);
+		}
+		else if (nargs == 1
+				 && (typ1 == LUA_TTABLE
+					 || (typ1 == LUA_TUSERDATA
+						 && !pllua_todatum(L, 2, -1)
+						 && pllua_is_container(L, 2) )))
+		{
+			ndim = 1;
+			dims[0] = pllua_largest_int_key(L, 2);
 			return pllua_typeinfo_array_fromtable(L, 1, -1, 2, ndim, dims, t, et);
 		}
 	}
@@ -4556,8 +4649,14 @@ static int pllua_typeinfo_row_call(lua_State *L)
 			else
 				lua_pop(L, 1);
 		}
+		else if (lua_isnil(L, 2))
+		{
+			lua_pop(L, 1);
+			nargs = 0;
+		}
 	}
-	else if (nargs == 0)
+
+	if (nargs == 0)
 	{
 		nargs = t->arity;
 		luaL_checkstack(L, 20 + nargs, NULL);
@@ -5257,6 +5356,7 @@ static struct luaL_Reg typeinfo_mt[] = {
 static struct luaL_Reg typeinfo_methods[] = {
 	{ "fromstring", pllua_typeinfo_fromstring },
 	{ "frombinary", pllua_typeinfo_frombinary },
+	{ "element", pllua_typeinfo_element },
 	{ "dump", pllua_dump_typeinfo },
 	{ "name", pllua_typeinfo_name },
 	{ NULL, NULL }

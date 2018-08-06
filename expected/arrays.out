@@ -232,4 +232,106 @@ with t as (select d from adata where d is not null order by id)
  01-01-2017,01-19-2017,02-06-2017,02-24-2017,03-14-2017,04-01-2017,04-19-2017,05-07-2017,05-25-2017,06-12-2017,06-30-2017,07-18-2017,08-05-2017,08-23-2017,09-10-2017,09-28-2017,10-16-2017,11-03-2017,11-21-2017,12-09-2017,12-27-2017,01-01-1970
 (3 rows)
 
+-- conversion edge cases
+create function pg_temp.af2() returns integer[] language pllua
+  as $$
+    return nil
+$$;
+select pg_temp.af2();
+ af2 
+-----
+ 
+(1 row)
+
+create function pg_temp.af3() returns integer[] language pllua
+  as $$
+    return
+$$;
+select pg_temp.af3();
+ af3 
+-----
+ 
+(1 row)
+
+create function pg_temp.af4() returns integer[] language pllua
+  as $$
+    return 1,2
+$$;
+select pg_temp.af4();
+  af4  
+-------
+ {1,2}
+(1 row)
+
+create function pg_temp.af5() returns integer[] language pllua
+  as $$
+    return pgtype(nil,0)()
+$$;
+select pg_temp.af5();
+ af5 
+-----
+ {}
+(1 row)
+
+create function pg_temp.af5b() returns integer[] language pllua
+  as $$
+    return {}
+$$;
+select pg_temp.af5b();
+ af5b 
+------
+ {}
+(1 row)
+
+create function pg_temp.af6() returns integer[] language pllua
+  as $$
+    return { 1, nil, 3 }
+$$;
+select pg_temp.af6();
+    af6     
+------------
+ {1,NULL,3}
+(1 row)
+
+create function pg_temp.af7() returns integer[] language pllua
+  as $$
+    return pgtype.integer(1)
+$$;
+select pg_temp.af7();
+ af7 
+-----
+ {1}
+(1 row)
+
+create function pg_temp.af8() returns integer[] language pllua
+  as $$
+    return { pgtype.integer(1) }
+$$;
+select pg_temp.af8();
+ af8 
+-----
+ {1}
+(1 row)
+
+create type acomp1 as (foo integer, bar text);
+create function pg_temp.af9() returns acomp1[] language pllua
+  as $$
+    return { { foo = 1, bar = "zot" } }
+$$;
+select pg_temp.af9();
+     af9     
+-------------
+ {"(1,zot)"}
+(1 row)
+
+create function pg_temp.af10() returns acomp1[] language pllua
+  as $$
+    return { pgtype(nil,0):element()(1, "zot") }
+$$;
+select pg_temp.af10();
+    af10     
+-------------
+ {"(1,zot)"}
+(1 row)
+
 --

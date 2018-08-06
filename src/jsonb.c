@@ -16,29 +16,6 @@
 #define DatumGetJsonbP(d_) DatumGetJsonb(d_)
 #endif
 
-
-static bool
-pllua_jsonb_is_container(lua_State *L, int nd)
-{
-	if (lua_type(L, nd) == LUA_TTABLE)
-		return true;
-	if (luaL_getmetafield(L, nd, "__pairs") != LUA_TNIL)
-	{
-		lua_pop(L, 1);
-		return true;
-	}
-	return false;
-}
-
-static int do_next (lua_State *L)
-{
-	lua_settop(L, 2);
-	if (lua_next(L, 1))
-		return 2;
-	lua_pushnil(L);
-    return 1;
-}
-
 /*
  * called with the container value on top of the stack
  *
@@ -62,34 +39,25 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 	int numkeys = 0;
 	int isint;
 	lua_Integer intval;
+	bool metaloop;
+	int tabidx = lua_absindex(L, -1);
+	int keytabidx;
+	int numkeytabidx;
 
 	lua_newtable(L);
+	keytabidx = lua_absindex(L, -1);
+
 	lua_newtable(L);
+	numkeytabidx = lua_absindex(L, -1);
 
-	if (luaL_getmetafield(L, -3, "__pairs") == LUA_TNIL)
-	{
-		lua_pushcfunction(L, do_next);
-		lua_pushvalue(L, -4);
-		lua_pushnil(L);
-	}
-	else
-	{
-		lua_pushvalue(L, -4);
-		lua_call(L, 1, 3);
-	}
-	/* stack: keytable, numkeytab, iter, state, key */
+	metaloop = pllua_pairs_start(L, tabidx, true);
 
-	for (;;)
+	/* stack: keytable, numkeytab, [iter, state,] key */
+
+	while (metaloop ? pllua_pairs_next(L) : lua_next(L, tabidx))
 	{
-		lua_pushvalue(L, -3);
-		lua_insert(L, -2);    /* ... iter state iter key */
-		lua_pushvalue(L, -3);
-		lua_insert(L, -2);    /* ... iter state iter state key */
-		lua_call(L, 2, 2);    /* keytable numkeytab iter state key val */
-		lua_pop(L, 1);
-		if (lua_isnil(L, -1))    /* keytable numkeytab iter state key */
-			break;
-		lua_pushvalue(L, -1);    /* keytable numkeytab iter state key key */
+		lua_pop(L, 1);			/* don't need the value */
+		lua_pushvalue(L, -1);   /* keytable numkeytab [iter state] key key */
 		++numkeys;
 		/*
 		 * this is the input table's key: here, we accept strings containing
@@ -104,7 +72,7 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 				min_intkey = intval;
 			++numintkeys;
 			lua_pushvalue(L, -1);
-			lua_rawseti(L, -6, numintkeys);
+			lua_rawseti(L, numkeytabidx, numintkeys);
 		}
 
 		switch (lua_type(L, -1))
@@ -127,9 +95,8 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 				luaL_error(L, "cannot serialize scalar value of type %s as key", luaL_typename(L, -1));
 		}
 
-		lua_rawseti(L, -6, numkeys);
+		lua_rawseti(L, keytabidx, numkeys);
 	}
-	lua_pop(L, 3);
 
 	/* stack: keytable numkeytab */
 
@@ -383,7 +350,7 @@ pllua_jsonb_tosql(lua_State *L)
 		lua_replace(L, 1);
 	}
 
-	if (!pllua_jsonb_is_container(L, 1))
+	if (!pllua_is_container(L, 1))
 	{
 		JsonbValue sval;
 
@@ -517,7 +484,7 @@ pllua_jsonb_tosql(lua_State *L)
 					lua_call(L, 1, 1);
 				}
 
-				if (pllua_jsonb_is_container(L, -1))
+				if (pllua_is_container(L, -1))
 				{
 					tok = pllua_jsonb_pushkeys(L, empty_object, array_thresh, array_frac);
 					/* stack: ... value=newcontainer newkeylist newprevkey newindex */

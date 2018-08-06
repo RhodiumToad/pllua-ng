@@ -151,4 +151,68 @@ select af1(d) from adata where d is not null order by id;
 with t as (select d from adata where d is not null order by id)
   select af1(array_append(d, date '1970-01-01')) from t;
 
+-- conversion edge cases
+
+create function pg_temp.af2() returns integer[] language pllua
+  as $$
+    return nil
+$$;
+select pg_temp.af2();
+
+create function pg_temp.af3() returns integer[] language pllua
+  as $$
+    return
+$$;
+select pg_temp.af3();
+
+create function pg_temp.af4() returns integer[] language pllua
+  as $$
+    return 1,2
+$$;
+select pg_temp.af4();
+
+create function pg_temp.af5() returns integer[] language pllua
+  as $$
+    return pgtype(nil,0)()
+$$;
+select pg_temp.af5();
+
+create function pg_temp.af5b() returns integer[] language pllua
+  as $$
+    return {}
+$$;
+select pg_temp.af5b();
+
+create function pg_temp.af6() returns integer[] language pllua
+  as $$
+    return { 1, nil, 3 }
+$$;
+select pg_temp.af6();
+
+create function pg_temp.af7() returns integer[] language pllua
+  as $$
+    return pgtype.integer(1)
+$$;
+select pg_temp.af7();
+
+create function pg_temp.af8() returns integer[] language pllua
+  as $$
+    return { pgtype.integer(1) }
+$$;
+select pg_temp.af8();
+
+create type acomp1 as (foo integer, bar text);
+
+create function pg_temp.af9() returns acomp1[] language pllua
+  as $$
+    return { { foo = 1, bar = "zot" } }
+$$;
+select pg_temp.af9();
+
+create function pg_temp.af10() returns acomp1[] language pllua
+  as $$
+    return { pgtype(nil,0):element()(1, "zot") }
+$$;
+select pg_temp.af10();
+
 --

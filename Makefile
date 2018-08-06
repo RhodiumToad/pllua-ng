@@ -57,7 +57,7 @@ MODULE_big = pllua
 EXTENSION = pllua plluau
 
 SQL_SRC = pllua--2.0.sql pllua--1.0--2.0.sql \
-		plluau--2.0.sql plluau--1.0--2.0.sql
+	  plluau--2.0.sql plluau--1.0--2.0.sql
 DATA = $(addprefix scripts/, $(SQL_SRC))
 
 DOC_HTML = pllua.html
@@ -90,6 +90,8 @@ DOC_MD = css.css pllua.md building.md endnote.md
 DOC_SRCS = $(addprefix $(srcdir)/doc/, $(DOC_MD))
 
 INCS=   pllua.h pllua_pgver.h pllua_luaver.h pllua_luajit.h
+
+HEADERS= $(addprefix $(srcdir)/src/, $(INCS))
 
 OBJS_C= compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	jsonb.o numeric.o objects.o pllua.o preload.o spi.o trigger.o \

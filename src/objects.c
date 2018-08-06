@@ -302,6 +302,66 @@ pllua_get_user_subfield(lua_State *L, int nd, const char *field, const char *sub
 	}
 }
 
+/* Convenience functions for doing pairs() loops */
+
+bool
+pllua_is_container(lua_State *L, int nd)
+{
+	if (lua_type(L, nd) == LUA_TTABLE)
+		return true;
+	if (luaL_getmetafield(L, nd, "__pairs") != LUA_TNIL)
+	{
+		lua_pop(L, 1);
+		return true;
+	}
+	return false;
+}
+
+bool pllua_pairs_start(lua_State *L, int nd, bool noerror)
+{
+	nd = lua_absindex(L, nd);
+
+	if (luaL_getmetafield(L, nd, "__pairs") == LUA_TNIL)
+	{
+		if (!noerror)
+			luaL_checktype(L, nd, LUA_TTABLE);
+		lua_pushnil(L); /* initial key for lua_next */
+		return false;
+	}
+	else
+	{
+		lua_pushvalue(L, nd);
+		lua_call(L, 1, 3);
+		return true;
+	}
+}
+
+/*
+ * At call, the stack is:
+ *
+ *  iterfunc \ state \ key
+ *
+ * On true return, we leave
+ *
+ *  iterfunc \ state \ key \ value
+ *
+ * On false return, we pop all three
+ */
+int pllua_pairs_next(lua_State *L)
+{
+	lua_pushvalue(L, -3);
+	lua_insert(L, -2);    /* iter state iter key */
+	lua_pushvalue(L, -3);
+	lua_insert(L, -2);    /* iter state iter state key */
+	lua_call(L, 2, 2);    /* iter state key val */
+	if (lua_isnil(L, -2))
+	{
+		lua_pop(L, 4);
+		return 0;
+	}
+	return 1;
+}
+
 /*
  * Activation objects represent a function call site (flinfo).
  *

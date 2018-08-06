@@ -598,6 +598,11 @@ int pllua_open_numeric(lua_State *L);
 /* objects.c */
 int pllua_open_funcmgr(lua_State *L);
 
+/* These are DLLEXPORT so that transform modules can get at them */
+PGDLLEXPORT bool pllua_is_container(lua_State *L, int nd);
+PGDLLEXPORT bool pllua_pairs_start(lua_State *L, int nd, bool noerror);
+PGDLLEXPORT int pllua_pairs_next(lua_State *L);
+
 bool pllua_isobject(lua_State *L, int nd, char *objtype);
 void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt);
 void pllua_new_weak_table(lua_State *L, const char *mode, const char *name);
