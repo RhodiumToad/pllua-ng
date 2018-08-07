@@ -248,11 +248,11 @@ static int pllua_cursor_options(lua_State *L, int nd, int *fetch_count)
 static int pllua_spi_prepare_recursion = -1;
 static post_parse_analyze_hook_type pllua_spi_prev_parse_hook = NULL;
 
-
 static void pllua_spi_prepare_checkparam_hook(ParseState *pstate,
 											  Query *query)
 {
-	check_variable_parameters(pstate, query);
+	if (pllua_spi_prepare_recursion == 1)
+		check_variable_parameters(pstate, query);
 	if (pllua_spi_prev_parse_hook)
 		pllua_spi_prev_parse_hook(pstate, query);
 }
@@ -296,27 +296,24 @@ static pllua_spi_statement *pllua_spi_make_statement(lua_State *L,
 	}
 
 	/*
-	 * GAH. To do parameter type checking properly, we have to install our
-	 * own global post-parse hook transiently.
+	 * GAH. To do parameter type checking properly, we have to arrange to
+	 * enable our own global post-parse hook transiently.
 	 */
-	if (++pllua_spi_prepare_recursion != 0)
+	if (pllua_spi_prepare_recursion != 0)
 		elog(ERROR, "pllua: recursive entry into prepare!"); /* paranoia */
 	PG_TRY();
 	{
-		pllua_spi_prev_parse_hook = post_parse_analyze_hook;
-		post_parse_analyze_hook = pllua_spi_prepare_checkparam_hook;
+		++pllua_spi_prepare_recursion;
 
 		stmt->plan = SPI_prepare_params(str,
 										pllua_spi_prepare_parser_setup_hook,
 										stmt,
 										opts);
 
-		post_parse_analyze_hook = pllua_spi_prev_parse_hook;
 		--pllua_spi_prepare_recursion;
 	}
 	PG_CATCH();
 	{
-		post_parse_analyze_hook = pllua_spi_prev_parse_hook;
 		--pllua_spi_prepare_recursion;
 		PG_RE_THROW();
 	}
@@ -1499,6 +1496,13 @@ static struct luaL_Reg spi_stmt_mt[] = {
 
 int pllua_open_spi(lua_State *L)
 {
+	if (pllua_spi_prepare_recursion == -1)
+	{
+		pllua_spi_prev_parse_hook = post_parse_analyze_hook;
+		post_parse_analyze_hook = pllua_spi_prepare_checkparam_hook;
+		pllua_spi_prepare_recursion = 0;
+	}
+
 	pllua_newmetatable(L, PLLUA_SPI_STMT_OBJECT, spi_stmt_mt);
 	luaL_newlib(L, spi_stmt_methods);
 	lua_setfield(L, -2, "__index");
