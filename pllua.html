@@ -1,0 +1,1464 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>PL/Lua Documentation</title>
+<style>
+
+body {
+	margin: 0;
+	padding: 0;
+	font-family: verdana, sans-serif;
+	color: #000;
+	background-color: #fff;
+}
+
+#headContainer, #bodyContainer, #footer {
+	margin: 0 auto;
+	width: 95%;
+}
+
+@media (min-width:950px) {
+	#headContainer, #bodyContainer, #footer {
+		width: 85%;
+	}
+}
+
+#footerContainer {
+	margin-top: 6ex;
+	margin-bottom: 2ex;
+}
+
+dd p {
+	margin-top: 1ex;
+}
+
+p, ol, ul, dl, pre {
+	line-height: 150%;
+}
+
+dd {
+	margin-bottom: 8px;
+}
+
+h1 {
+	margin-top: 2ex;
+	font-size: 175%;
+}
+
+h2 {
+	margin-top: 2ex;
+	font-size: 150%;
+}
+
+pre code {
+	padding: 0;
+	font-size: 120%;
+	line-height: 150%;
+}
+
+code.shortcode, code.longcode {
+	padding: 2px;
+	font-size: 130%;
+	background-color: #eee;
+}
+
+/* prevent line-breaks in short code spans */
+code.shortcode {
+	white-space: pre;
+}
+
+pre.codeblock {
+	margin: 2ex 2em 2ex 2em;
+	padding: 2ex;
+	border-radius: 8px;
+	border-width: 1px;
+	border-style: solid;
+	background-color: #eee;
+	box-shadow: 3px 3px 5px #ddd;
+	border-color: #ccc;
+}
+
+</style>
+</head>
+<body>
+<div id="headContainer">
+<h1>Contents</h1>
+<ol>
+<li value="1">
+<a href="#S1">PL/Lua Introduction</a><ol>
+<li value="1"><a href="#S1.1">Quick start</a></li>
+<li value="2"><a href="#S1.2">Basic Examples</a></li>
+</ol>
+</li>
+<li value="2">
+<a href="#S2">PL/Lua Reference</a><ol>
+<li value="1"><a href="#S2.1">PostgreSQL environment</a></li>
+<li value="2"><a href="#S2.2">Lua environment</a></li>
+<li value="3"><a href="#S2.3">pllua.elog</a></li>
+<li value="4"><a href="#S2.4">pllua.funcmgr</a></li>
+<li value="5"><a href="#S2.5">pllua.pgtype</a></li>
+<li value="6"><a href="#S2.6">pllua.spi</a></li>
+<li value="7"><a href="#S2.7">pllua.trusted</a></li>
+<li value="8"><a href="#S2.8">pllua.trigger</a></li>
+<li value="9"><a href="#S2.9">pllua.numeric</a></li>
+<li value="10"><a href="#S2.10">pllua.jsonb</a></li>
+</ol>
+</li>
+<li value="3">
+<a href="#S3">Building PL/Lua</a><ol>
+<li value="1"><a href="#S3.1">Building the pllua module</a></li>
+<li value="2"><a href="#S3.2">Building the hstore_pllua module</a></li>
+<li value="3"><a href="#S3.3">Building the documentation</a></li>
+<li value="4"><a href="#S3.4">VPATH builds</a></li>
+<li value="5"><a href="#S3.5">Luajit options</a></li>
+<li value="6"><a href="#S3.6">Porting options</a></li>
+</ol>
+</li>
+</ol>
+</div>
+<div id="bodyContainer">
+
+
+<h1 id="S1">PL/Lua Introduction</h1>
+<p>PL/Lua is a procedural language module for the PostgreSQL database
+that allows server-side functions to be written in Lua.</p>
+<h2 id="S1.1">Quick start</h2>
+<pre class="codeblock"><code>create extension pllua;
+
+create function hello(person text) returns text language pllua as $$
+  return "Hello, " .. person .. ", from Lua!"
+$$;
+
+select hello('Fred');
+         hello
+------------------------
+ Hello, Fred, from Lua!
+(1 row)
+</code></pre>
+<h2 id="S1.2">Basic Examples</h2>
+<h3>Using <code class="shortcode">print()</code> for interactive diagnostics</h3>
+<p>Anything passed to the <code class="shortcode">print()</code> function will be raised as a
+notification at <code class="shortcode">INFO</code> level, causing <code class="shortcode">psql</code> to display it
+interactively; program clients will usually just ignore non-error
+notices.</p>
+<pre class="codeblock"><code>create function print_lua_ver() returns void language pllua as $$
+  print(_VERSION)
+$$;
+select print_lua_ver();
+INFO:  Lua 5.3
+ print_lua_ver 
+---------------
+ 
+(1 row)
+</code></pre>
+<h3>Simple arguments and results</h3>
+<p>Simple scalar types (integers, floats, text, bytea, boolean) are
+converted to the matching Lua type, and conversely for results.</p>
+<pre class="codeblock"><code>create function add2(a integer, b integer) returns integer language pllua
+  as $$
+    return a + b
+$$;
+</code></pre>
+<p>Other data types are passed as userdata objects that can be converted
+to strings with <code class="shortcode">tostring()</code> or accessed via provided methods and
+metamethods. In particular, arrays and records are accessible in most
+ways as though they were Lua tables, though they're actually not.</p>
+<pre class="codeblock"><code>create type myrow as (a integer, b text[]);
+create function foo(rec myrow) returns myrow language pllua as $$
+  print("a is", rec.a)
+  print("b[1] is", rec.b[1])
+  print("b[2] is", rec.b[2])
+  return { a = 123, b = {"fred","jim"} }
+$$;
+select * from foo(row(1,array['foo','bar'])::myrow);
+INFO:  a is     1
+INFO:  b[1] is  foo
+INFO:  b[2] is  bar
+  a  |     b
+-----+------------
+ 123 | {fred,jim}
+(1 row)
+</code></pre>
+<h3>Sum of an array</h3>
+<pre class="codeblock"><code>create function array_sum(a integer[]) returns integer language pllua
+as $$
+  local total = 0
+  for k,v in pairs(a) do
+    total = total + v
+  end
+  return total
+$$;
+</code></pre>
+<p>The above assume single-dimension arrays with no NULLs. A more generic
+method uses the array mapping function provided by the array userdata:</p>
+<pre class="codeblock"><code>create function array_sum(a integer[]) returns integer language pllua
+as $$
+  local total = 0
+  a{ null = 0,
+     map = function(v,...) total = total + v end,
+	 discard = true }
+  return total
+$$;
+</code></pre>
+<h3>Simple database queries</h3>
+<p>The local environment created for each function is a good place to
+cache prepared queries:</p>
+<pre class="codeblock"><code>create table objects (id integer primary key, value text);
+create function get_value(id integer) returns text language pllua stable
+as $$
+  local r = q:execute(id)
+  return r and r[1] and r[1].value or 'value not found'
+end
+do -- the part below will be executed once before the first call
+  q = spi.prepare("select value from objects where id=$1")
+$$;
+</code></pre>
+<p>The result of executing a query is a table containing rows (if any)
+for select queries, or an integer rowcount for queries that do not
+return rows.</p>
+<h3>Triggers</h3>
+<pre class="codeblock"><code>create function mytrigger() returns trigger language pllua
+as $$
+  -- trigger functions are implicitly declared f(trigger,old,new,...)
+  new.total_cost = new.price * new.qty;
+  return new
+$$;
+</code></pre>
+<h3>JSON handling</h3>
+<p>Values of type <code class="shortcode">json</code> are passed to Lua simply as strings. But the
+<code class="shortcode">jsonb</code> data type is supported in a more direct fashion.</p>
+<p><code class="shortcode">jsonb</code> values can be mapped to Lua tables in a configurable way, and
+Lua tables converted back to <code class="shortcode">jsonb</code> values:</p>
+<pre class="codeblock"><code>create function add_stuff(val jsonb) returns jsonb language pllua
+as $$
+  local t = val{}	-- convert jsonb to table with default settings
+  t.newkey = { { foo = 1 }, { bar = 2 } }
+  return t
+$$;
+select add_stuff('{"oldkey":123}');
+	                       add_stuff
+-----------------------------------------------------
+ {"newkey": [{"foo": 1}, {"bar": 2}], "oldkey": 123}
+(1 row)
+</code></pre>
+<h1 id="S2">PL/Lua Reference</h1>
+<h2 id="S2.1">PostgreSQL environment</h2>
+<p>PL/Lua provides two extensions:</p>
+<pre class="codeblock"><code>create extension pllua;  -- installs the trusted language
+create extension plluau;  -- installs the untrusted language
+</code></pre>
+<p>Two optional transform modules exist which are useful if the
+optional "hstore" extension is loaded:</p>
+<pre class="codeblock"><code>create extension hstore_pllua;  -- for hstore type in pllua
+create extension hstore_plluau;  -- for hstore type in plluau
+</code></pre>
+<p>These allow direct conversions between hstore values and Lua tables.</p>
+<p>The following optional configuration settings apply to PL/Lua. Most of
+them require superuser privileges to set.</p>
+<dl>
+<dt><code class="shortcode">shared_preload_libraries='pllua'</code></dt>
+<dd>
+
+<p>If set, <code class="shortcode">pllua.so</code> will be loaded in the postmaster process and
+the <code class="shortcode">pllua.on_init</code> string run there. Be careful with this, since
+errors in the init string will prevent PostgreSQL from starting.
+The benefit of this is that additional modules can be require'd
+into the interpreter and inherited by child processes via
+<code class="shortcode">fork()</code>. Most applications will likely not need this.</p>
+<p>By default, <code class="shortcode">pllua.so</code> is loaded and the init strings run on the
+first use within each database session.</p>
+</dd>
+<dt>
+<code class="shortcode">pllua.check_for_interrupts=boolean</code> (default: <code class="shortcode">true</code>)</dt>
+<dd>
+
+<p>If set, a hook function checks for a query cancel interrupt at
+intervals while running Lua code.</p>
+</dd>
+<dt><code class="shortcode">pllua.on_init='lua code chunk'</code></dt>
+<dd>
+
+<p>If set, this string is loaded and run early in the interpreter
+setup process. If <code class="shortcode">shared_preload_libraries</code> is used (see below),
+this string is run in the postmaster process (which is useful for
+preloading code to be inherited via <code class="shortcode">fork()</code>). No database access
+is possible. The <code class="shortcode">print()</code> function will output to the server log.</p>
+</dd>
+<dt><code class="shortcode">pllua.on_trusted_init='lua code chunk'</code></dt>
+<dt><code class="longcode">pllua.on_untrusted_init='lua code chunk'</code></dt>
+<dd>
+
+<p>This string is run late in initialization of a trusted or
+untrusted interpreter, as applicable. It can do database access.
+The trusted init string is run outside the trusted environment, so
+it has full access to the system; if it wishes to expose loaded
+modules to the trusted environment, this must be done explicitly
+with the <code class="shortcode">trusted.allow()</code> or <code class="shortcode">trusted.require()</code> functions
+described below.</p>
+</dd>
+<dt><code class="shortcode">pllua.on_common_init='lua code chunk'</code></dt>
+<dd>
+
+<p>This string is run late (after the previous init strings) in
+initialization of any interpreter. It can do database access. For
+trusted interpreter, the string is run inside the sandbox.</p>
+</dd>
+<dt>
+<code class="shortcode">pllua.install_globals=boolean</code> (default: <code class="shortcode">true</code>)</dt>
+<dd>
+
+<p>If true, the <code class="shortcode">spi</code> and <code class="shortcode">pgtype</code> modules are stored as global
+tables, as if by:</p>
+<pre class="codeblock"><code>_G.spi = require 'pllua.spi'
+_G.pgtype = require 'pllua.pgtype'
+</code></pre>
+<p>If false, this is not done, and functions wanting to access these
+modules will need to require them explicitly.</p>
+</dd>
+<dt>
+<code class="shortcode">pllua.prebuilt_interpreters=integer</code> (default: 1)</dt>
+<dd>
+
+<p>If <code class="shortcode">pllua.so</code> was loaded in <code class="shortcode">shared_preload_libraries</code>, this
+specifies how many Lua states (interpreters) to prebuild. The
+<code class="shortcode">on_init</code> string is run independently in each one.</p>
+<p>The sole benefit of prebuilding more than one interpreter is if
+you expect most database sessions to use both trusted and
+untrusted language functions, or trusted language functions called
+from <code class="shortcode">SECURITY DEFINER</code> functions under more than one user. New
+states are always created on demand as needed within each session
+if the prebuilt ones are used up.</p>
+<p>The default is to create 1 prebuilt state if loaded from
+<code class="shortcode">shared_preload_libraries</code>.</p>
+</dd>
+<dt>
+<code class="longcode">pllua.interpreter_reload_ident='arbitrary string'</code> (default: unset)</dt>
+<dd>
+
+<p>If <code class="shortcode">pllua.so</code> is loaded in the postmaster, then altering this
+setting will cause any prebuilt interpreters to be destroyed and
+recreated. Also, if this value is set to a nonempty string,
+altering the value of <code class="shortcode">pllua.on_init</code> will also cause prebuilt
+interpreters to be rebuilt. The value of
+<code class="shortcode">pllua.interpreter_reload_ident</code> is stored in the created
+interpreters (as <code class="shortcode">_G._PL_IDENT</code>) for verification purposes.</p>
+<p>If this value is unset or empty then prebuilt interpreters are not
+reloaded except by postmaster restart.</p>
+<p>Additionally, altering the value causes <code class="shortcode">_G._PL_IDENT_NEW</code> to be
+set to the new value in existing active interpreters before their
+next use after the value changes.</p>
+</dd>
+<dt>
+<code class="shortcode">pllua.extra_gc_multiplier=real</code> (min 0, default 0, max 1000000)</dt>
+<dt>
+<code class="shortcode">pllua.extra_gc_threshold=real</code> (min 0, default 0)</dt>
+<dd>
+
+<p>These options do not require superuser privilege.</p>
+<p>If <code class="shortcode">multiplier</code> is 0 (the default), then no additional garbage
+collection is done.</p>
+<p>If <code class="shortcode">multiplier</code> is set to a value greater than 0 but less than
+1000000, then the amount of non-Lua memory newly allocated by the
+module is estimated, and before each return to the user, if that
+amount is at least <code class="shortcode">threshold</code> kbytes, then a <code class="shortcode">LUA_GCSTEP</code> call is
+made with a parameter of <code class="shortcode">(allocated_kbytes * multiplier)</code>. If
+<code class="shortcode">multiplier</code> is set to 1000000, then a <code class="shortcode">LUA_GCCOLLECT</code> call is
+made instead.</p>
+</dd>
+</dl>
+<h2 id="S2.2">Lua environment</h2>
+<p>The Lua interpreters are initialized as follows.</p>
+<p>The standard Lua libraries are installed and a number of global functions
+are replaced:</p>
+<dl>
+<dt><code class="shortcode">print()</code></dt>
+<dd>
+
+<p>replaced with a version that outputs <code class="shortcode">INFO:</code> messages to the
+client (except in the init strings, where it outputs <code class="shortcode">LOG:</code>
+to the server log)</p>
+</dd>
+<dt><code class="shortcode">pcall()</code></dt>
+<dt><code class="shortcode">xpcall()</code></dt>
+<dd>
+
+<p>replaced with versions that provide subtransaction support</p>
+</dd>
+<dt><code class="shortcode">lpcall()</code></dt>
+<dd>
+
+<p>"light" pcall with no subtransactions, but which doesn't
+catch all errors</p>
+</dd>
+<dt><code class="shortcode">coroutine.resume()</code></dt>
+<dd>
+
+<p>replaced with a version that propagates PG errors, like lpcall</p>
+</dd>
+</dl>
+<p>Then the <code class="shortcode">pllua.trusted</code> module is loaded and initialized, but not
+stored into any global variable (it can be accessed with <code class="shortcode">require</code>).</p>
+<p>Then the <code class="shortcode">on_init</code> string is run if it is set.</p>
+<p>Then the equivalent of the following is done:</p>
+<pre class="codeblock"><code>require 'pllua.elog'
+require 'pllua.funcmgr'
+if install_globals then
+  _G.pgtype = require 'pllua.pgtype'
+  _G.spi = require 'pllua.spi'
+else
+  require 'pllua.pgtype'
+  require 'pllua.spi'
+end
+require 'pllua.trigger'
+require 'pllua.numeric'
+require 'pllua.jsonb'
+</code></pre>
+<p>and in trusted interpreters only, the <code class="shortcode">pllua.trusted</code> module is assigned
+to the global <code class="shortcode">_G.trusted</code> (outside the sandbox).</p>
+<p>Then the <code class="shortcode">on_trusted_init</code> or <code class="shortcode">on_untrusted_init</code> string is run if set.</p>
+<p>Then the <code class="shortcode">on_common_init</code> string is run if set.</p>
+<p>Each module is described below.</p>
+<p>PL/Lua code is invoked in two ways. Inline code blocks are invoked as:</p>
+<pre class="codeblock"><code>DO LANGUAGE pllua $$ string... $$;
+</code></pre>
+<p>This is processed as if by the following Lua code:</p>
+<pre class="codeblock"><code>function inline(str)
+  local env = setmetatable({}, { __index = _G })
+  local chunk = assert(load(str,"DO-block","t",env))
+  chunk(env)
+end
+</code></pre>
+<p>SQL-callable function or procedure (PostgreSQL 11+ only) definitions
+are created as:</p>
+<pre class="codeblock"><code>CREATE FUNCTION name(args...) RETURNS ... LANGUAGE pllua
+  AS $$ body $$;
+
+CREATE PROCEDURE name(args...) LANGUAGE pllua
+  AS $$ body $$;
+</code></pre>
+<p>These are handled as follows. When the function is first called in a
+session, the body is processed as if by the following Lua function:</p>
+<pre class="codeblock"><code>function compile(name,argdef,body)
+  local env = setmetatable({}, { __index = _G })
+  local fmt = "local self = (...) local function %s(%s) %s end return %s"
+  local chunk = assert(load(string.format(fmt,name,argdef,body,name),
+                            name,"t",env))
+  return chunk(env)
+end
+</code></pre>
+<p>For non-trigger functions, the <code class="shortcode">argdef</code> string lists the names of
+named arguments (if any) followed by a <code class="shortcode">...</code> varargs definition if not
+all arguments have names (named arguments must not follow unnamed
+ones). For trigger functions, the <code class="shortcode">argdef</code> string is always
+<code class="shortcode">"trigger,old,new,..."</code> (where the additional arguments come from the
+<code class="shortcode">CREATE TRIGGER</code> definition). For event triggers, it is simply <code class="shortcode">"trigger"</code>.</p>
+<p>The intended effect is that functions and do-blocks run in their own
+<code class="shortcode">self</code> environment which inherits the global one. They can still set
+global variables, but must do so explicitly. Functions can do their
+own first-call initialization by ending the function block early:</p>
+<pre class="codeblock"><code>create function name(args)... as $$
+    --[[ code here to execute on normal call]]
+  end
+  do
+    --[[ code here is executed only before first call]]
+$$;
+</code></pre>
+<h2 id="S2.3">pllua.elog</h2>
+<p>The pllua.elog module is a table of simple functions:</p>
+<pre class="codeblock"><code>elog(severity, message)
+elog(severity, sqlstate, message)
+elog(severity, sqlstate, message, detail)
+elog(severity, sqlstate, message, detail, hint)
+elog(severity, { sqlstate = ?,
+                 message = ?,
+                 detail = ?,
+                 hint = ?,
+                 table = ?,
+                 column = ?,
+                 datatype = ?
+                 constraint = ?
+                 schema = ? })
+debug(...)   = elog('debug',...)
+log(...)     = elog('log',...)
+info(...)    = elog('info',...)
+notice(...)  = elog('notice',...)
+warning(...) = elog('warning',...)
+error(...)   = elog('error',...)
+</code></pre>
+<p>This is just the obvious wrapper around pg's ereport() call.</p>
+<p><code class="shortcode">sqlstate</code> parameters may be either 5-character codes or the error
+names from the appendix to the PostgreSQL manual.</p>
+<p>By default these functions are also available via the <code class="shortcode">spi</code> module.</p>
+<h2 id="S2.4">pllua.funcmgr</h2>
+<p>This module exposes nothing to Lua.</p>
+<h2 id="S2.5">pllua.pgtype</h2>
+<p>The pgtype object provides the following functionality:</p>
+<dl>
+<dt><code class="shortcode">pgtype(value)</code></dt>
+<dd>
+if value is a Datum type, returns its typeinfo, else nil</dd>
+<dt><code class="shortcode">pgtype(value,0)</code></dt>
+<dd>
+if value is a Datum type, returns its typeinfo, otherwise
+returns the typeinfo of the result type of the current
+function (if any)</dd>
+<dt><code class="shortcode">pgtype(value,argno)</code></dt>
+<dd>
+if value is a Datum type, returns its typeinfo, otherwise
+returns the typeinfo of argument <code class="shortcode">"argno"</code> (<code class="shortcode">1..n</code>) of the current
+function (if any). This is the recommended way to get the type
+of a function parameter which might have been transparently
+converted to a Lua value.</dd>
+<dt><code class="shortcode">pgtype['typename']</code></dt>
+<dt><code class="shortcode">pgtype.typename</code></dt>
+<dd>
+parse <code class="shortcode">'typename'</code> as an SQL type string and return the typeinfo
+(or nil if no such type exists)</dd>
+<dt><code class="shortcode">pgtype.array['typename']</code></dt>
+<dt><code class="shortcode">pgtype.array.typename</code></dt>
+<dd>
+parse <code class="shortcode">'typename'</code> as an SQL type string and return the typeinfo
+of its array type (or nil if no such type exists)</dd>
+</dl>
+<p>The typeinfo object returned from any of the above has the following
+functionality:</p>
+<dl>
+<dt><code class="shortcode">typeinfo(datum)</code></dt>
+<dd>
+Construct a new <code class="shortcode">Datum</code> object by copying from the specified
+value, which must already be of a compatible type</dd>
+<dt><code class="shortcode">typeinfo(...)</code></dt>
+<dd>
+Construct a new <code class="shortcode">Datum</code> object of the specified type from the
+arguments given. The nature of the arguments varies according
+to the category of type being constructed.</dd>
+<dt><code class="shortcode">typeinfo:fromstring(str)</code></dt>
+<dd>
+Construct a new <code class="shortcode">Datum</code> object given its standard text
+representation in <code class="shortcode">str</code>. For some types the distinction between
+<code class="shortcode">typeinfo:fromstring(str)</code> and <code class="shortcode">typeinfo(str)</code> is significant.</dd>
+<dt><code class="shortcode">typeinfo:frombinary(str)</code></dt>
+<dd>
+Construct a new <code class="shortcode">Datum</code> object given its wire-protocol binary
+representation in <code class="shortcode">str</code>. This is less useful than it might seem
+because for many data types, the interpretation of the binary
+representation is dependent on the client_encoding setting.</dd>
+<dt><code class="shortcode">typeinfo:name([typmod])</code></dt>
+<dd>
+Returns the name of the type as SQL syntax (same as the
+<code class="shortcode">format_type</code> function in SQL, or <code class="shortcode">::regtype</code> output)</dd>
+<dt><code class="shortcode">typeinfo:element()</code></dt>
+<dd>
+For array or range types, returns the typeinfo of the element type</dd>
+<dt><code class="shortcode">typeinfo:element(str)</code></dt>
+<dd>
+For row types, returns the typeinfo of the named column</dd>
+</dl>
+<p>The type constructor call has the following forms according to the
+type category (scalar, row, array, range)</p>
+<dl>
+<dt><code class="shortcode">scalartype(nondatum...)</code></dt>
+<dd>
+
+<p>In order, stopping on the first success:</p>
+<ol>
+<li>
+<p>If the input value is not a single string, and a transform
+function exists for this type, then the transform function is
+called to try and convert the value.</p>
+</li>
+<li>
+<p>If there is more than one input value, an error is raised.</p>
+</li>
+<li>
+<p>The built-in simple transforms from Lua values to SQL types are
+tried, including checking for domains over known types. Note:
+in some cases, especially <code class="shortcode">bytea</code>, this gives a different
+result for string input than <code class="shortcode">:fromstring</code> would.</p>
+</li>
+<li>
+<p>If the input is a single string, it is processed as if by
+<code class="shortcode">scalartype:fromstring(str)</code></p>
+</li>
+<li>
+<p>Otherwise an error is raised.</p>
+</li>
+</ol>
+</dd>
+<dt><code class="shortcode">rowtype(table)</code></dt>
+<dd>
+
+<p>If passed a single Lua table or userdata (other than a <code class="shortcode">Datum</code>),
+this is assumed to be indexable by column names, and a row is
+constructed by applying the typeinfo operation of each column type
+to the indexed value.</p>
+</dd>
+<dt><code class="shortcode">rowtype(...)</code></dt>
+<dd>
+
+<p>otherwise, the number of arguments must equal the arity of the row
+(i.e. the number of undropped columns). Each argument is matched
+positionally to its column, converted to the column's type, and
+then has typmod coercion applied if necessary (e.g. length checks
+for <code class="shortcode">varchar(n)</code>, padding for <code class="shortcode">char(n)</code> etc.)</p>
+</dd>
+<dt><code class="shortcode">arraytype()</code></dt>
+<dd>
+
+<p>constructs an empty array.</p>
+</dd>
+<dt><code class="shortcode">arraytype(val,val,val,...)</code></dt>
+<dd>
+
+<p>constructs a one-dimensional array of the specified values.
+<em>(currently, the ambiguous case where one single Datum is passed
+is resolved as the generic typeinfo(datum) call, NOT this one)</em></p>
+</dd>
+<dt><code class="shortcode">arraytype(table, dim...)</code></dt>
+<dd>
+
+<p>One integer value must be given for each dimension of the array.
+The table is indexed accordingly to populate the new array.</p>
+</dd>
+<dt><code class="shortcode">arraytype(table)</code></dt>
+<dd>
+
+<p>Constructs a one-dimensional array assuming the largest integer
+index in the table as the array size. (Use the above form for
+multi-dimensional arrays or for precise control over the size when
+trailing nulls are allowed.)</p>
+</dd>
+<dt><code class="shortcode">rangetype()</code></dt>
+<dd>
+
+<p>constructs an empty range</p>
+</dd>
+<dt><code class="shortcode">rangetype(string)</code></dt>
+<dd>
+
+<p>as for <code class="shortcode">rangetype:fromstring(string)</code></p>
+</dd>
+<dt><code class="shortcode">rangetype(lo,hi[,bounds])</code></dt>
+<dd>
+
+<p>Constructs a range from specified bounds, with nil values treated
+as infinities, and the "bounds" string interpreted in the usual
+way (i.e. <code class="shortcode">"[]"</code>, <code class="shortcode">"[)"</code>, <code class="shortcode">"(]"</code>, <code class="shortcode">"()"</code>).</p>
+</dd>
+</dl>
+<p>Some specific types have additional functions: see the <code class="shortcode">pllua.jsonb</code>
+and <code class="shortcode">pllua.numeric</code> modules.</p>
+<p><code class="shortcode">Datum</code> values themselves provide the following:</p>
+<dl>
+<dt><code class="shortcode">tostring(datum)</code></dt>
+<dd>
+
+<p>returns the datum's standard text representation (inverse
+of <code class="shortcode">typeinfo:fromstring()</code>)</p>
+</dd>
+</dl>
+<p>(tobinary function/syntax TBD)</p>
+<p><code class="shortcode">Datum</code> values of row types allow indexing by name or number:</p>
+<pre class="codeblock"><code>rowval.column_name
+rowval['column_name']
+rowval[attno]
+</code></pre>
+<p>Indexed column values can be assigned to.</p>
+<p>Note that the <code class="shortcode">attno</code> does not correspond to the positional index of
+the column if columns have been dropped.</p>
+<p>Row types can be iterated with <code class="shortcode">pairs()</code> (but do NOT use ipairs):</p>
+<pre class="codeblock"><code>for colname,value,attno in pairs(rowval) do ...
+</code></pre>
+<p>This iteration is always in column order.</p>
+<p><code class="shortcode">Datum</code> values of array type allow indexing by number, including
+multiple dimensions, and assignments to individual elements:</p>
+<pre class="codeblock"><code>arrayval[i]
+arrayval[i][j]  etc.
+</code></pre>
+<p>Arrays can be iterated with <code class="shortcode">pairs()</code> and, in some Lua versions only,
+<code class="shortcode">ipairs()</code>:</p>
+<pre class="codeblock"><code>for i,val in ipairs(arrayval) do ...
+</code></pre>
+<p><code class="shortcode">Datum</code> values of range type provide the following immutable
+pseudo-columns:</p>
+<pre class="codeblock"><code>r.lower
+r.upper
+r.lower_inc
+r.upper_inc
+r.lower_inf
+r.upper_inf
+r.isempty
+</code></pre>
+<p><code class="shortcode">Datum</code> values of row, array or <code class="shortcode">jsonb</code> type provide a
+mapping/deserialization operation:</p>
+<pre class="codeblock"><code>rowval{ map = function(colname,value,attno,row) ... return value end,
+        null = (any value, default nil),
+        discard = (boolean, default false)
+      }
+
+arrayval{ map = function(elem,array,i,j,k...) ... return elem end,
+          null = (any value, default nil),
+          discard = (boolean, default false)
+        }
+
+jsonbval{ map = function(key,val,...) ... return key,val end,
+          null = (any value, default nil),
+          discard = (boolean, default false),
+          pg_numeric = (boolean, default false)
+        }
+</code></pre>
+<p>The result in all cases is returned as a Lua table, not a datum,
+unless the "discard" option was given as true, in which case no
+result at all is returned.</p>
+<p>The map function for arrays is passed as many indexes as the
+original array dimension.</p>
+<p>The map function for <code class="shortcode">jsonb</code> values is passed the path leading up to
+the current key (not including the key) as separate additional
+parameters. The key is an integer if the current container is an
+array, a string if the container is an object, and nil if this is a
+single top-level scalar value (which I believe is not strictly allowed
+in the JSON spec, but PostgreSQL allows it). The <code class="shortcode">key</code>/<code class="shortcode">val</code> returned by
+the function are used to store the result, but do not affect the path
+values passed to any other function call. If <code class="shortcode">discard</code> is not specified,
+then the function is also called for completed containers (in which
+case <code class="shortcode">val</code> will be a table). If <code class="shortcode">pg_numeric</code> is not true, then numeric
+values are converted to Lua numbers, otherwise they remain as <code class="shortcode">Datum</code>
+values of <code class="shortcode">numeric</code> type (for which see below).</p>
+<p>Substitution of null values happens BEFORE the mapping function is
+called; if that's not what you want, then do the substitution
+yourself before returning the result. (If the mapping function
+itself returns a Lua nil, then the entry will be omitted from the
+result.)</p>
+<p>The built-in simple type transformations from PG to Lua are as
+follows:</p>
+<pre class="codeblock"><code>text, varchar(n), char(n), xml, json, name, cstring  -&gt;  string
+
+bytea  -&gt;  string, WITHOUT any escaping or conversions
+
+enum  -&gt;  string
+
+boolean  -&gt;  boolean
+
+float4, float8  -&gt;  number
+
+oid, smallint, integer  -&gt;  number
+
+bigint  -&gt;  number  IF the underlying Lua has 64-bit integers
+
+refcursor  -&gt;  SPI cursor object
+
+NULL of any type  -&gt;  nil
+</code></pre>
+<p>If a transform function is defined for a given type, then it behaves
+as if added to the list of simple transformations. Otherwise, values
+received from PG remain as Datum objects.</p>
+<p>The built-in simple transforms from Lua to PG are:</p>
+<pre class="codeblock"><code>nil  -&gt;  any type
+
+boolean  -&gt;  boolean
+
+string  -&gt;  text, varchar, cstring, refcursor
+
+string  -&gt;  bytea, WITHOUT conversion or escaping
+
+string  -&gt;  boolean  (accepts only "true","t","1","false","f","0")
+
+number  -&gt;  smallint, integer, bigint, oid  (error unless exact integer)
+
+number  -&gt;  float4, float8
+
+number  -&gt;  boolean  (accepts only 0 or 1)
+
+number  -&gt;  numeric
+
+SPI cursor object  -&gt;  refcursor
+</code></pre>
+<p>Conversions not listed as "simple transforms" are done with either a
+transform function, if defined, or the type constructor as detailed
+above.</p>
+<p>Notice that for <code class="shortcode">bytea</code>, the simple transform just copies the bytes
+(Lua strings are byte strings, not character strings). This makes
+the simple conversion quite different to the <code class="shortcode">fromstring</code>/<code class="shortcode">tostring</code>
+conversion, which uses the PG text representation.</p>
+<h2 id="S2.6">pllua.spi</h2>
+<p>The spi module provides the following functionality (as a table of
+functions):</p>
+<dl>
+<dt><code class="longcode">spi.execute("query text", arg, arg, ...)</code></dt>
+<dt><code class="longcode">spi.execute_count("query text", maxrows, arg, arg, ...)</code></dt>
+<dd>
+
+<p>execute the given query text as SQL with the given arguments.
+Returns a table containing a sequence (possibly empty) of rows for
+queries that return rows, otherwise returns an integer count.</p>
+<p>For all query execution methods, if called from a nonvolatile
+function, the query will be run in "readonly" mode using the
+caller's snapshot. Otherwise a new snapshot is taken.</p>
+</dd>
+<dt><code class="longcode">spi.prepare("query text", {argtypes}, [{options}])</code></dt>
+<dd>
+
+<p>returns a statement object. <code class="shortcode">{argtypes}</code> is a table containing
+type names or typeinfo objects. Allowed options are:</p>
+<ul>
+<li><code class="shortcode">scroll = true or false</code></li>
+<li><code class="shortcode">no_scroll = true</code></li>
+<li><code class="shortcode">fast_start = true</code></li>
+<li><code class="shortcode">custom_plan = true</code></li>
+<li><code class="shortcode">generic_plan = true</code></li>
+<li><code class="shortcode">fetch_count = integer</code></li>
+</ul>
+<p>The <code class="shortcode">fetch_count</code> option is used only by <code class="shortcode">rows()</code> iterators.</p>
+</dd>
+<dt><code class="shortcode">spi.rows("query text", args...)</code></dt>
+<dd>
+
+<p>returns an iterator:</p>
+<pre class="codeblock"><code>for r in spi.rows("query") do ...
+</code></pre>
+</dd>
+<dt><code class="shortcode">spi.findcursor("name")</code></dt>
+<dd>
+
+<p>if "name" is the name of an open portal (i.e. cursor), then
+returns a cursor object to access this portal. Otherwise returns
+nil. The cursor is marked as unowned (it will not be closed by
+garbage collection).</p>
+</dd>
+<dt><code class="shortcode">spi.newcursor(["name"])</code></dt>
+<dd>
+
+<p>if "name" is the name of an open portal (i.e. cursor), then
+returns a cursor object (unowned) to access this portal. Otherwise
+creates a new cursor object with no portal, recording the name
+given for use with a later open() call.</p>
+</dd>
+<dt><code class="shortcode">spi.is_atomic()</code></dt>
+<dd>
+
+<p>returns true if the call context is atomic with respect to
+(top-level) transactions; this is always true in pg versions
+before PostgreSQL 11; it is only false when code is being executed
+in PostgreSQL 11+ in a <code class="shortcode">CALL</code> or <code class="shortcode">DO</code> statement which is outside
+any explicit transaction. (These are the only contexts in which
+<code class="shortcode">spi.commit</code> and <code class="shortcode">spi.rollback</code> are allowed.)</p>
+</dd>
+<dt><code class="shortcode">spi.commit()</code></dt>
+<dt><code class="shortcode">spi.rollback()</code></dt>
+<dd>
+
+<p>(Not defined in pg versions before 11). If in a non-atomic
+context, these commit or abort the current transaction, and
+immediately start a new one. An error is raised if they are
+attempted in an atomic context or inside a subtransaction.</p>
+</dd>
+<dt><code class="shortcode">spi.elog(...)</code></dt>
+<dt><code class="longcode">spi.error(...), .warning(...), .notice(...), .info(...), .debug(...), .log(...)</code></dt>
+<dd>
+
+<p>These functions from pllua.elog are accessible via spi.* for
+convenience.</p>
+</dd>
+</dl>
+<p>SPI statement objects have the following functionality:</p>
+<dl>
+<dt><code class="shortcode">stmt:execute(arg, arg, ...)</code></dt>
+<dt><code class="longcode">stmt:execute_count(maxrows, arg, arg, ...)</code></dt>
+<dd>
+
+<p>execute the statement, with the same result as spi.execute</p>
+</dd>
+<dt><code class="shortcode">stmt:getcursor(arg, arg, ...)</code></dt>
+<dd>
+
+<p>return an open cursor (with an arbitrarily assigned name) for
+the statement. The cursor is marked as owned.</p>
+</dd>
+<dt><code class="shortcode">stmt:rows(arg, arg, ...)</code></dt>
+<dd>
+
+<p>return an iterator for the statement execution, as <code class="shortcode">spi.rows()</code></p>
+</dd>
+<dt><code class="shortcode">stmt:numargs()</code></dt>
+<dd>
+
+<p>returns an integer giving the expected number of arguments
+(including any unused numbered params) expected</p>
+</dd>
+<dt><code class="shortcode">stmt:argtype(argnum)</code></dt>
+<dd>
+
+<p>returns the typeinfo for the expected type of the specified arg</p>
+</dd>
+</dl>
+<p>SPI cursor objects have the following functionality:</p>
+<dl>
+<dt><code class="shortcode">cur:open(stmt,arg,arg...)</code></dt>
+<dt><code class="shortcode">cur:open(query_string,arg,arg...)</code></dt>
+<dd>
+
+<p>The cursor object must not be already open. The specified
+statement or query string is executed in a new portal whose name
+is given by the cursor name (if one has been assigned).</p>
+<p>The original cursor object is returned. Cursors returned by an
+<code class="shortcode">open()</code> call are marked as owned.</p>
+</dd>
+<dt><code class="shortcode">cur:isopen()</code></dt>
+<dd>
+
+<p>returns true if the cursor is open</p>
+</dd>
+<dt><code class="shortcode">cur:close()</code></dt>
+<dd>
+
+<p>close the portal (whether or not we created it or own it)</p>
+</dd>
+<dt><code class="shortcode">cur:isowned()</code></dt>
+<dd>
+
+<p>returns true if the cursor is marked as owned. An "owned" cursor
+has its portal closed (if it's still open) if the cursor object is
+garbage-collected; this is intended for cursors opened by Lua
+functions and not returned to callers. An unowned cursor's portal
+is not affected by the collection of the cursor object.</p>
+</dd>
+<dt><code class="shortcode">cur:own()</code></dt>
+<dt><code class="shortcode">cur:disown()</code></dt>
+<dd>
+
+<p>mark the cursor as owned or not. Returns the cursor.</p>
+<p>Typical intended use is <code class="shortcode">return c:disown()</code> when returning a
+cursor opened by a function to its caller.</p>
+</dd>
+<dt><code class="shortcode">cur:name()</code></dt>
+<dd>
+
+<p>returns the open portal name (if the cursor is open) or the
+assigned name (if not).</p>
+</dd>
+<dt><code class="shortcode">cur:fetch([n, [dir]])</code></dt>
+<dd>
+
+<p>Fetch according to the specified number and direction parameters.
+<code class="shortcode">"dir"</code> can be:</p>
+<dl>
+<dt><code class="shortcode">"forward" / "next"</code></dt>
+<dd>
+fetch N rows forward</dd>
+<dt><code class="shortcode">"backward" / "prior"</code></dt>
+<dd>
+fetch N rows backward</dd>
+<dt><code class="shortcode">"absolute"</code></dt>
+<dd>
+fetch row at absolute position <code class="shortcode">n</code>
+</dd>
+<dt><code class="shortcode">"relative"</code></dt>
+<dd>
+fetch row at relative position <code class="shortcode">n</code>
+</dd>
+</dl>
+<p>By default, fetch one row in the forward direction.</p>
+</dd>
+<dt><code class="shortcode">cur:move([n, [dir]])</code></dt>
+<dd>
+
+<p>Move the cursor without fetching. Note that the cursor is left at
+the same position it would be <em>after</em> executing the same operation
+as a fetch. So to position the cursor such that the next forward
+fetch will return the first row, use <code class="shortcode">cur:move(0, 'absolute')</code></p>
+</dd>
+</dl>
+<p>There can only be one cursor object for a given open portal - doing a
+findcursor on an existing cursor will always return the same object.
+(But note that this matching is by portal, not name - if a cursor was
+closed and reopened with the same name, findcursor will return a
+different object for the new cursor.) If a cursor is closed by
+external code (or transaction end), then the <code class="shortcode">:isopen()</code> state will be
+automatically updated (this happens when the portal is actually
+dropped). Cursor options are set on the statement object.</p>
+<p><code class="shortcode">refcursor</code> parameters and results are transparently converted to and
+from SPI cursor objects. But note that when returning a cursor from a
+function, it should be explicitly disowned to ensure that garbage
+collection won't close it from under the caller's use of it.</p>
+<h2 id="S2.7">pllua.trusted</h2>
+<p>The trusted interpreter is implemented using a sandbox system;
+trusted-language code is run in an environment into which only safe
+functions have been copied (or proxied).</p>
+<p>However, in order to allow administrators to provide access to
+additional modules inside the sandbox in a controlled manner, the
+initialization strings on_init and on_trusted_init are run outside
+the sandbox and the functions in pllua.trusted can be used by those
+strings to make additional modules accessible.</p>
+<p>For example, setting</p>
+<pre class="codeblock"><code>pllua.on_trusted_init='trusted.allow{"lpeg","re"}'
+</code></pre>
+<p>would load the <code class="shortcode">lpeg</code> and <code class="shortcode">re</code> modules and make them accessible inside
+the sandbox via <code class="shortcode">require "lpeg"</code> etc.</p>
+<p><strong>THE ADMINISTRATOR IS RESPONSIBLE FOR ASSESSING THE SECURITY
+AND SAFETY OF MODULES.</strong> It must be stressed that many modules,
+whether implemented in Lua or C, perform operations that will either
+violate security or risk crashing the server. A non-exhausive list of
+things that are dangerous in modules would include:</p>
+<div class="no-dl-fudge">
+<ul>
+<li>
+<p>any assumption that the caller's <code class="shortcode">_G</code> or <code class="shortcode">_ENV</code> is the same as the
+module's, or any exposure of the module's <code class="shortcode">_G</code> to the caller</p>
+</li>
+<li>
+<p>any i/o or networking functionality exposed by the module to the caller</p>
+</li>
+<li>
+<p>any use of <code class="shortcode">lua_pcall</code> or <code class="shortcode">lua_resume</code> from C to call code that
+might throw an SQL error</p>
+</li>
+</ul>
+</div>
+<p>The available functions are:</p>
+<dl>
+<dt><code class="longcode">trusted.allow(module, newname, mode, global, preload)</code></dt>
+<dd>
+
+<p>This makes the module <code class="shortcode">module</code> accessible via <code class="shortcode">require 'newname'</code>
+(<code class="shortcode">newname</code> is defaulted to <code class="shortcode">module</code> if nil or omitted) inside the
+sandbox using the adapter specified by <code class="shortcode">mode</code> (default <code class="shortcode">"proxy"</code>).
+The module is not actually loaded until the first <code class="shortcode">require</code> unless
+either <code class="shortcode">global</code> or <code class="shortcode">preload</code> is a true value.</p>
+<p>Then, if <code class="shortcode">global</code> is true or a string, it executes the equivalent
+of:</p>
+<pre class="codeblock"><code>_G[ (type(global)=="string" and global) or newname or module ]
+  = require(newname or module)
+</code></pre>
+<p>inside the sandbox.</p>
+<p>Mode can be <code class="shortcode">"direct"</code> (exposes the module to the sandbox
+directly), <code class="shortcode">"copy"</code> (makes a recursive copy of it and any
+contained tables, without copying metatables, otherwise as
+<code class="shortcode">"direct"</code>), and <code class="shortcode">"proxy"</code> which returns a proxy table having the
+module in the metatable index slot (and any table members in the
+module proxied likewise; <code class="shortcode">"sproxy"</code> omits this step). All modes
+behave like <code class="shortcode">"direct"</code> if the module's value is not a table.</p>
+<p><strong>PROXY MODE IS NOT INTENDED TO BE A FULLY SECURE WRAPPER FOR
+ARBITRARY MODULES.</strong> It's intended to make it <em>possible</em> for
+simple and well-behaved modules or adapters to be used easily
+while protecting the "outside" copy from direct modification from
+inside. If the module returns any table from a function, that
+table might be modified from inside the sandbox.</p>
+<p><strong>NEITHER PROXY MODE NOR COPY MODE ARE GUARANTEED TO WORK ON ALL
+MODULES.</strong> The following constructs (for example) will typically
+defeat usage of either mode:</p>
+<div class="no-dl-fudge">
+<ul>
+<li>
+<p>use of empty tables as unique identifiers</p>
+</li>
+<li>
+<p>use of table values as keys</p>
+</li>
+<li>
+<p>metatables on the module table or its contents with anything
+other than <code class="shortcode">__call</code> methods</p>
+</li>
+</ul>
+</div>
+<p>If you find yourself wanting to use this on a module more complex
+than (for example) "lpeg" or "re", then consider whether you ought
+to be using the untrusted language instead.</p>
+<p>If the <code class="shortcode">module</code> parameter is actually a table, it is treated as a
+sequence, each element of which is either a module name or a table
+<code class="longcode">{ 'module', newname, mode, global, preload }</code> with missing values
+defaulted to the original arguments. This enables the common case
+usage to be just:</p>
+<pre class="codeblock"><code>trusted.allow{"foo", "bar", "baz"}
+</code></pre>
+</dd>
+<dt><code class="shortcode">trusted.require(module, newname, mode)</code></dt>
+<dd>
+
+<p>equiv. to <code class="longcode">trusted.allow(module, newname, mode, true, true)</code></p>
+</dd>
+<dt><code class="shortcode">trusted.remove('newname','global')</code></dt>
+<dd>
+
+<p>undoes either of the above (probably not very useful, but you
+could do trusted.remove('os') or whatever)</p>
+</dd>
+</dl>
+<p>To use these functions from the on_init string, you must
+<code class="shortcode">require 'pllua.trusted'</code> explicitly, and use the return value of that to
+access the functions. Passing a true value for the <code class="shortcode">preload</code> argument
+of <code class="shortcode">trusted.allow</code> allows for preloading of modules before forking
+when using prebuilt interpreters.</p>
+<p>The trusted environment's version of <code class="shortcode">load</code> overrides the text/binary
+mode field (loading binary functions is unsafe) and overrides the
+environment to be the trusted sandbox if the caller didn't provide one
+itself (but the caller can still give an explicit environment of nil
+or anything else).</p>
+<h2 id="S2.8">pllua.trigger</h2>
+<p>This module provides nothing directly to Lua, but a <code class="shortcode">trigger</code>
+parameter is passed as the first parameter to trigger functions (and
+a different trigger parameter to event-trigger functions).</p>
+<p>The <code class="shortcode">trigger</code> object for DDL triggers ("event triggers") provides the
+following values when indexed:</p>
+<dl>
+<dt><code class="shortcode">trigger.event</code></dt>
+<dd>
+Event for which the trigger was fired</dd>
+<dt><code class="shortcode">trigger.tag</code></dt>
+<dd>
+Command tag</dd>
+</dl>
+<p>See the PostgreSQL documentation for details.</p>
+<p>The trigger object for DML triggers provides the following values
+when indexed:</p>
+<dl>
+<dt><code class="shortcode">trigger.new</code></dt>
+<dd>
+the "new" row for the operation (or nil)</dd>
+<dt><code class="shortcode">trigger.old</code></dt>
+<dd>
+the "old" row for the operation (or nil)</dd>
+<dt><code class="shortcode">trigger.row</code></dt>
+<dd>
+an alias for whichever of <code class="shortcode">old</code> or <code class="shortcode">new</code> the operation is
+expected to return; i.e. <code class="shortcode">new</code> for insert or update
+operations, <code class="shortcode">old</code> for deletes</dd>
+<dt><code class="shortcode">trigger.name</code></dt>
+<dd>
+name used in <code class="shortcode">CREATE TRIGGER</code>
+</dd>
+<dt><code class="shortcode">trigger.when</code></dt>
+<dd>
+<code class="shortcode">"before"</code>, <code class="shortcode">"after"</code> or <code class="shortcode">"instead"</code>
+</dd>
+<dt><code class="shortcode">trigger.operation</code></dt>
+<dt><code class="shortcode">trigger.op</code></dt>
+<dd>
+<code class="shortcode">"insert"</code>, <code class="shortcode">"update"</code>, <code class="shortcode">"delete"</code>, <code class="shortcode">"truncate"</code>
+</dd>
+<dt><code class="shortcode">trigger.level</code></dt>
+<dd>
+<code class="shortcode">"row"</code> or <code class="shortcode">"statement"</code>
+</dd>
+<dt><code class="shortcode">trigger.relation</code></dt>
+<dd>
+a table</dd>
+</dl>
+<p>The <code class="shortcode">trigger.relation</code> table has this form:</p>
+<pre class="codeblock"><code>{
+  ["namespace"] = "public",
+  ["attributes"] = {
+    ["test_column"] = 1,
+  },
+  ["name"] = "table_name",
+  ["oid"] = 59059
+}
+</code></pre>
+<p>The fields of the trigger object are immutable with the exception of
+<code class="shortcode">trigger.row</code>, which can be assigned a new row wholesale in order to
+alter the result of the operation in a before trigger. This
+immutability does not extend to contained fields: a trigger can
+instead assign to individual <code class="shortcode">new.*</code> fields and the result will reflect
+this.</p>
+<p>The result of any trigger function which is not called <code class="shortcode">BEFORE</code> or
+<code class="shortcode">INSTEAD</code>, or is not called <code class="shortcode">FOR EACH ROW</code>, is ignored (as are any
+changes it makes to the trigger object). Trigger functions which are
+called <code class="shortcode">BEFORE</code> or <code class="shortcode">INSTEAD</code> and <code class="shortcode">FOR EACH ROW</code> can do one of three
+things:</p>
+<ol>
+<li>
+<p>To complete the operation normally, with no changes to the data,
+either return no value at all (not even <code class="shortcode">nil</code>), or return <code class="shortcode">trigger.row</code>
+without having assigned to <code class="shortcode">trigger.row</code> or any field of <code class="shortcode">old</code> or <code class="shortcode">new</code>.</p>
+</li>
+<li>
+<p>To complete the operation normally with modified data:</p>
+<ol>
+<li>
+<p>A non-nil return value will be converted to the table's row
+type using the type constructor, and this will be the new
+tuple, overriding any previous tuple and superseding any
+changes made to <code class="shortcode">trigger.row</code> or <code class="shortcode">new</code>/<code class="shortcode">old</code>.</p>
+</li>
+<li>
+<p>Returning no value at all (not even <code class="shortcode">nil</code>) having modified the
+content of <code class="shortcode">trigger.row</code> (directly or via whichever of <code class="shortcode">new</code> or
+<code class="shortcode">old</code> is appropriate for the triggered operation) will result in
+the value of <code class="shortcode">trigger.row</code> being used as the new tuple.</p>
+</li>
+</ol>
+</li>
+<li>
+<p>To suppress the operation, return the value <code class="shortcode">nil</code>, or assign <code class="shortcode">nil</code>
+to <code class="shortcode">trigger.row</code>.</p>
+</li>
+</ol>
+<h2 id="S2.9">pllua.numeric</h2>
+<p>PostgreSQL values of <code class="shortcode">numeric</code> type (henceforth Numeric values) are
+converted to <code class="shortcode">Datum</code> objects as normal, but this module provides
+substantial additional functionality for such types. The methods and
+metamethods for Numeric values are accessible by default; code can
+<code class="shortcode">require 'pllua.numeric'</code> in order to obtain access to the additional
+non-method functions, e.g.:</p>
+<pre class="codeblock"><code>num = require 'pllua.numeric'
+if num.equal(x,y) then ...
+</code></pre>
+<p>Equality comparison is restricted by Lua semantics; a Numeric value
+will never compare equal (<code class="shortcode">==</code>) to a Lua number, however <code class="shortcode">==</code> between
+two Numerics compares for numerical equality. A plain function
+<code class="shortcode">num.equal(x,y)</code> is provided for comparing equality. Note that
+Numerics used as table keys will likely not work in any useful way
+since two equal values are unlikely to compare as raw-equal. Other
+operations allow mixed types, and will return Numeric if any input
+value is.</p>
+<p>Arithmetic operations on Numeric use PG semantics. In particular, the
+<code class="shortcode">//</code> division operation truncates towards zero, not to <code class="shortcode">-inf</code>, and the
+<code class="shortcode">%</code> modulus operator returns a result with the sign of the dividend,
+not the sign of the divisor.</p>
+<p>These functions are available directly or as methods on a Numeric
+datum. (As direct calls they allow input of any Lua number.)</p>
+<dl>
+<dt><code class="shortcode">abs</code></dt>
+<dt><code class="shortcode">ceil</code></dt>
+<dt><code class="shortcode">equal</code></dt>
+<dt><code class="shortcode">exp</code></dt>
+<dt><code class="shortcode">floor</code></dt>
+<dt><code class="shortcode">isnan</code></dt>
+<dt><code class="shortcode">sign</code></dt>
+<dt><code class="shortcode">sqrt</code></dt>
+<dd>
+(as expected)</dd>
+<dt><code class="shortcode">log</code></dt>
+<dd>
+(optional base parameter defaults to natural log)</dd>
+<dt><code class="shortcode">tointeger</code></dt>
+<dd>
+returns nil if not exactly representable as a Lua integer</dd>
+<dt><code class="shortcode">tonumber</code></dt>
+<dd>
+returns a Lua number, not exact</dd>
+<dt><code class="shortcode">trunc</code></dt>
+<dt><code class="shortcode">round</code></dt>
+<dd>
+take an optional number of digits parameter</dd>
+</dl>
+<p>The function <code class="shortcode">num.new(x)</code> will construct a new Numeric datum, as will
+<code class="shortcode">pgtype.numeric(x)</code>.</p>
+<h2 id="S2.10">pllua.jsonb</h2>
+<p><code class="shortcode">jsonb</code> supports an inverse mapping operation for construction of JSON
+values from Lua data:</p>
+<pre class="codeblock"><code>pgtype.jsonb(value,
+             { map = function(val) ... return val end,
+               null = (any value, default nil),
+               empty_object = (boolean, default false)
+               array_thresh = (integer, default 1000)
+               array_frac = (integer, default 1000)
+             })
+</code></pre>
+<p><code class="shortcode">value</code> can be composed of any combination of the following (where
+"collection" means a value which is either a table or possesses a
+<code class="shortcode">__pairs</code> metamethod):</p>
+<div class="no-dl-fudge">
+<ul>
+<li>
+<p>Empty collections, which will convert to empty json arrays unless
+<code class="shortcode">empty_object=true</code> in which case they become empty objects</p>
+</li>
+<li>
+<p>Collections with only integer keys not less than 1, which will
+convert to json arrays (with lua index 1 becoming json index 0)
+unless either more than <code class="shortcode">array_thresh</code> initial null values would
+have to be inserted, or the total size of the array would be more
+than <code class="shortcode">array_frac</code> times the number of table keys.</p>
+</li>
+<li>
+<p>Collections with keys which can be stringified: strings or numbers, or
+tables or userdata with <code class="shortcode">__tostring</code> methods, will convert to json
+objects.</p>
+</li>
+<li>
+<p>Values which compare raw-equal to the <code class="shortcode">null</code> parameter are converted
+to json nulls</p>
+</li>
+<li>
+<p>Values of type <code class="shortcode">nil</code>, <code class="shortcode">boolean</code>, <code class="shortcode">number</code>, <code class="shortcode">string</code> are converted to
+corresponding json values</p>
+</li>
+<li>
+<p><code class="shortcode">Datum</code> values of type <code class="shortcode">numeric</code> convert to json numbers</p>
+</li>
+<li>
+<p><code class="shortcode">Datum</code> values of other types convert to json in the same way as they
+do in SQL; in particular, <code class="shortcode">jsonb</code> and <code class="shortcode">json</code> values are included
+directly, and values with casts to <code class="shortcode">jsonb</code> have those casts
+respected</p>
+</li>
+<li>
+<p>Values of other types that possess a <code class="shortcode">__tostring</code> metamethod are
+converted to strings</p>
+</li>
+</ul>
+</div>
+<p>Unlike the other mapping functions, the map function for this
+operation is called only for values (including collections), not
+keys, and is not passed any path information.</p>
+
+<h1 id="S3">Building PL/Lua</h1>
+<p>GNU Make is required to build, as usual for PostgreSQL extensions.</p>
+<p>This module assumes you have already built Lua itself, either as a
+shared library or as an archive library with <code class="shortcode">-fPIC</code> (on most
+platforms a non-PIC archive library will not work). A shared library
+is recommended.</p>
+<h2 id="S3.1">Building the <code class="shortcode">pllua</code> module</h2>
+<p>Lua unfortunately does not provide much in the way of infrastructure
+for determining build locations; accordingly, those have to be
+specified explicitly to build this module. The following values must
+be defined on the <code class="shortcode">make</code> command line or in the environment:</p>
+<dl>
+<dt><code class="shortcode">LUA_INCDIR</code></dt>
+<dd>
+directory containing <code class="shortcode">lua.h</code>, <code class="shortcode">luaconf.h</code>, <code class="shortcode">lualib.h</code>
+</dd>
+<dt><code class="shortcode">LUALIB</code></dt>
+<dd>
+linker options needed to link, typically <code class="shortcode">-Lsomedir -llua-5.3</code>
+</dd>
+</dl>
+<p>And if building with standard Lua:</p>
+<dl>
+<dt><code class="shortcode">LUAC</code></dt>
+<dd>
+name or full path of the luac binary (bytecode compiler)</dd>
+<dt><code class="shortcode">LUA</code></dt>
+<dd>
+name or full path of the lua binary</dd>
+</dl>
+<p>Or if building with Luajit:</p>
+<dl>
+<dt><code class="shortcode">LUAJIT</code></dt>
+<dd>
+name or full path of the luajit binary</dd>
+</dl>
+<p>In addition, as for all PGXS modules, <code class="shortcode">PG_CONFIG</code> must be set to the
+name or full path of the <code class="shortcode">pg_config</code> binary corresponding to the
+PostgreSQL server version being compiled against, unless the correct
+<code class="shortcode">pg_config</code> is already findable via <code class="shortcode">$PATH</code> (which is usually not the
+case).</p>
+<p>Example:</p>
+<pre class="codeblock"><code>make PG_CONFIG=/usr/lib/postgresql/10/bin/pg_config \
+     LUA_INCDIR="/usr/include/lua5.3" \
+     LUALIB="-llua5.3" \
+     LUAC="luac5.3" LUA="lua5.3" install
+</code></pre>
+<h2 id="S3.2">Building the <code class="shortcode">hstore_pllua</code> module</h2>
+<p>Currently, the <code class="shortcode">hstore_pllua</code> module does not need <code class="shortcode">LUALIB</code> on most
+platforms (since it will reference lua functions either exported by
+<code class="shortcode">pllua.so</code> or by a library loaded by <code class="shortcode">pllua.so</code>).</p>
+<p>You should specify <code class="shortcode">LUALIB</code> if you're using a shared lua library and
+your platform isn't exposing symbols from one module's loaded
+dependencies to other modules. If you're using a shared library then
+specifying <code class="shortcode">LIBLUA</code> unnecessarily is harmless.</p>
+<p>Example:</p>
+<pre class="codeblock"><code>make -C hstore \
+     PG_CONFIG=/usr/lib/postgresql/10/bin/pg_config \
+     LUA_INCDIR="/usr/include/lua5.3" \
+     LUAC="luac5.3" LUA="lua5.3" install
+</code></pre>
+<h2 id="S3.3">Building the documentation</h2>
+<p>Specifying BUILD_DOCS=1 will build the HTML documentation from the
+Markdown doc sources; this requires <code class="shortcode">cmark</code> and <code class="shortcode">xsltproc</code>.</p>
+<h2 id="S3.4">
+<code class="shortcode">VPATH</code> builds</h2>
+<p>Both modules support building with <code class="shortcode">VPATH</code>, which can either be
+explicitly set or, if <code class="shortcode">make -f /path/to/Makefile</code> is used to specify a
+makefile outside the current directory and <code class="shortcode">VPATH</code> is not explicitly
+set, then <code class="shortcode">VPATH</code> will be set to the directory containing the
+Makefile.</p>
+<h2 id="S3.5">Luajit options</h2>
+<p><code class="shortcode">PLLUA_CONFIG_OPTS</code> can be used to control certain aspects of pllua's
+behavior when built with Luajit.</p>
+<dl>
+<dt><code class="shortcode">-DNO_LUAJIT</code></dt>
+<dd>
+disables all use of luajit features</dd>
+<dt><code class="shortcode">-DUSE_INT8_CDATA</code></dt>
+<dd>
+convert sql bigints to cdata int64_t</dd>
+</dl>
+<p>The latter is off by default because it has some possibly undesirable
+effects on bigint handling, especially when serializing to JSON.
+However, as long as <code class="shortcode">NO_LUAJIT</code> was not specified, cdata integers can be
+freely returned from functions or passed to SQL type constructors.</p>
+<p>Actual JIT compilation of user-supplied lua code is not affected by
+any of these options.</p>
+<h2 id="S3.6">Porting options</h2>
+<p>If you have problems building on an unusual platform, then these
+options might be useful. The values shown are the defaults if any.</p>
+<dl>
+<dt><code class="shortcode">BIN_LD</code></dt>
+<dd>
+<code class="shortcode">$(LD) -r -b binary</code>
+</dd>
+</dl>
+<p>The command <code class="shortcode">$(BIN_LD) -o file.o dir/datafile.ext</code> is assumed to
+produce <code class="shortcode">file.o</code> containing a data section populated with the content of
+<code class="shortcode">datafile.ext</code>, with symbols <code class="shortcode">_binary_dir_datafile_ext_start</code> and
+<code class="shortcode">_binary_dir_datafile_ext_end</code> bracketing the data. The default is
+believed to work for most GNU ld and (recent) LLVM lld targets, but it
+is known to fail on some non-mainstream architecture distributions.</p>
+<p>The value of <code class="shortcode">BIN_LD</code> can be set to any suitable equivalent command.</p>
+<dl>
+<dt><code class="shortcode">OBJCOPY</code></dt>
+<dd>
+<code class="shortcode">objcopy</code>
+</dd>
+</dl>
+<p>The output of <code class="shortcode">BIN_LD</code> is passed through <code class="shortcode">OBJCOPY</code> to make the data
+section read-only, but this is a non-critical operation. If no working
+objcopy is available, this can be set to 'false'.</p>
+<dl>
+<dt><code class="shortcode">BIN_ARCH</code></dt>
+<dd>
+<i>unset</i>
+</dd>
+<dt><code class="shortcode">BIN_FMT</code></dt>
+<dd>
+<i>unset</i>
+</dd>
+</dl>
+<p>If both of these are set, then <code class="shortcode">BIN_LD</code> is assumed not to work, and instead
+the command</p>
+<pre class="codeblock"><code>$(OBJCOPY) -B $(BIN_ARCH) -I binary -O $(BIN_FMT) datafile.ext file.o
+</code></pre>
+<p>will be used in its place. The following values have been used on
+linux-mips64el to work around build failures with <code class="shortcode">ld -r</code>:</p>
+<pre class="codeblock"><code>BIN_ARCH=mips:isa64r2 BIN_FMT=elf64-tradlittlemips
+</code></pre>
+<dl>
+<dt><code class="shortcode">LUAJITC</code></dt>
+<dd>
+<code class="shortcode">$(LUAJIT) -b -g -t raw</code>
+</dd>
+</dl>
+<p>On Luajit, the bytecode compile option only works if luajit has been
+fully installed. In test environments where only the luajit build dir
+is otherwise needed, the bytecode compilation step can be skipped by
+setting <code class="shortcode">LUAJITC="cp"</code>. (The bytecode compile can also be skipped in
+non-luajit builds by setting <code class="shortcode">LUAC='$(REORDER_O) cp'</code> but this is not
+expected to be useful.)</p>
+
+
+
+</div>
+<div id="footerContainer">
+<hr>
+<div id="footer">
+<p>Copyright © 2017-2018, Andrew Gierth, aka RhodiumToad</p>
+<p>The author acknowledges the work of Luis Carvalho and other contributors
+to the original pllua project (of which this is a ground-up redesign).</p>
+<p>Licensed under the terms of the MIT license, a copy of which is included
+in the file <code class="shortcode">LICENSE</code> in the distribution.</p>
+</div>
+<hr>
+</div>
+</body>
+</html>
