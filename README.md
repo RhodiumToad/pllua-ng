@@ -17,7 +17,7 @@ time.
 Documentation is being migrated from this README to a more comprehensive
 document:
 
-[https://RhodiumToad.github.io/pllua-ng/](Documentation)
+[Documentation](https://pllua.github.io/pllua-ng/)
 
 
 COMPATIBILITY WITH 0.x (previous pllua-ng releases)
