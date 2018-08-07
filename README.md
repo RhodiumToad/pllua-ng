@@ -14,10 +14,10 @@ callbacks, which were introduced in that version).
 Lua 5.3 and LuaJIT 2.1beta (with COMPAT52) are fully supported at this
 time.
 
-Documentation is being migrated from this README to other files:
+Documentation is being migrated from this README to a more comprehensive
+document:
 
-[pllua.md](doc/pllua.md)
-[building.md](doc/building.md)
+[https://RhodiumToad.github.io/pllua-ng/](Documentation)
 
 
 COMPATIBILITY WITH 0.x (previous pllua-ng releases)
@@ -62,6 +62,9 @@ The following incompatibilities remain:
  + The "readonly" parameter to server.execute and friends is ignored.
    All queries in a stable function are readonly, and all queries in
    a volatile function are read-write.
+
+ + Returning multi-dimensional arrays by doing a simple return of a
+   Lua table is no longer supported.
 
 The pllua.compat module is implemented in pure Lua (inside the sandbox
 in trusted mode), see src/compat.lua for the implementation.

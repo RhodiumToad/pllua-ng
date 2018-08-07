@@ -1,20 +1,5 @@
-PL/Lua
-======
-
-PL/Lua is a procedural language module for the PostgreSQL database
-that allows server-side functions to be written in Lua.
-
-
-Quick start
------------
-
-	create extension pllua;
-
-	create function hello(person text) returns text language pllua as $$
-	  return "Hello," .. person .. ", from Lua!"
-	$$;
-
-	select hello('Fred');
+PL/Lua Reference
+================
 
 
 PostgreSQL environment
@@ -321,9 +306,7 @@ functionality:
 
 + `typeinfo(datum)`\
   Construct a new `Datum` object by copying from the specified
-  value, which must already be of a compatible type (currently,
-  it must share the base type or for rows, have a compatible
-  tupdesc)
+  value, which must already be of a compatible type
 + `typeinfo(...)`\
   Construct a new `Datum` object of the specified type from the
   arguments given. The nature of the arguments varies according
@@ -340,6 +323,10 @@ functionality:
 + `typeinfo:name([typmod])`\
   Returns the name of the type as SQL syntax (same as the
   `format_type` function in SQL, or `::regtype` output)
++ `typeinfo:element()`\
+  For array or range types, returns the typeinfo of the element type
++ `typeinfo:element(str)`\
+  For row types, returns the typeinfo of the named column
 
 The type constructor call has the following forms according to the
 type category (scalar, row, array, range)
@@ -393,6 +380,13 @@ type category (scalar, row, array, range)
 
     One integer value must be given for each dimension of the array.
     The table is indexed accordingly to populate the new array.
+
+  + `arraytype(table)`
+
+    Constructs a one-dimensional array assuming the largest integer
+	index in the table as the array size. (Use the above form for
+	multi-dimensional arrays or for precise control over the size when
+	trailing nulls are allowed.)
 
   + `rangetype()`
 

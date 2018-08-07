@@ -85,7 +85,7 @@ REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule $(EXTRA_REGRESS)
 
 REORDER_O = $(srcdir)/tools/reorder-o.sh
 
-DOC_MD = css.css pllua.md building.md endnote.md
+DOC_MD = css.css intro.md pllua.md building.md endnote.md
 
 DOC_SRCS = $(addprefix $(srcdir)/doc/, $(DOC_MD))
 
