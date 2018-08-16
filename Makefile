@@ -158,7 +158,7 @@ $(shlib): $(EXTRA_OBJS)
 	$(LUAC) -o $@ $<
 
 ifeq ($(PORTNAME),darwin)
-# OSX of course has to do its own thing when it comes to object file
+# Apple of course has to do its own thing when it comes to object file
 # format and linker options.
 
 _stub.c:

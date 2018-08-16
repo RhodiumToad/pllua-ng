@@ -7,7 +7,7 @@
 #include "pllua.h"
 
 /*
- * OSX has to be different, of course.
+ * Apple has to be different, of course.
  */
 #ifdef __darwin__
 
@@ -16,14 +16,14 @@
 #include <mach-o/ldsyms.h>
 
 static void
-osx_get_chunk(lua_State *L,
-			  const char *name,
-			  const void **ptr,
-			  size_t *sz)
+pllua_darwin_get_chunk(lua_State *L,
+					   const char *name,
+					   const void **ptr,
+					   size_t *sz)
 {
 	void *tptr;
 	Dl_info info;
-	if (!dladdr(&osx_get_chunk, &info))
+	if (!dladdr(&pllua_darwin_get_chunk, &info))
 		luaL_error(L, "dladdr failed: %s", dlerror());
 	tptr = getsectiondata(info.dli_fbase, "binary", name, sz);
 	if (!tptr)
@@ -33,7 +33,7 @@ osx_get_chunk(lua_State *L,
 }
 
 #define GETCHUNK(L_, chunk_,start_,sz_) \
-	osx_get_chunk(L_, #chunk_, &(start_), &(sz_))
+	pllua_darwin_get_chunk(L_, #chunk_, &(start_), &(sz_))
 
 #else
 
