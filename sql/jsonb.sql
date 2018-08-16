@@ -96,4 +96,15 @@ do language pllua $$
 		       v3 = ts1 }))
 $$;
 
+-- test round-trip conversions
+
+do language pllua $$
+  local j_in = pgtype.jsonb('{"foo":[1,null,false,{"a":null,"b":[]},{},[]]}')
+  local nvl = {}
+  local val = j_in{ null = nvl }
+  local j_out = pgtype.jsonb(val, { null = nvl })
+  print(j_in)
+  print(j_out)
+$$;
+
 --end

@@ -484,13 +484,16 @@ the current key (not including the key) as separate additional
 parameters. The key is an integer if the current container is an
 array, a string if the container is an object, and nil if this is a
 single top-level scalar value (which I believe is not strictly allowed
-in the JSON spec, but PostgreSQL allows it). The `key`/`val` returned by
-the function are used to store the result, but do not affect the path
-values passed to any other function call. If `discard` is not specified,
-then the function is also called for completed containers (in which
-case `val` will be a table). If `pg_numeric` is not true, then numeric
-values are converted to Lua numbers, otherwise they remain as `Datum`
-values of `numeric` type (for which see below).
+in the JSON spec, but PostgreSQL allows it). The `key`/`val` returned
+by the function are used to store the result, but do not affect the
+path values passed to any other function call. If `discard` is not
+specified, then the function is also called for completed containers
+(in which case `val` will be a table). If `pg_numeric` is not true,
+then numeric values are converted to Lua numbers, otherwise they
+remain as `Datum` values of `numeric` type (for which see below). All
+tables returned from a `jsonb` mapping will be tagged with metatables
+that record whether they were originally arrays or objects; see the
+`pllua.jsonb` module for details.
 
 Substitution of null values happens BEFORE the mapping function is
 called; if that's not what you want, then do the substitution
@@ -1017,6 +1020,10 @@ values from Lua data:
 
 <div class="no-dl-fudge">
 
+* Tables which have had the is_object or is_array metatable set (see
+  below), which will convert to objects or arrays respectively (for
+  arrays, any non-integer keys will be ignored)
+
 * Empty collections, which will convert to empty json arrays unless
   `empty_object=true` in which case they become empty objects
 
@@ -1026,9 +1033,9 @@ values from Lua data:
   have to be inserted, or the total size of the array would be more
   than `array_frac` times the number of table keys.
 
-* Collections with keys which can be stringified: strings or numbers, or
-  tables or userdata with `__tostring` methods, will convert to json
-  objects.
+* Collections with keys which can be stringified (i.e. strings or
+  numbers, or tables or userdata with `__tostring` methods) will
+  convert to json objects.
 
 * Values which compare raw-equal to the `null` parameter are converted
   to json nulls
@@ -1051,5 +1058,41 @@ values from Lua data:
 Unlike the other mapping functions, the map function for this
 operation is called only for values (including collections), not
 keys, and is not passed any path information.
+
+The use of metatables to distinguish JSON objects and arrays means
+that the transformation from `jsonb` to Lua tables and back preserves
+the original content **as long as** a unique `null` value is provided.
+However, for more complex manipulations, the following functions are
+available via `require "pllua.jsonb"`:
+
+  + `jsonb.is_object(table)`
+
+	Returns true if `table` corresponds to a JSON object, false if
+    it corresponds to an array, and no value if neither
+
+  + `jsonb.is_array(table)`
+
+	Returns true if `table` corresponds to a JSON array, false if
+    it corresponds to an object, and no value if neither
+
+  + `jsonb.set_as_array(table)`
+
+	Mark the table as corresponding to a JSON array, and return it.
+    The table must not already have a metatable, unless it's the one
+    set by this function or by `set_as_object`.
+
+  + `jsonb.set_as_object(table)`
+
+	Mark the table as corresponding to a JSON object, and return it.
+    The table must not already have a metatable, unless it's the one
+    set by this function or by `set_as_array`.
+
+  + `jsonb.set_as_unknown(table)`
+
+	Mark the table as not corresponding to either a JSON object or
+    array, and return it. This is the only way to remove the metatable
+    that marks the JSON type, so you may need it if you want to apply
+    some other metatable instead.
+
 
 <!--eof-->

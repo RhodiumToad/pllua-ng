@@ -43,6 +43,23 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 	int tabidx = lua_absindex(L, -1);
 	int keytabidx;
 	int numkeytabidx;
+	bool known_object = false;
+	bool known_array = false;
+
+	switch (luaL_getmetafield(L, -1, "__jsonb_object"))
+	{
+		case LUA_TBOOLEAN:
+			if (lua_toboolean(L, -1))
+				known_object = true;
+			else
+				known_array = true;
+			/* FALLTHROUGH */
+		default:
+			lua_pop(L, 1);
+			break;
+		case LUA_TNIL:
+			break;
+	}
 
 	lua_newtable(L);
 	keytabidx = lua_absindex(L, -1);
@@ -79,12 +96,19 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 		{
 			case LUA_TUSERDATA:
 			case LUA_TTABLE:
-				if (luaL_getmetafield(L, -1, "__tostring") == LUA_TNIL)
-					luaL_error(L, "cannot serialize userdata or table which lacks __tostring as a key");
-				lua_insert(L, -2);
-				lua_call(L, 1, 1);
-				if (lua_type(L, -1) != LUA_TSTRING)
-					luaL_error(L, "tostring on table or userdata object did not return a string");
+				/*
+				 * Don't try conversions that might fail if this is an array,
+				 * since we're going to ignore non-integer keys if so
+				 */
+				if (!known_array)
+				{
+					if (luaL_getmetafield(L, -1, "__tostring") == LUA_TNIL)
+						luaL_error(L, "cannot serialize userdata or table which lacks __tostring as a key");
+					lua_insert(L, -2);
+					lua_call(L, 1, 1);
+					if (lua_type(L, -1) != LUA_TSTRING)
+						luaL_error(L, "tostring on table or userdata object did not return a string");
+				}
 				break;
 			case LUA_TSTRING:
 				break;
@@ -100,11 +124,13 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 
 	/* stack: keytable numkeytab */
 
-	if ((empty_object && numkeys == 0)
-		|| (numkeys != numintkeys)
-		|| (min_intkey < 1)
-		|| (numintkeys > 0 && (min_intkey > array_thresh))
-		|| (numintkeys > 0 && (max_intkey > (array_frac * numkeys))))
+	if (known_object
+		|| (!known_array
+			&& ((empty_object && numkeys == 0)
+				|| (numkeys != numintkeys)
+				|| (min_intkey < 1)
+				|| (numintkeys > 0 && (min_intkey > array_thresh))
+				|| (numintkeys > 0 && (max_intkey > (array_frac * numkeys))))))
 	{
 		/* it's an object. Use the string key table */
 		lua_pop(L, 1);
@@ -117,7 +143,7 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 		/* it's an array */
 		lua_remove(L, -2);
 		/* need to sort the array */
-		lua_pushvalue(L, lua_upvalueindex(3));
+		lua_getfield(L, lua_upvalueindex(1), "sort");
 		lua_pushvalue(L, -2);
 		lua_call(L, 1, 0);
 		lua_pushinteger(L, 0);
@@ -203,14 +229,14 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 			return;
 		case LUA_TNUMBER:
 			/* must convert to numeric */
-			lua_pushvalue(L, lua_upvalueindex(2));
+			lua_pushvalue(L, lua_upvalueindex(3));
 			lua_insert(L, -2);
 			lua_call(L, 1, 1);
 			/* FALLTHROUGH */
 		case LUA_TUSERDATA:
-			if ((d = pllua_todatum(L, -1, lua_upvalueindex(2))))
+			if ((d = pllua_todatum(L, -1, lua_upvalueindex(3))))
 			{
-				pllua_typeinfo *dt = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
+				pllua_typeinfo *dt = *pllua_torefobject(L, lua_upvalueindex(3), PLLUA_TYPEINFO_OBJECT);
 				pval->type = jbvNumeric;
 				PLLUA_TRY();
 				{
@@ -276,7 +302,7 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 static int
 pllua_jsonb_tosql(lua_State *L)
 {
-	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
 	int nargs = lua_gettop(L);
 	bool empty_object = false;  /* by default assume {} is an array */
 	int nullvalue = 2;
@@ -519,7 +545,7 @@ pllua_jsonb_tosql(lua_State *L)
 		PLLUA_CATCH_RETHROW();
 	}
 
-	nd = pllua_newdatum(L, lua_upvalueindex(1), datum);
+	nd = pllua_newdatum(L, lua_upvalueindex(2), datum);
 
 	PLLUA_TRY();
 	{
@@ -537,9 +563,9 @@ pllua_jsonb_tosql(lua_State *L)
 static int
 pllua_jsonb_map(lua_State *L)
 {
-	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(1));
-	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(1), PLLUA_TYPEINFO_OBJECT);
-	pllua_typeinfo *numt = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(2));
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *numt = *pllua_torefobject(L, lua_upvalueindex(3), PLLUA_TYPEINFO_OBJECT);
 	int funcidx = 0;
 	int nullvalue;
 	bool keep_numeric = false;
@@ -648,7 +674,11 @@ pllua_jsonb_map(lua_State *L)
 							lua_rawseti(L, patht, ++patht_len);
 						}
 						if (!noresult)
+						{
 							lua_newtable(L);
+							lua_getfield(L, lua_upvalueindex(1), "array_mt");
+							lua_setmetatable(L, -2);
+						}
 						i = 0;
 						lua_pushinteger(L, i);
 					}
@@ -660,7 +690,11 @@ pllua_jsonb_map(lua_State *L)
 						lua_rawseti(L, patht, ++patht_len);
 					}
 					if (!noresult)
+					{
 						lua_newtable(L);
+						lua_getfield(L, lua_upvalueindex(1), "object_mt");
+						lua_setmetatable(L, -2);
+					}
 					break;
 				case WJB_KEY:
 					if (v.type != jbvString)
@@ -678,7 +712,7 @@ pllua_jsonb_map(lua_State *L)
 					}
 					else if (v.type == jbvNumeric)
 					{
-						pllua_datum_single(L, NumericGetDatum(v.val.numeric), false, lua_upvalueindex(2), numt);
+						pllua_datum_single(L, NumericGetDatum(v.val.numeric), false, lua_upvalueindex(3), numt);
 						if (!keep_numeric)
 						{
 							lua_getfield(L, -1, "tonumber");
@@ -793,27 +827,94 @@ static luaL_Reg jsonb_meta[] = {
 	{ NULL, NULL }
 };
 
+/*
+ * Test whether a table returned from jsonb_map was originally an object or
+ * array.
+ */
+static int
+pllua_jsonb_table_is_object(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (luaL_getmetafield(L, 1, "__jsonb_object") != LUA_TBOOLEAN)
+		return 0;
+	return 1;
+}
+
+static int
+pllua_jsonb_table_is_array(lua_State *L)
+{
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (luaL_getmetafield(L, 1, "__jsonb_object") != LUA_TBOOLEAN)
+		return 0;
+	lua_pushboolean(L, !lua_toboolean(L, -1));
+	return 1;
+}
+
+static int
+pllua_jsonb_table_set_table_mt(lua_State *L, const char *mtname)
+{
+	luaL_checktype(L, 1, LUA_TTABLE);
+	if (lua_getmetatable(L, 1))
+	{
+		lua_getfield(L, lua_upvalueindex(1), "object_mt");
+		if (!lua_rawequal(L, -1, -2))
+		{
+			lua_getfield(L, lua_upvalueindex(1), "array_mt");
+			if (!lua_rawequal(L, -1, -3))
+				luaL_argerror(L, 1, "cannot replace existing metatable");
+		}
+	}
+	if (mtname)
+		lua_getfield(L, lua_upvalueindex(1), mtname);
+	else
+		lua_pushnil(L);
+	lua_setmetatable(L, 1);
+	lua_settop(L, 1);
+	return 1;
+}
+
+static int
+pllua_jsonb_table_set_object(lua_State *L)
+{
+	return pllua_jsonb_table_set_table_mt(L, "object_mt");
+}
+
+static int
+pllua_jsonb_table_set_array(lua_State *L)
+{
+	return pllua_jsonb_table_set_table_mt(L, "array_mt");
+}
+
+static int
+pllua_jsonb_table_set_unknown(lua_State *L)
+{
+	return pllua_jsonb_table_set_table_mt(L, NULL);
+}
+
 static luaL_Reg jsonb_funcs[] = {
+	{ "is_object", pllua_jsonb_table_is_object },
+	{ "is_array", pllua_jsonb_table_is_array },
+	{ "set_as_object", pllua_jsonb_table_set_object },
+	{ "set_as_array", pllua_jsonb_table_set_array },
+	{ "set_as_unknown", pllua_jsonb_table_set_unknown },
 	{ NULL, NULL }
 };
 
 int pllua_open_jsonb(lua_State *L)
 {
 	lua_settop(L, 0);
-	lua_newtable(L);  /* module table at index 1 */
-	luaL_setfuncs(L, jsonb_funcs, 0);
+
+	lua_newtable(L);	/* module private data table at index 1 */
 
 	lua_pushcfunction(L, pllua_typeinfo_lookup);
 	lua_pushinteger(L, JSONBOID);
-	lua_call(L, 1, 1); /* typeinfo at index 2 */
-
-	lua_getuservalue(L, 2);  /* datum metatable at index 3 */
-
-	lua_pushvalue(L, 2);  /* first upvalue for jsonb metamethods */
+	lua_call(L, 1, 1);
+	lua_setfield(L, 1, "jsonb_type");
 
 	lua_pushcfunction(L, pllua_typeinfo_lookup);
 	lua_pushinteger(L, NUMERICOID);
-	lua_call(L, 1, 1); /* second upvalue is numeric's typeinfo */
+	lua_call(L, 1, 1);
+	lua_setfield(L, 1, "numeric_type");
 
 	luaL_getsubtable(L, LUA_REGISTRYINDEX, "_LOADED");
 	if (lua_getfield(L, -1, "table") != LUA_TTABLE)
@@ -821,14 +922,38 @@ int pllua_open_jsonb(lua_State *L)
 	if (lua_getfield(L, -1, "sort") != LUA_TFUNCTION)
 		luaL_error(L, "table.sort function not found");
 	lua_remove(L, -2);
-	lua_remove(L, -2);  /* third upvalue is sort function */
+	lua_remove(L, -2);
+	lua_setfield(L, 1, "sort");
+
+	lua_newtable(L);
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__metatable");
+	lua_pushboolean(L, 0);
+	lua_setfield(L, -2, "__jsonb_object");
+	lua_setfield(L, 1, "array_mt");
+
+	lua_newtable(L);
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__metatable");
+	lua_pushboolean(L, 1);
+	lua_setfield(L, -2, "__jsonb_object");
+	lua_setfield(L, 1, "object_mt");
+
+	lua_newtable(L);  /* module table at index 2 */
+
+	lua_pushvalue(L, 1);
+	lua_getfield(L, 1, "jsonb_type");
+	luaL_setfuncs(L, jsonb_funcs, 2);
+
+	lua_getfield(L, 1, "jsonb_type");	/* jsonb typeinfo at index 3 */
+	lua_getuservalue(L, -1);  /* datum metatable at index 4 */
+
+	lua_pushvalue(L, 1);  /* first upvalue for jsonb metamethods */
+	lua_pushvalue(L, 3);  /* second upvalue for jsonb metamethods */
+	lua_getfield(L, 1, "numeric_type");  /* third upvalue is numeric's typeinfo */
 
 	luaL_setfuncs(L, jsonb_meta, 3);
 
-	/* override normal datum __index entry with our method table */
-	lua_pushvalue(L, 1);
-	lua_setfield(L, 3, "__index");
-
-	lua_pushvalue(L, 1);
+	lua_pushvalue(L, 2);
 	return 1;
 }

@@ -159,4 +159,15 @@ do language pllua $$
 		       v3 = ts1 }))
 $$;
 INFO:  {"v1": "foo", "v2": {"bar": [1, 2, false], "foo": true}, "v3": "2017-12-19T12:00:00"}
+-- test round-trip conversions
+do language pllua $$
+  local j_in = pgtype.jsonb('{"foo":[1,null,false,{"a":null,"b":[]},{},[]]}')
+  local nvl = {}
+  local val = j_in{ null = nvl }
+  local j_out = pgtype.jsonb(val, { null = nvl })
+  print(j_in)
+  print(j_out)
+$$;
+INFO:  {"foo": [1, null, false, {"a": null, "b": []}, {}, []]}
+INFO:  {"foo": [1, null, false, {"a": null, "b": []}, {}, []]}
 --end
