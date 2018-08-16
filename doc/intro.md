@@ -165,3 +165,5 @@ Tables that originated from JSON are tagged as to whether they were
 originally objects or arrays, so as long as you provide a unique null
 value, this form of round-trip conversion should not change anything.
 (See the `pllua.jsonb` module documentation for more detail.)
+
+<!--eof-->

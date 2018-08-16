@@ -184,4 +184,4 @@ installcheck-parallel: submake $(REGRESS_PREP)
 	$(pg_regress_installcheck) $(REGRESS_OPTS) $(REGRESS_PARALLEL)
 
 $(DOC_HTML): $(DOC_SRCS) $(srcdir)/doc/template.xsl $(srcdir)/tools/doc.sh
-	$(srcdir)/tools/doc.sh $(DOC_SRCS) >$@
+	$(srcdir)/tools/doc.sh $(srcdir)/doc/template.xsl $(DOC_SRCS) >$@
