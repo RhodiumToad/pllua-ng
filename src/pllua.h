@@ -20,7 +20,7 @@
 #include <lualib.h>
 #include <lauxlib.h>
 
-#define PLLUA_VERSION_STR "2.0 beta1"
+#define PLLUA_VERSION_STR "2.0"
 #define PLLUA_VERSION_NUM 200
 
 /* PG version dependencies */
