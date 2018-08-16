@@ -24,3 +24,4 @@ pllua_functable.h
 plerrcodes.h
 src/.dir-locals.el
 pllua.html
+build*/
