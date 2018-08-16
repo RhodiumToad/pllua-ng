@@ -165,7 +165,7 @@ _stub.c:
 	touch $@
 
 %.o: %.luac _stub.o
-	$(LD) -r -sectcreate binary $(subst .,_,$(<F)) $< _stub.o
+	$(LD) -r -sectcreate binary $(subst .,_,$(<F)) $< _stub.o -o $@
 
 else
 # The objcopy here is optional, it's just cleaner for the loaded data

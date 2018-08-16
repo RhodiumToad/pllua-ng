@@ -22,7 +22,7 @@ osx_get_chunk(lua_State *L,
 			  size_t *sz)
 {
 	void *tptr;
-	DL_info info;
+	Dl_info info;
 	if (!dladdr(&osx_get_chunk, &info))
 		luaL_error(L, "dladdr failed: %s", dlerror());
 	tptr = getsectiondata(info.dli_fbase, "binary", name, sz);
