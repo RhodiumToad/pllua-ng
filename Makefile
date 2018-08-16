@@ -157,12 +157,24 @@ $(shlib): $(EXTRA_OBJS)
 %.luac: %.lua
 	$(LUAC) -o $@ $<
 
+ifeq ($(PORTNAME),darwin)
+# Apple of course has to do its own thing when it comes to object file
+# format and linker options.
+
+_stub.c:
+	touch $@
+
+%.o: %.luac _stub.o
+	$(LD) -r -sectcreate binary $(subst .,_,$(<F)) $< _stub.o -o $@
+
+else
 # The objcopy here is optional, it's just cleaner for the loaded data
 # to be in a readonly section. So we ignore errors on it.
 
 %.o: %.luac
 	$(BIN_LD) -o $@ $<
 	-$(OBJCOPY) --rename-section .data=.rodata,contents,alloc,load,readonly $@
+endif
 
 pllua_functable.h: $(SRCS_C) $(srcdir)/tools/functable.lua
 	$(LUA) $(srcdir)/tools/functable.lua $(SRCS_C) >$@
