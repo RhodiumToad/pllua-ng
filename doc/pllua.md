@@ -578,8 +578,9 @@ functions):
     returns a statement object. `{argtypes}` is a table containing
     type names or typeinfo objects. Allowed options are:
 
-    * `scroll = true or false`
+    * `scroll = true` or `false`
     * `no_scroll = true`
+    * `hold = true`
     * `fast_start = true`
     * `custom_plan = true`
     * `generic_plan = true`
