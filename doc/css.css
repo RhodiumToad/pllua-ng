@@ -53,8 +53,8 @@ pre code {
 }
 
 code.shortcode, code.longcode {
-	padding: 2px;
-	font-size: 130%;
+	padding: 2px 3px;
+	font-size: 120%;
 	background-color: #eee;
 }
 

@@ -91,7 +91,7 @@ DOC_SRCS = $(addprefix $(srcdir)/doc/, $(DOC_MD))
 
 INCS=   pllua.h pllua_pgver.h pllua_luaver.h pllua_luajit.h
 
-HEADERS= $(addprefix $(srcdir)/src/, $(INCS))
+HEADERS= $(addprefix src/, $(INCS))
 
 OBJS_C= compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	jsonb.o numeric.o objects.o pllua.o preload.o spi.o trigger.o \
