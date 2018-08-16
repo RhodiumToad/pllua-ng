@@ -57,8 +57,8 @@ pre code {
 }
 
 code.shortcode, code.longcode {
-	padding: 2px;
-	font-size: 130%;
+	padding: 2px 3px;
+	font-size: 120%;
 	background-color: #eee;
 }
 
@@ -241,6 +241,28 @@ select add_stuff('{"oldkey":123}');
  {"newkey": [{"foo": 1}, {"bar": 2}], "oldkey": 123}
 (1 row)
 </code></pre>
+<p>The above simplistic approach will tend to drop json null values
+(since Lua does not store nulls in tables), and loses precision on
+numeric values not representable as floats; this can be avoided as
+follows:</p>
+<pre class="codeblock"><code>create function add_stuff(val jsonb) returns jsonb language pllua
+as $$
+  local nullval = {}    -- use some unique object to mark nulls
+  local t = val{ null = nullval, pg_numeric = true }
+  t.newkey = { { foo = 1 }, { bar = 2 } }
+  return t, { null = nullval }
+$$;
+select add_stuff('{"oldkey":[147573952589676412928,null]}');
+                                   add_stuff
+-------------------------------------------------------------------------------
+ {"newkey": [{"foo": 1}, {"bar": 2}], "oldkey": [147573952589676412928, null]}
+(1 row)
+</code></pre>
+<p>Tables that originated from JSON are tagged as to whether they were
+originally objects or arrays, so as long as you provide a unique null
+value, this form of round-trip conversion should not change anything.
+(See the <code class="shortcode">pllua.jsonb</code> module documentation for more detail.)</p>
+
 <h1 id="S2">PL/Lua Reference</h1>
 <h2 id="S2.1">PostgreSQL environment</h2>
 <p>PL/Lua provides two extensions:</p>
@@ -717,13 +739,16 @@ the current key (not including the key) as separate additional
 parameters. The key is an integer if the current container is an
 array, a string if the container is an object, and nil if this is a
 single top-level scalar value (which I believe is not strictly allowed
-in the JSON spec, but PostgreSQL allows it). The <code class="shortcode">key</code>/<code class="shortcode">val</code> returned by
-the function are used to store the result, but do not affect the path
-values passed to any other function call. If <code class="shortcode">discard</code> is not specified,
-then the function is also called for completed containers (in which
-case <code class="shortcode">val</code> will be a table). If <code class="shortcode">pg_numeric</code> is not true, then numeric
-values are converted to Lua numbers, otherwise they remain as <code class="shortcode">Datum</code>
-values of <code class="shortcode">numeric</code> type (for which see below).</p>
+in the JSON spec, but PostgreSQL allows it). The <code class="shortcode">key</code>/<code class="shortcode">val</code> returned
+by the function are used to store the result, but do not affect the
+path values passed to any other function call. If <code class="shortcode">discard</code> is not
+specified, then the function is also called for completed containers
+(in which case <code class="shortcode">val</code> will be a table). If <code class="shortcode">pg_numeric</code> is not true,
+then numeric values are converted to Lua numbers, otherwise they
+remain as <code class="shortcode">Datum</code> values of <code class="shortcode">numeric</code> type (for which see below). All
+tables returned from a <code class="shortcode">jsonb</code> mapping will be tagged with metatables
+that record whether they were originally arrays or objects; see the
+<code class="shortcode">pllua.jsonb</code> module for details.</p>
 <p>Substitution of null values happens BEFORE the mapping function is
 called; if that's not what you want, then do the substitution
 yourself before returning the result. (If the mapping function
@@ -801,8 +826,11 @@ caller's snapshot. Otherwise a new snapshot is taken.</p>
 <p>returns a statement object. <code class="shortcode">{argtypes}</code> is a table containing
 type names or typeinfo objects. Allowed options are:</p>
 <ul>
-<li><code class="shortcode">scroll = true or false</code></li>
+<li>
+<code class="shortcode">scroll = true</code> or <code class="shortcode">false</code>
+</li>
 <li><code class="shortcode">no_scroll = true</code></li>
+<li><code class="shortcode">hold = true</code></li>
 <li><code class="shortcode">fast_start = true</code></li>
 <li><code class="shortcode">custom_plan = true</code></li>
 <li><code class="shortcode">generic_plan = true</code></li>
@@ -1260,6 +1288,11 @@ values from Lua data:</p>
 <div class="no-dl-fudge">
 <ul>
 <li>
+<p>Tables which have had the is_object or is_array metatable set (see
+below), which will convert to objects or arrays respectively (for
+arrays, any non-integer keys will be ignored)</p>
+</li>
+<li>
 <p>Empty collections, which will convert to empty json arrays unless
 <code class="shortcode">empty_object=true</code> in which case they become empty objects</p>
 </li>
@@ -1271,9 +1304,9 @@ have to be inserted, or the total size of the array would be more
 than <code class="shortcode">array_frac</code> times the number of table keys.</p>
 </li>
 <li>
-<p>Collections with keys which can be stringified: strings or numbers, or
-tables or userdata with <code class="shortcode">__tostring</code> methods, will convert to json
-objects.</p>
+<p>Collections with keys which can be stringified (i.e. strings or
+numbers, or tables or userdata with <code class="shortcode">__tostring</code> methods) will
+convert to json objects.</p>
 </li>
 <li>
 <p>Values which compare raw-equal to the <code class="shortcode">null</code> parameter are converted
@@ -1301,6 +1334,47 @@ converted to strings</p>
 <p>Unlike the other mapping functions, the map function for this
 operation is called only for values (including collections), not
 keys, and is not passed any path information.</p>
+<p>The use of metatables to distinguish JSON objects and arrays means
+that the transformation from <code class="shortcode">jsonb</code> to Lua tables and back preserves
+the original content <strong>as long as</strong> a unique <code class="shortcode">null</code> value is provided.
+However, for more complex manipulations, the following functions are
+available via <code class="shortcode">require "pllua.jsonb"</code>:</p>
+<dl>
+<dt><code class="shortcode">jsonb.is_object(table)</code></dt>
+<dd>
+
+<p>Returns true if <code class="shortcode">table</code> corresponds to a JSON object, false if
+it corresponds to an array, and no value if neither</p>
+</dd>
+<dt><code class="shortcode">jsonb.is_array(table)</code></dt>
+<dd>
+
+<p>Returns true if <code class="shortcode">table</code> corresponds to a JSON array, false if
+it corresponds to an object, and no value if neither</p>
+</dd>
+<dt><code class="shortcode">jsonb.set_as_array(table)</code></dt>
+<dd>
+
+<p>Mark the table as corresponding to a JSON array, and return it.
+The table must not already have a metatable, unless it's the one
+set by this function or by <code class="shortcode">set_as_object</code>.</p>
+</dd>
+<dt><code class="shortcode">jsonb.set_as_object(table)</code></dt>
+<dd>
+
+<p>Mark the table as corresponding to a JSON object, and return it.
+The table must not already have a metatable, unless it's the one
+set by this function or by <code class="shortcode">set_as_array</code>.</p>
+</dd>
+<dt><code class="shortcode">jsonb.set_as_unknown(table)</code></dt>
+<dd>
+
+<p>Mark the table as not corresponding to either a JSON object or
+array, and return it. This is the only way to remove the metatable
+that marks the JSON type, so you may need it if you want to apply
+some other metatable instead.</p>
+</dd>
+</dl>
 
 <h1 id="S3">Building PL/Lua</h1>
 <p>GNU Make is required to build, as usual for PostgreSQL extensions.</p>
