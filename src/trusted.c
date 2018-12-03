@@ -705,6 +705,7 @@ static struct global_info sandbox_lua_globals[] = {
 	{ "type", NULL },
 	{ "_VERSION", NULL },
 	{ "_PLVERSION", NULL },
+	{ "_PLREVISION", NULL },
 	{ "_PL_LOAD_TIME", NULL },
 	{ "_PL_IDENT", NULL },
 	{ "_PG_VERSION", NULL },

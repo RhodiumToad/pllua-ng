@@ -615,6 +615,8 @@ pllua_init_state_phase1(lua_State *L)
 
 	lua_pushliteral(L, PLLUA_VERSION_STR);
 	lua_setglobal(L, "_PLVERSION");
+	lua_pushliteral(L, PLLUA_REVISION_STR);
+	lua_setglobal(L, "_PLREVISION");
 	lua_pushstring(L, pllua_pg_version_str);
 	lua_setglobal(L, "_PG_VERSION");
 	lua_pushstring(L, pllua_pg_version_num);
