@@ -1567,12 +1567,16 @@ static int pllua_datum_row_index(lua_State *L)
 
 		case LUA_TNUMBER:		/* column number */
 			attno = lua_tointeger(L, -1);
-			if (((attno != ObjectIdAttributeNumber || !t->hasoid)
-				 && (attno < 1 || attno > t->natts))
-				|| TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
+			if (IsObjectIdAttributeNumber(attno))
+			{
+				if (!t->hasoid)
+					luaL_error(L, "datum has no oid column");
+			}
+			else if ((attno < 1 || attno > t->natts)
+					 || TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
 				luaL_error(L, "datum has no column number %d", attno);
 			pllua_datum_deform_tuple(L, 1, d, t);
-			if (attno == ObjectIdAttributeNumber)
+			if (IsObjectIdAttributeNumber(attno))
 				lua_getfield(L, -1, "oid");
 			else
 				pllua_datum_column(L, attno, false);
@@ -1612,12 +1616,16 @@ static int pllua_datum_row_newindex(lua_State *L)
 
 		case LUA_TNUMBER:		/* column number */
 			attno = lua_tointeger(L, 2);
-			if (((attno != ObjectIdAttributeNumber || !t->hasoid)
-				 && (attno < 1 || attno > t->natts))
-				|| TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
+			if (IsObjectIdAttributeNumber(attno))
+			{
+				if (!t->hasoid)
+					luaL_error(L, "datum has no oid column");
+			}
+			else if ((attno < 1 || attno > t->natts)
+					 || TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
 				luaL_error(L, "datum has no column number %d", attno);
 			pllua_datum_explode_tuple(L, 1, d, t);
-			if (attno == ObjectIdAttributeNumber)
+			if (IsObjectIdAttributeNumber(attno))
 			{
 				int isint = 0;
 				lua_Integer newoid = lua_tointegerx(L, 3, &isint);
@@ -2618,14 +2626,14 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 			ReleaseTupleDesc(tupdesc);
 			tupdesc = t->tupdesc;
 			t->natts = tupdesc->natts;
-			t->hasoid = tupdesc->tdhasoid;
+			t->hasoid = TupleDescHasOids(tupdesc);
 		}
 		else if (oid == RECORDOID && typmod == -1 && tupdesc)
 		{
 			/* input tupdesc is of uncertain lifetime, so we'd better copy it */
 			t->tupdesc = CreateTupleDescCopy(tupdesc);
 			t->natts = tupdesc->natts;
-			t->hasoid = tupdesc->tdhasoid;
+			t->hasoid = TupleDescHasOids(tupdesc);
 		}
 		else if (oid == RECORDOID && typmod == -1)
 		{
@@ -2635,7 +2643,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 				 (tupdesc = lookup_rowtype_tupdesc_noerror(t->basetype, typmod, true)))
 		{
 			t->natts = tupdesc->natts;
-			t->hasoid = tupdesc->tdhasoid;
+			t->hasoid = TupleDescHasOids(tupdesc);
 			t->tupdesc = CreateTupleDescCopy(tupdesc);
 			t->reloid = get_typ_typrelid(oid);
 			ReleaseTupleDesc(tupdesc);
@@ -2808,6 +2816,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 			lua_rawseti(L, -2, i+1);
 		}
 		lua_setfield(L, -3, "attrtypes");
+#ifdef ObjectIdAttributeNumber
 		if (t->hasoid)
 		{
 			lua_pushinteger(L, ObjectIdAttributeNumber);
@@ -2815,6 +2824,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 			lua_pushstring(L, "oid");
 			lua_seti(L, -2, ObjectIdAttributeNumber);
 		}
+#endif
 		lua_setfield(L, -2, "attrs");
 	}
 	/* stack: self uservalue */
@@ -3164,11 +3174,15 @@ static int pllua_typeinfo_element(lua_State *L)
 
 			case LUA_TNUMBER:		/* column number */
 				attno = lua_tointeger(L, -1);
-				if (((attno != ObjectIdAttributeNumber || !t->hasoid)
-					 && (attno < 1 || attno > t->natts))
-					|| TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
+				if (IsObjectIdAttributeNumber(attno))
+				{
+					if (!t->hasoid)
+						luaL_error(L, "type has no column number %d", attno);
+				}
+				else if ((attno < 1 || attno > t->natts)
+						 || TupleDescAttr(t->tupdesc, attno-1)->attisdropped)
 					luaL_error(L, "type has no column number %d", attno);
-				if (attno == ObjectIdAttributeNumber)
+				if (IsObjectIdAttributeNumber(attno))
 				{
 					lua_pushcfunction(L, pllua_typeinfo_lookup);
 					lua_pushinteger(L, (lua_Integer) OIDOID);
@@ -4110,7 +4124,7 @@ static int pllua_typeinfo_anonrec_call_datum(lua_State *L, int nd, int nt, int n
 	{
 		pllua_datum *tmpd;
 		pllua_datum *newd;
-		
+
 		/* Use the source datum's own typeinfo to make a copy of it; this
 		 * ensures we have a new unexploded record which we can just steal the
 		 * storage for.

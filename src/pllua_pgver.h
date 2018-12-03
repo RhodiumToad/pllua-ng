@@ -30,26 +30,61 @@
 #error must have a working 64-bit integer datatype
 #endif
 
-#if PG_VERSION_NUM >= 90600
+#ifdef PG_INT64_MIN
 #undef PG_INT64_MIN
+#endif
+#ifdef PG_INT64_MAX
 #undef PG_INT64_MAX
-#define PG_INT64_MIN    (-INT64CONST(0x7FFFFFFFFFFFFFFF) - 1)
-#define PG_INT64_MAX    INT64CONST(0x7FFFFFFFFFFFFFFF)
 #endif
 
 #endif /* CONST_MAX_HACK */
 
+#ifndef PG_INT64_MIN
+#define PG_INT64_MIN	(-INT64CONST(0x7FFFFFFFFFFFFFFF) - 1)
+#endif
+#ifndef PG_INT64_MAX
+#define PG_INT64_MAX	INT64CONST(0x7FFFFFFFFFFFFFFF)
+#endif
+
+/* RIP, oids. */
+#if PG_VERSION_NUM >= 120000
+#define TupleDescHasOids(tupdesc) (false)
+#define IsObjectIdAttributeNumber(a) (false)
+/*
+ * since hasoid is always supposed to be false thanks to the above, any
+ * references to the below macros should be unreachable
+ */
+#define HeapTupleHeaderGetOid(h) (AssertMacro(false), InvalidOid)
+#define HeapTupleHeaderSetOid(h,o) do { (void) (h); (void) (o); Assert(false); } while (0)
+#define HeapTupleSetOid(h,o) do { (void) (h); (void) (o); Assert(false); } while (0)
+#else
+#define TupleDescHasOids(tupdesc) ((tupdesc)->tdhasoid)
+#define IsObjectIdAttributeNumber(a) ((a) == ObjectIdAttributeNumber)
+#endif
+
+/* TupleDesc structure change */
 #if PG_VERSION_NUM < 100000
 #define TupleDescAttr(tupdesc, i) ((tupdesc)->attrs[(i)])
 #endif
 
-#if PG_VERSION_NUM < 90600
-#define PG_INT64_MIN	(-INT64CONST(0x7FFFFFFFFFFFFFFF) - 1)
-#define PG_INT64_MAX	INT64CONST(0x7FFFFFFFFFFFFFFF)
+/* AllocSetContextCreate API changes */
+#if PG_VERSION_NUM < 110000
+#define AllocSetContextCreateInternal AllocSetContextCreate
+#elif PG_VERSION_NUM < 120000
+#define AllocSetContextCreateInternal AllocSetContextCreateExtended
+#endif
+/*
+ * Protect against backpatching or lack thereof.
+ */
+#ifndef ALLOCSET_DEFAULT_SIZES
 #define ALLOCSET_DEFAULT_SIZES \
 	ALLOCSET_DEFAULT_MINSIZE, ALLOCSET_DEFAULT_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
+#endif
+#ifndef ALLOCSET_SMALL_SIZES
 #define ALLOCSET_SMALL_SIZES \
 	ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_SMALL_MAXSIZE
+#endif
+#ifndef ALLOCSET_START_SMALL_SIZES
 #define ALLOCSET_START_SMALL_SIZES \
 	ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
 #endif

@@ -55,7 +55,6 @@ do language pllua $$ print(pgtype(nil,'ctype3')(1,2)) $$;
 do language pllua $$ print(pgtype(nil,'ctype3')({1,2})) $$;
 do language pllua $$ print(pgtype(nil,'ctype3')(true,true)) $$;
 do language pllua $$ print(pgtype(nil,'ctype3')("1","2")) $$;
-do language pllua $$ print(pgtype(nil,'ctype3')("fred","jim")) $$;
 do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim=2})) $$;
 do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim={}})) $$;
 do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim=nil})) $$;

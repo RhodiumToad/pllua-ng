@@ -59,8 +59,6 @@ do language pllua $$ print(pgtype(nil,'ctype3')(true,true)) $$;
 ERROR:  pllua: incompatible value type
 do language pllua $$ print(pgtype(nil,'ctype3')("1","2")) $$;
 INFO:  (1,2)
-do language pllua $$ print(pgtype(nil,'ctype3')("fred","jim")) $$;
-ERROR:  invalid input syntax for integer: "fred"
 do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim=2})) $$;
 INFO:  (1,2)
 do language pllua $$ print(pgtype(nil,'ctype3')({fred=1,jim={}})) $$;
