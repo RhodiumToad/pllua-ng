@@ -1,5 +1,11 @@
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
+  <xsl:output method="html" doctype-system="about:legacy-compat" />
+
+  <!-- any variables we might want to use later -->
+  <xsl:variable name="canon_url">https://pllua.github.io/pllua-ng/</xsl:variable>
+  <xsl:variable name="canon_site">https://github.com/pllua/pllua-ng/</xsl:variable>
+
   <!--
       Break up a list of nodes at each top-level <br>, and turn each
       sublist into a <dt>...</dt> node. Initially nfirst is empty and
@@ -79,6 +85,14 @@
     </dl>
   </xsl:template>
 
+  <xsl:template match='a[starts-with(@href,"http://") or starts-with(@href,"https://")]'>
+    <xsl:element name="a">
+      <xsl:attribute name="rel">external nofollow</xsl:attribute>
+      <xsl:copy-of select="@href" />
+      <xsl:apply-templates select="node()" />
+    </xsl:element>
+  </xsl:template>
+
   <xsl:template match="*|@*">
     <xsl:copy>
       <xsl:apply-templates select="@*|node()" />
@@ -150,12 +164,17 @@
   </xsl:template>
 
   <xsl:template match="/">
-    <html>
+    <html lang="en">
       <head>
         <title>PL/Lua Documentation</title>
-        <xsl:copy-of select="//body/style" />
+        <link rel="canonical" href="{$canon_url}" />
+        <xsl:copy-of select="//head/style[not(@id='logo.css')]" />
+        <xsl:copy-of select="//head/script" />
+        <xsl:copy-of select="//head/style[@id='logo.css']" />
+        <xsl:copy-of select="//head/link[@rel='icon']" />
       </head>
       <body>
+        <div id="logo"><a href="{$canon_site}"></a></div>
         <div id="headContainer">
           <h1>Contents</h1>
           <ol>
@@ -165,7 +184,7 @@
           </ol>
         </div>
         <div id="bodyContainer">
-          <xsl:apply-templates select="//body/node()[not(self::style) and not(@id='footerContainer')]" />
+          <xsl:apply-templates select="//body/node()[not(@id='footerContainer')]" />
         </div>
         <xsl:apply-templates select="//body/div[@id='footerContainer']" />
       </body>

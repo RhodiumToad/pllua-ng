@@ -1,4 +1,3 @@
-<style>
 
 body {
 	margin: 0;
@@ -17,6 +16,10 @@ body {
 	#headContainer, #bodyContainer, #footer {
 		width: 85%;
 	}
+}
+
+#bodyContainer {
+	clear: both;
 }
 
 #footerContainer {
@@ -55,6 +58,7 @@ pre code {
 code.shortcode, code.longcode {
 	padding: 2px 3px;
 	font-size: 120%;
+	color: #000;
 	background-color: #eee;
 }
 
@@ -69,10 +73,34 @@ pre.codeblock {
 	border-radius: 8px;
 	border-width: 1px;
 	border-style: solid;
+	color: #000;
 	background-color: #eee;
 	box-shadow: 3px 3px 5px #ddd;
 	border-color: #ccc;
+	overflow: auto;
 }
 
-</style>
-<!--eof-->
+#logo {
+	width: 30vw;
+	height: 33vw;
+	float: right;
+	margin-left: 1em;
+	margin-right: 5vw;
+	background-color: inherit;
+	background-repeat: no-repeat;
+	background-attachment: scroll;
+	background-size: 100% 100%
+}
+
+#logo a {
+	display: inline-block;
+	width: 100%;
+	height: 100%;
+}
+
+a[rel~="external"] {
+	background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAW0lEQVQYlXWQgQ0AIQgD3cmd2Mmd2Kn/RPtCfZs0JngBSmsqA36d1YfDXqsOkB27wBM0RzWgTT8wFwjFy84FVIghYucCxmcUN+RgwLX8Hk1oTnBJauc5ruDVSQ92Teh+W2MqsAAAAABJRU5ErkJggg==) center right no-repeat;
+	padding-right: 13px;
+}
+
+/* eof */

@@ -22,8 +22,12 @@ lcov.info
 coverage/
 /results/
 /hstore/results/
-pllua_functable.h
-plerrcodes.h
-src/.dir-locals.el
-pllua.html
+/pllua_functable.h
+/plerrcodes.h
+/src/.dir-locals.el
+/pllua.html
+/icon.ico
+/icon.meta
+/logo.css
+/tmpdoc.html
 build*/

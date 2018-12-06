@@ -1,10 +1,31 @@
 #!/bin/sh
 
-template=$1
-shift
+printf "<html><head>\n"
 
-(
-    printf "<html><body>\n"
-    cmark "$@"
-    printf "</body></html>\n"
-) | xsltproc --html --encoding utf-8 "$template" -
+for fn; do
+    case "$fn" in
+		*.css)	printf '<style id="%s" type="text/css">\n' "${fn##*/}";
+				cat -- "$fn";
+				printf "</style>\n";;
+		*.js)	printf '<script id="%s" type="text/javascript">\n' "${fn##*/}";
+				cat -- "$fn";
+				printf "</script>\n";;
+		*.meta) cat -- "$fn";;
+    esac
+done
+
+printf "</head><body>\n"
+
+for fn; do
+    shift
+    case "$fn" in
+		*.md)	set -- "$@" "$fn";;
+		*.html)	cat -- "$fn";;
+    esac
+done
+
+cmark "$@" || exit 1
+
+printf "</body></html>\n"
+
+exit 0

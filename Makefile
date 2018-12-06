@@ -63,7 +63,10 @@ DATA = $(addprefix scripts/, $(SQL_SRC))
 DOC_HTML = pllua.html
 
 ifdef BUILD_DOCS
-DOCS =  $(DOC_HTML)
+DOCS = $(DOC_HTML)
+ifdef BUILD_ICON
+ICON = icon.meta
+endif
 endif
 
 objdir := src
@@ -85,9 +88,9 @@ REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule $(EXTRA_REGRESS)
 
 REORDER_O = $(srcdir)/tools/reorder-o.sh
 
-DOC_MD = css.css intro.md pllua.md building.md endnote.md
+DOC_MD = css.css script.js intro.md pllua.md building.md endnote.md
 
-DOC_SRCS = $(addprefix $(srcdir)/doc/, $(DOC_MD))
+DOC_SRCS = logo.css $(ICON) $(addprefix $(srcdir)/doc/, $(DOC_MD))
 
 INCS=   pllua.h pllua_pgver.h pllua_luaver.h pllua_luajit.h
 
@@ -107,7 +110,9 @@ OBJS = $(addprefix src/, $(OBJS_C))
 
 EXTRA_OBJS = $(addprefix src/, $(OBJS_LUA))
 
-EXTRA_CLEAN = pllua_functable.h plerrcodes.h $(addprefix src/,$(OBJS_LUA:.o=.luac)) $(EXTRA_OBJS) $(DOC_HTML)
+EXTRA_CLEAN = pllua_functable.h plerrcodes.h \
+	$(addprefix src/,$(OBJS_LUA:.o=.luac)) $(EXTRA_OBJS) \
+	logo.css tmpdoc.html icon.ico icon.meta $(DOC_HTML)
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
 
@@ -195,5 +200,17 @@ endif
 installcheck-parallel: submake $(REGRESS_PREP)
 	$(pg_regress_installcheck) $(REGRESS_OPTS) $(REGRESS_PARALLEL)
 
+logo.css: $(srcdir)/doc/logo.svg $(srcdir)/tools/logo.lua
+	$(LUA) $(srcdir)/tools/logo.lua -text -logo $(srcdir)/doc/logo.svg >$@
+
+icon.ico: $(srcdir)/doc/logo.svg
+	convert -size 256x256 -background transparent $(srcdir)/doc/logo.svg \
+		-format ico -define icon:auto-resize=32,16 icon.ico
+
+icon.meta: icon.ico
+	$(LUA) $(srcdir)/tools/logo.lua -binary -icon icon.ico >$@
+
 $(DOC_HTML): $(DOC_SRCS) $(srcdir)/doc/template.xsl $(srcdir)/tools/doc.sh
-	$(srcdir)/tools/doc.sh $(srcdir)/doc/template.xsl $(DOC_SRCS) >$@
+	$(srcdir)/tools/doc.sh $(DOC_SRCS) >tmpdoc.html
+	xsltproc --html --encoding utf-8 $(srcdir)/doc/template.xsl tmpdoc.html >$@
+	-rm -- tmpdoc.html
