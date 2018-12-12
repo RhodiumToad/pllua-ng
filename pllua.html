@@ -4,7 +4,8 @@
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <title>PL/Lua Documentation</title>
 <link rel="canonical" href="https://pllua.github.io/pllua-ng/">
-<style id="css.css" type="text/css">
+<meta name="viewport" content="width=device-width">
+<style id="css.css">
 
 body {
 	margin: 0;
@@ -14,69 +15,144 @@ body {
 	background-color: #fff;
 }
 
-#headContainer, #bodyContainer, #footer {
+.maincolumn {
 	margin: 0 auto;
 	width: 95%;
 }
-
-@media (min-width:950px) {
-	#headContainer, #bodyContainer, #footer {
+@media (min-width:60em) {
+	.maincolumn {
 		width: 85%;
 	}
 }
 
-#bodyContainer {
+#logo {
+	width: 30vw;
+	height: 30vw;
+	max-width: 30em;
+	max-height: 30em;
+	float: right;
+	margin-top: 2.5vw;
+	margin-right: 0;
+	margin-bottom: 1em;
+	margin-left: 1em;
+	background-color: inherit;
+	background-repeat: no-repeat;
+	background-attachment: scroll;
+	background-size: 100% 100%
+}
+@media (min-width:35em) {
+	#logo {
+		margin-top: 1.75em;
+	}
+}
+
+#logo a {
+	display: inline-block;
+	width: 100%;
+	height: 100%;
+}
+
+#topContainer {
+	border-bottom: 1px solid #666;
+	clear: both;
+}
+
+#bodycontent {
 	clear: both;
 }
 
 #footerContainer {
-	margin-top: 6ex;
-	margin-bottom: 2ex;
+	margin: 3em 0 0 0;
+	padding: 0.5em 0;
+	border-top: 2px solid #666;
+	background-color: #ddd;
+	color: #000;
 }
 
 dd p {
-	margin-top: 1ex;
+	margin-top: 0.5em;
 }
 
 p, ol, ul, dl, pre {
-	line-height: 150%;
+	line-height: 140%;
+}
+
+li.tocentry-1 {
+	margin-top: 0.5em;
 }
 
 dd {
-	margin-bottom: 8px;
+	margin-bottom: 0.5em;
 }
 
 h1 {
-	margin-top: 2ex;
 	font-size: 175%;
 }
-
 h2 {
-	margin-top: 2ex;
 	font-size: 150%;
+}
+h3 {
+	font-size: 120%;
+}
+h1, h2, h3 {
+	margin-top: 1em;
+	margin-bottom: 0.5em;
+}
+
+@supports ( display: flex ) {
+	.bodycontent h1, .bodycontent h2 {
+		display: flex;
+		flex-direction: row;
+		flex: none;
+	}
+	.bodycontent h1::after, .bodycontent h2::after {
+		margin-left: 1em;
+		flex: auto;
+		align-self: center;
+		content: "\a0";
+		height: 0px;
+	}
+	.bodycontent h1::after {
+		border-top: 2px #ddd solid;
+	}
+	.bodycontent h2::after {
+		border-top: 1px #ddd solid;
+	}
+}
+
+code {
+	font-size: 120%;
 }
 
 pre code {
 	padding: 0;
-	font-size: 120%;
 	line-height: 150%;
 }
 
-code.shortcode, code.longcode {
+.bodycontent .shortcode, .bodycontent .longcode {
 	padding: 2px 3px;
-	font-size: 120%;
 	color: #000;
 	background-color: #eee;
 }
 
+.footer .shortcode, .footer .longcode {
+	padding: 2px 3px;
+	color: #000;
+	background-color: #ccc;
+}
+
 /* prevent line-breaks in short code spans */
-code.shortcode {
+.shortcode {
 	white-space: pre;
 }
 
-pre.codeblock {
-	margin: 2ex 2em 2ex 2em;
-	padding: 2ex;
+.longcode {
+	white-space: pre-wrap;
+}
+
+.bodycontent pre.codeblock {
+	margin: 1em 2em;
+	padding: 1em;
 	border-radius: 8px;
 	border-width: 1px;
 	border-style: solid;
@@ -87,24 +163,6 @@ pre.codeblock {
 	overflow: auto;
 }
 
-#logo {
-	width: 30vw;
-	height: 33vw;
-	float: right;
-	margin-left: 1em;
-	margin-right: 5vw;
-	background-color: inherit;
-	background-repeat: no-repeat;
-	background-attachment: scroll;
-	background-size: 100% 100%
-}
-
-#logo a {
-	display: inline-block;
-	width: 100%;
-	height: 100%;
-}
-
 a[rel~="external"] {
 	background: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAW0lEQVQYlXWQgQ0AIQgD3cmd2Mmd2Kn/RPtCfZs0JngBSmsqA36d1YfDXqsOkB27wBM0RzWgTT8wFwjFy84FVIghYucCxmcUN+RgwLX8Hk1oTnBJauc5ruDVSQ92Teh+W2MqsAAAAABJRU5ErkJggg==) center right no-repeat;
 	padding-right: 13px;
@@ -112,62 +170,97 @@ a[rel~="external"] {
 
 /* eof */
 </style>
-<script id="script.js" type="text/javascript">
+<script id="script.js">
 (function(){
     "use strict";
+    /* adjust scroll positions */
     var shiftWindow5 = function() { scrollBy(0, -0.05 * window.innerHeight) };
     window.addEventListener("DOMContentLoaded",(function(){ if (location.hash) shiftWindow5(); }));
     window.addEventListener("hashchange", shiftWindow5);
+    /* render the logo into a high-res favicon */
+    window.addEventListener("DOMContentLoaded",(function(){
+	var logosrc = (window.getComputedStyle(document.getElementById("logo"))
+		       .getPropertyValue("background-image")
+		       .match(/data:[^"")]*/)[0]);
+	if (logosrc.length)
+	{
+	    var i = new Image(960,960);
+	    var render1 = function(id,s) {
+		var c = document.createElement("canvas");
+		c.width = s;
+		c.height = s;
+		var cxt = c.getContext("2d");
+		cxt.drawImage(i, 0, 0, s, s);
+		var link = document.createElement("link");
+		link.id = id;
+		link.rel = "icon";
+		link.type = "image/png";
+		link.sizes = s+"x"+s;
+		link.href = c.toDataURL();
+		return link;
+	    };
+	    var render = function() {
+		document.head.appendChild(render1("dyn-icon-192.png", 192));
+	    };
+	    i.src = logosrc;
+	    if (i.complete) {
+		render();
+	    } else {
+		i.onload = (function(){ if (i.complete) { render(); } });
+	    }
+	}
+    }));
 })();
-</script><style id="logo.css" type="text/css">
+</script><style id="logo.css">
 #logo {
-  background-image: url("data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+DQo8IURPQ1RZUEUgc3ZnIFBVQkxJQyAiLS8vVzNDLy9EVEQgU1ZHIDEuMS8vRU4iICJodHRwOi8vd3d3LnczLm9yZy9HcmFwaGljcy9TVkcvMS4xL0RURC9zdmcxMS5kdGQiPg0KPHN2ZyB2aWV3Qm94PSIwIDAgNjcwIDY3MCIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4NCjxnIGlkPSJsdWEiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDEwNiwwKSBzY2FsZSgwLjYpIj4NCjxwYXRoIGQ9Im04ODAuNCAyNjYuMThhNDU2LjY3IDQ1Ni42NyAwIDEgMSAtMTU4LjE4IC0xNzUuNjciIHN0cm9rZT0iIzgwODA4MCIgc3Ryb2tlLWRhc2hhcnJheT0iMzkuODUyMiIgc3Ryb2tlLXdpZHRoPSIxMC41OTciIGZpbGw9Im5vbmUiLz4NCjxjaXJjbGUgY3k9IjEyMC4yOSIgY3g9IjgyNi43MiIgcj0iMTAzLjQ2IiBmaWxsPSIjMDAwMDgwIi8+DQo8L2c+DQo8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLDEwNCkiPg0KPHN2ZyB3aWR0aD0iNDMyLjA3MXB0IiBoZWlnaHQ9IjQ0NS4zODNwdCIgdmlld0JveD0iMCAwIDQ0Mi4wNzEgNDQ1LjM4MyIgeG1sOnNwYWNlPSJwcmVzZXJ2ZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4NCjxnIGlkPSJMYXllcl94MDAyMF8zIiBzdHlsZT0iZmlsbC1ydWxlOm5vbnplcm87Y2xpcC1ydWxlOm5vbnplcm87ZmlsbDpub25lO3N0cm9rZTojRkZGRkZGO3N0cm9rZS13aWR0aDoxMi40NjUxO3N0cm9rZS1saW5lY2FwOnJvdW5kO3N0cm9rZS1saW5lam9pbjpyb3VuZDtzdHJva2UtbWl0ZXJsaW1pdDo0OyI+DQo8cGF0aCBzdHlsZT0iZmlsbDojMDAwMDAwO3N0cm9rZTojMDAwMDAwO3N0cm9rZS13aWR0aDozNy4zOTUzO3N0cm9rZS1saW5lY2FwOmJ1dHQ7c3Ryb2tlLWxpbmVqb2luOm1pdGVyOyIgZD0iTTMyMy4yMDUsMzI0LjIyN2MyLjgzMy0yMy42MDEsMS45ODQtMjcuMDYyLDE5LjU2My0yMy4yMzlsNC40NjMsMC4zOTJjMTMuNTE3LDAuNjE1LDMxLjE5OS0yLjE3NCw0MS41ODctN2MyMi4zNjItMTAuMzc2LDM1LjYyMi0yNy43LDEzLjU3Mi0yMy4xNDhjLTUwLjI5NywxMC4zNzYtNTMuNzU1LTYuNjU1LTUzLjc1NS02LjY1NWM1My4xMTEtNzguODAzLDc1LjMxMy0xNzguODM2LDU2LjE0OS0yMDMuMzIyICAgIEMzNTIuNTE0LTUuNTM0LDI2Mi4wMzYsMjYuMDQ5LDI2MC41MjIsMjYuODY5bC0wLjQ4MiwwLjA4OWMtOS45MzgtMi4wNjItMjEuMDYtMy4yOTQtMzMuNTU0LTMuNDk2Yy0yMi43NjEtMC4zNzQtNDAuMDMyLDUuOTY3LTUzLjEzMywxNS45MDRjMCwwLTE2MS40MDgtNjYuNDk4LTE1My44OTksODMuNjI4YzEuNTk3LDMxLjkzNiw0NS43NzcsMjQxLjY1NSw5OC40NywxNzguMzEgICAgYzE5LjI1OS0yMy4xNjMsMzcuODcxLTQyLjc0OCwzNy44NzEtNDIuNzQ4YzkuMjQyLDYuMTQsMjAuMzA3LDkuMjcyLDMxLjkxMiw4LjE0N2wwLjg5Ny0wLjc2NWMtMC4yODEsMi44NzYtMC4xNTcsNS42ODksMC4zNTksOS4wMTljLTEzLjU3MiwxNS4xNjctOS41ODQsMTcuODMtMzYuNzIzLDIzLjQxNmMtMjcuNDU3LDUuNjU5LTExLjMyNiwxNS43MzQtMC43OTcsMTguMzY3YzEyLjc2OCwzLjE5Myw0Mi4zMDUsNy43MTYsNjIuMjY4LTIwLjIyNCAgICBsLTAuNzk1LDMuMTg4YzUuMzI1LDQuMjYsNC45NjUsMzAuNjE5LDUuNzIsNDkuNDUyYzAuNzU2LDE4LjgzNCwyLjAxNywzNi40MDksNS44NTYsNDYuNzcxYzMuODM5LDEwLjM2LDguMzY5LDM3LjA1LDQ0LjAzNiwyOS40MDZjMjkuODA5LTYuMzg4LDUyLjYtMTUuNTgyLDU0LjY3Ny0xMDEuMTA3Ii8+DQo8cGF0aCBzdHlsZT0iZmlsbDojMzM2NzkxO3N0cm9rZTpub25lOyIgZD0iTTQwMi4zOTUsMjcxLjIzYy01MC4zMDIsMTAuMzc2LTUzLjc2LTYuNjU1LTUzLjc2LTYuNjU1YzUzLjExMS03OC44MDgsNzUuMzEzLTE3OC44NDMsNTYuMTUzLTIwMy4zMjZjLTUyLjI3LTY2Ljc4NS0xNDIuNzUyLTM1LjItMTQ0LjI2Mi0zNC4zOGwtMC40ODYsMC4wODdjLTkuOTM4LTIuMDYzLTIxLjA2LTMuMjkyLTMzLjU2LTMuNDk2Yy0yMi43NjEtMC4zNzMtNDAuMDI2LDUuOTY3LTUzLjEyNywxNS45MDIgICAgYzAsMC0xNjEuNDExLTY2LjQ5NS0xNTMuOTA0LDgzLjYzYzEuNTk3LDMxLjkzOCw0NS43NzYsMjQxLjY1Nyw5OC40NzEsMTc4LjMxMmMxOS4yNi0yMy4xNjMsMzcuODY5LTQyLjc0OCwzNy44NjktNDIuNzQ4YzkuMjQzLDYuMTQsMjAuMzA4LDkuMjcyLDMxLjkwOCw4LjE0N2wwLjkwMS0wLjc2NWMtMC4yOCwyLjg3Ni0wLjE1Miw1LjY4OSwwLjM2MSw5LjAxOWMtMTMuNTc1LDE1LjE2Ny05LjU4NiwxNy44My0zNi43MjMsMjMuNDE2ICAgIGMtMjcuNDU5LDUuNjU5LTExLjMyOCwxNS43MzQtMC43OTYsMTguMzY3YzEyLjc2OCwzLjE5Myw0Mi4zMDcsNy43MTYsNjIuMjY2LTIwLjIyNGwtMC43OTYsMy4xODhjNS4zMTksNC4yNiw5LjA1NCwyNy43MTEsOC40MjgsNDguOTY5Yy0wLjYyNiwyMS4yNTktMS4wNDQsMzUuODU0LDMuMTQ3LDQ3LjI1NGM0LjE5MSwxMS40LDguMzY4LDM3LjA1LDQ0LjA0MiwyOS40MDZjMjkuODA5LTYuMzg4LDQ1LjI1Ni0yMi45NDIsNDcuNDA1LTUwLjU1NSAgICBjMS41MjUtMTkuNjMxLDQuOTc2LTE2LjcyOSw1LjE5NC0zNC4yOGwyLjc2OC04LjMwOWMzLjE5Mi0yNi42MTEsMC41MDctMzUuMTk2LDE4Ljg3Mi0zMS4yMDNsNC40NjMsMC4zOTJjMTMuNTE3LDAuNjE1LDMxLjIwOC0yLjE3NCw0MS41OTEtN2MyMi4zNTgtMTAuMzc2LDM1LjYxOC0yNy43LDEzLjU3My0yMy4xNDh6Ii8+DQo8cGF0aCBkPSJNMjE1Ljg2NiwyODYuNDg0Yy0xLjM4NSw0OS41MTYsMC4zNDgsOTkuMzc3LDUuMTkzLDExMS40OTVjNC44NDgsMTIuMTE4LDE1LjIyMywzNS42ODgsNTAuOSwyOC4wNDVjMjkuODA2LTYuMzksNDAuNjUxLTE4Ljc1Niw0NS4zNTctNDYuMDUxYzMuNDY2LTIwLjA4MiwxMC4xNDgtNzUuODU0LDExLjAwNS04Ny4yODEiLz4NCjxwYXRoIGQ9Ik0xNzMuMTA0LDM4LjI1NmMwLDAtMTYxLjUyMS02Ni4wMTYtMTU0LjAxMiw4NC4xMDljMS41OTcsMzEuOTM4LDQ1Ljc3OSwyNDEuNjY0LDk4LjQ3MywxNzguMzE2YzE5LjI1Ni0yMy4xNjYsMzYuNjcxLTQxLjMzNSwzNi42NzEtNDEuMzM1Ii8+DQo8cGF0aCBkPSJNMjYwLjM0OSwyNi4yMDdjLTUuNTkxLDEuNzUzLDg5Ljg0OC0zNC44ODksMTQ0LjA4NywzNC40MTdjMTkuMTU5LDI0LjQ4NC0zLjA0MywxMjQuNTE5LTU2LjE1MywyMDMuMzI5Ii8+DQo8cGF0aCBzdHlsZT0ic3Ryb2tlLWxpbmVqb2luOmJldmVsOyIgZD0iTTM0OC4yODIsMjYzLjk1M2MwLDAsMy40NjEsMTcuMDM2LDUzLjc2NCw2LjY1M2MyMi4wNC00LjU1Miw4Ljc3NiwxMi43NzQtMTMuNTc3LDIzLjE1NWMtMTguMzQ1LDguNTE0LTU5LjQ3NCwxMC42OTYtNjAuMTQ2LTEuMDY5Yy0xLjcyOS0zMC4zNTUsMjEuNjQ3LTIxLjEzMywxOS45Ni0yOC43MzljLTEuNTI1LTYuODUtMTEuOTc5LTEzLjU3My0xOC44OTQtMzAuMzM4ICAgIGMtNi4wMzctMTQuNjMzLTgyLjc5Ni0xMjYuODQ5LDIxLjI4Ny0xMTAuMTgzYzMuODEzLTAuNzg5LTI3LjE0Ni05OS4wMDItMTI0LjU1My0xMDAuNTk5Yy05Ny4zODUtMS41OTctOTQuMTksMTE5Ljc2Mi05NC4xOSwxMTkuNzYyIi8+DQo8cGF0aCBkPSJNMTg4LjYwNCwyNzQuMzM0Yy0xMy41NzcsMTUuMTY2LTkuNTg0LDE3LjgyOS0zNi43MjMsMjMuNDE3Yy0yNy40NTksNS42Ni0xMS4zMjYsMTUuNzMzLTAuNzk3LDE4LjM2NWMxMi43NjgsMy4xOTUsNDIuMzA3LDcuNzE4LDYyLjI2Ni0yMC4yMjljNi4wNzgtOC41MDktMC4wMzYtMjIuMDg2LTguMzg1LTI1LjU0N2MtNC4wMzQtMS42NzEtOS40MjgtMy43NjUtMTYuMzYxLDMuOTk0eiIvPg0KPHBhdGggZD0iTTE4Ny43MTUsMjc0LjA2OWMtMS4zNjgtOC45MTcsMi45My0xOS41MjgsNy41MzYtMzEuOTQyYzYuOTIyLTE4LjYyNiwyMi44OTMtMzcuMjU1LDEwLjExNy05Ni4zMzljLTkuNTIzLTQ0LjAyOS03My4zOTYtOS4xNjMtNzMuNDM2LTMuMTkzYy0wLjAzOSw1Ljk2OCwyLjg4OSwzMC4yNi0xLjA2Nyw1OC41NDhjLTUuMTYyLDM2LjkxMywyMy40ODgsNjguMTMyLDU2LjQ3OSw2NC45MzgiLz4NCjxwYXRoIHN0eWxlPSJmaWxsOiNGRkZGRkY7c3Ryb2tlLXdpZHRoOjQuMTU1O3N0cm9rZS1saW5lY2FwOmJ1dHQ7c3Ryb2tlLWxpbmVqb2luOm1pdGVyOyIgZD0iTTE3Mi41MTcsMTQxLjdjLTAuMjg4LDIuMDM5LDMuNzMzLDcuNDgsOC45NzYsOC4yMDdjNS4yMzQsMC43Myw5LjcxNC0zLjUyMiw5Ljk5OC01LjU1OWMwLjI4NC0yLjAzOS0zLjczMi00LjI4NS04Ljk3Ny01LjAxNWMtNS4yMzctMC43MzEtOS43MTksMC4zMzMtOS45OTYsMi4zNjd6Ii8+DQo8cGF0aCBzdHlsZT0iZmlsbDojRkZGRkZGO3N0cm9rZS13aWR0aDoyLjA3NzU7c3Ryb2tlLWxpbmVjYXA6YnV0dDtzdHJva2UtbGluZWpvaW46bWl0ZXI7IiBkPSJNMzMxLjk0MSwxMzcuNTQzYzAuMjg0LDIuMDM5LTMuNzMyLDcuNDgtOC45NzYsOC4yMDdjLTUuMjM4LDAuNzMtOS43MTgtMy41MjItMTAuMDA1LTUuNTU5Yy0wLjI3Ny0yLjAzOSwzLjc0LTQuMjg1LDguOTc5LTUuMDE1YzUuMjM5LTAuNzMsOS43MTgsMC4zMzMsMTAuMDAyLDIuMzY4eiIvPg0KPHBhdGggZD0iTTM1MC42NzYsMTIzLjQzMmMwLjg2MywxNS45OTQtMy40NDUsMjYuODg4LTMuOTg4LDQzLjkxNGMtMC44MDQsMjQuNzQ4LDExLjc5OSw1My4wNzQtNy4xOTEsODEuNDM1Ii8+DQo8cGF0aCBzdHlsZT0ic3Ryb2tlLXdpZHRoOjM7IiBkPSJNMCw2MC4yMzIiLz4NCjwvZz4NCjwvc3ZnPg0KPC9nPg0KPC9zdmc+DQo=");
+  background-image: url("data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIj8+DQo8IURPQ1RZUEUgc3ZnIFBVQkxJQyAiLS8vVzNDLy9EVEQgU1ZHIDEuMS8vRU4iICJodHRwOi8vd3d3LnczLm9yZy9HcmFwaGljcy9TVkcvMS4xL0RURC9zdmcxMS5kdGQiPg0KPHN2ZyB3aWR0aD0iNjQwIiBoZWlnaHQ9IjY0MCIgdmlld0JveD0iMCAwIDY0MCA2NDAiIHhtbDpzcGFjZT0icHJlc2VydmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+DQo8ZyBpZD0ibHVhIiB0cmFuc2Zvcm09InRyYW5zbGF0ZSgxMDcsLTcpIHNjYWxlKDAuNTcpIj4NCjxwYXRoIGQ9Im04ODAuNCAyNjYuMThhNDU2LjY3IDQ1Ni42NyAwIDEgMSAtMTU4LjE4IC0xNzUuNjciIHN0cm9rZT0iIzgwODA4MCIgc3Ryb2tlLWRhc2hhcnJheT0iMzkuODUyMiIgc3Ryb2tlLXdpZHRoPSIxMC41OTciIGZpbGw9Im5vbmUiLz4NCjxjaXJjbGUgY3k9IjEyMC4yOSIgY3g9IjgyNi43MiIgcj0iMTAzLjQ2IiBmaWxsPSIjMDAwMDgwIi8+DQo8L2c+DQo8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLDgzKSBzY2FsZSgxLjI1KSI+DQo8ZyBpZD0ic2xvbmlrIiBzdHlsZT0iZmlsbC1ydWxlOm5vbnplcm87Y2xpcC1ydWxlOm5vbnplcm87ZmlsbDpub25lO3N0cm9rZTojRkZGRkZGO3N0cm9rZS13aWR0aDoxMi40NjUxO3N0cm9rZS1saW5lY2FwOnJvdW5kO3N0cm9rZS1saW5lam9pbjpyb3VuZDtzdHJva2UtbWl0ZXJsaW1pdDo0OyI+DQo8cGF0aCBzdHlsZT0iZmlsbDojMDAwMDAwO3N0cm9rZTojMDAwMDAwO3N0cm9rZS13aWR0aDozNy4zOTUzO3N0cm9rZS1saW5lY2FwOmJ1dHQ7c3Ryb2tlLWxpbmVqb2luOm1pdGVyOyIgZD0iTTMyMy4yMDUsMzI0LjIyN2MyLjgzMy0yMy42MDEsMS45ODQtMjcuMDYyLDE5LjU2My0yMy4yMzlsNC40NjMsMC4zOTJjMTMuNTE3LDAuNjE1LDMxLjE5OS0yLjE3NCw0MS41ODctN2MyMi4zNjItMTAuMzc2LDM1LjYyMi0yNy43LDEzLjU3Mi0yMy4xNDhjLTUwLjI5NywxMC4zNzYtNTMuNzU1LTYuNjU1LTUzLjc1NS02LjY1NWM1My4xMTEtNzguODAzLDc1LjMxMy0xNzguODM2LDU2LjE0OS0yMDMuMzIyICAgIEMzNTIuNTE0LTUuNTM0LDI2Mi4wMzYsMjYuMDQ5LDI2MC41MjIsMjYuODY5bC0wLjQ4MiwwLjA4OWMtOS45MzgtMi4wNjItMjEuMDYtMy4yOTQtMzMuNTU0LTMuNDk2Yy0yMi43NjEtMC4zNzQtNDAuMDMyLDUuOTY3LTUzLjEzMywxNS45MDRjMCwwLTE2MS40MDgtNjYuNDk4LTE1My44OTksODMuNjI4YzEuNTk3LDMxLjkzNiw0NS43NzcsMjQxLjY1NSw5OC40NywxNzguMzEgICAgYzE5LjI1OS0yMy4xNjMsMzcuODcxLTQyLjc0OCwzNy44NzEtNDIuNzQ4YzkuMjQyLDYuMTQsMjAuMzA3LDkuMjcyLDMxLjkxMiw4LjE0N2wwLjg5Ny0wLjc2NWMtMC4yODEsMi44NzYtMC4xNTcsNS42ODksMC4zNTksOS4wMTljLTEzLjU3MiwxNS4xNjctOS41ODQsMTcuODMtMzYuNzIzLDIzLjQxNmMtMjcuNDU3LDUuNjU5LTExLjMyNiwxNS43MzQtMC43OTcsMTguMzY3YzEyLjc2OCwzLjE5Myw0Mi4zMDUsNy43MTYsNjIuMjY4LTIwLjIyNCAgICBsLTAuNzk1LDMuMTg4YzUuMzI1LDQuMjYsNC45NjUsMzAuNjE5LDUuNzIsNDkuNDUyYzAuNzU2LDE4LjgzNCwyLjAxNywzNi40MDksNS44NTYsNDYuNzcxYzMuODM5LDEwLjM2LDguMzY5LDM3LjA1LDQ0LjAzNiwyOS40MDZjMjkuODA5LTYuMzg4LDUyLjYtMTUuNTgyLDU0LjY3Ny0xMDEuMTA3Ii8+DQo8cGF0aCBzdHlsZT0iZmlsbDojMzM2NzkxO3N0cm9rZTpub25lOyIgZD0iTTQwMi4zOTUsMjcxLjIzYy01MC4zMDIsMTAuMzc2LTUzLjc2LTYuNjU1LTUzLjc2LTYuNjU1YzUzLjExMS03OC44MDgsNzUuMzEzLTE3OC44NDMsNTYuMTUzLTIwMy4zMjZjLTUyLjI3LTY2Ljc4NS0xNDIuNzUyLTM1LjItMTQ0LjI2Mi0zNC4zOGwtMC40ODYsMC4wODdjLTkuOTM4LTIuMDYzLTIxLjA2LTMuMjkyLTMzLjU2LTMuNDk2Yy0yMi43NjEtMC4zNzMtNDAuMDI2LDUuOTY3LTUzLjEyNywxNS45MDIgICAgYzAsMC0xNjEuNDExLTY2LjQ5NS0xNTMuOTA0LDgzLjYzYzEuNTk3LDMxLjkzOCw0NS43NzYsMjQxLjY1Nyw5OC40NzEsMTc4LjMxMmMxOS4yNi0yMy4xNjMsMzcuODY5LTQyLjc0OCwzNy44NjktNDIuNzQ4YzkuMjQzLDYuMTQsMjAuMzA4LDkuMjcyLDMxLjkwOCw4LjE0N2wwLjkwMS0wLjc2NWMtMC4yOCwyLjg3Ni0wLjE1Miw1LjY4OSwwLjM2MSw5LjAxOWMtMTMuNTc1LDE1LjE2Ny05LjU4NiwxNy44My0zNi43MjMsMjMuNDE2ICAgIGMtMjcuNDU5LDUuNjU5LTExLjMyOCwxNS43MzQtMC43OTYsMTguMzY3YzEyLjc2OCwzLjE5Myw0Mi4zMDcsNy43MTYsNjIuMjY2LTIwLjIyNGwtMC43OTYsMy4xODhjNS4zMTksNC4yNiw5LjA1NCwyNy43MTEsOC40MjgsNDguOTY5Yy0wLjYyNiwyMS4yNTktMS4wNDQsMzUuODU0LDMuMTQ3LDQ3LjI1NGM0LjE5MSwxMS40LDguMzY4LDM3LjA1LDQ0LjA0MiwyOS40MDZjMjkuODA5LTYuMzg4LDQ1LjI1Ni0yMi45NDIsNDcuNDA1LTUwLjU1NSAgICBjMS41MjUtMTkuNjMxLDQuOTc2LTE2LjcyOSw1LjE5NC0zNC4yOGwyLjc2OC04LjMwOWMzLjE5Mi0yNi42MTEsMC41MDctMzUuMTk2LDE4Ljg3Mi0zMS4yMDNsNC40NjMsMC4zOTJjMTMuNTE3LDAuNjE1LDMxLjIwOC0yLjE3NCw0MS41OTEtN2MyMi4zNTgtMTAuMzc2LDM1LjYxOC0yNy43LDEzLjU3My0yMy4xNDh6Ii8+DQo8cGF0aCBkPSJNMjE1Ljg2NiwyODYuNDg0Yy0xLjM4NSw0OS41MTYsMC4zNDgsOTkuMzc3LDUuMTkzLDExMS40OTVjNC44NDgsMTIuMTE4LDE1LjIyMywzNS42ODgsNTAuOSwyOC4wNDVjMjkuODA2LTYuMzksNDAuNjUxLTE4Ljc1Niw0NS4zNTctNDYuMDUxYzMuNDY2LTIwLjA4MiwxMC4xNDgtNzUuODU0LDExLjAwNS04Ny4yODEiLz4NCjxwYXRoIGQ9Ik0xNzMuMTA0LDM4LjI1NmMwLDAtMTYxLjUyMS02Ni4wMTYtMTU0LjAxMiw4NC4xMDljMS41OTcsMzEuOTM4LDQ1Ljc3OSwyNDEuNjY0LDk4LjQ3MywxNzguMzE2YzE5LjI1Ni0yMy4xNjYsMzYuNjcxLTQxLjMzNSwzNi42NzEtNDEuMzM1Ii8+DQo8cGF0aCBkPSJNMjYwLjM0OSwyNi4yMDdjLTUuNTkxLDEuNzUzLDg5Ljg0OC0zNC44ODksMTQ0LjA4NywzNC40MTdjMTkuMTU5LDI0LjQ4NC0zLjA0MywxMjQuNTE5LTU2LjE1MywyMDMuMzI5Ii8+DQo8cGF0aCBzdHlsZT0ic3Ryb2tlLWxpbmVqb2luOmJldmVsOyIgZD0iTTM0OC4yODIsMjYzLjk1M2MwLDAsMy40NjEsMTcuMDM2LDUzLjc2NCw2LjY1M2MyMi4wNC00LjU1Miw4Ljc3NiwxMi43NzQtMTMuNTc3LDIzLjE1NWMtMTguMzQ1LDguNTE0LTU5LjQ3NCwxMC42OTYtNjAuMTQ2LTEuMDY5Yy0xLjcyOS0zMC4zNTUsMjEuNjQ3LTIxLjEzMywxOS45Ni0yOC43MzljLTEuNTI1LTYuODUtMTEuOTc5LTEzLjU3My0xOC44OTQtMzAuMzM4ICAgIGMtNi4wMzctMTQuNjMzLTgyLjc5Ni0xMjYuODQ5LDIxLjI4Ny0xMTAuMTgzYzMuODEzLTAuNzg5LTI3LjE0Ni05OS4wMDItMTI0LjU1My0xMDAuNTk5Yy05Ny4zODUtMS41OTctOTQuMTksMTE5Ljc2Mi05NC4xOSwxMTkuNzYyIi8+DQo8cGF0aCBkPSJNMTg4LjYwNCwyNzQuMzM0Yy0xMy41NzcsMTUuMTY2LTkuNTg0LDE3LjgyOS0zNi43MjMsMjMuNDE3Yy0yNy40NTksNS42Ni0xMS4zMjYsMTUuNzMzLTAuNzk3LDE4LjM2NWMxMi43NjgsMy4xOTUsNDIuMzA3LDcuNzE4LDYyLjI2Ni0yMC4yMjljNi4wNzgtOC41MDktMC4wMzYtMjIuMDg2LTguMzg1LTI1LjU0N2MtNC4wMzQtMS42NzEtOS40MjgtMy43NjUtMTYuMzYxLDMuOTk0eiIvPg0KPHBhdGggZD0iTTE4Ny43MTUsMjc0LjA2OWMtMS4zNjgtOC45MTcsMi45My0xOS41MjgsNy41MzYtMzEuOTQyYzYuOTIyLTE4LjYyNiwyMi44OTMtMzcuMjU1LDEwLjExNy05Ni4zMzljLTkuNTIzLTQ0LjAyOS03My4zOTYtOS4xNjMtNzMuNDM2LTMuMTkzYy0wLjAzOSw1Ljk2OCwyLjg4OSwzMC4yNi0xLjA2Nyw1OC41NDhjLTUuMTYyLDM2LjkxMywyMy40ODgsNjguMTMyLDU2LjQ3OSw2NC45MzgiLz4NCjxwYXRoIHN0eWxlPSJmaWxsOiNGRkZGRkY7c3Ryb2tlLXdpZHRoOjQuMTU1O3N0cm9rZS1saW5lY2FwOmJ1dHQ7c3Ryb2tlLWxpbmVqb2luOm1pdGVyOyIgZD0iTTE3Mi41MTcsMTQxLjdjLTAuMjg4LDIuMDM5LDMuNzMzLDcuNDgsOC45NzYsOC4yMDdjNS4yMzQsMC43Myw5LjcxNC0zLjUyMiw5Ljk5OC01LjU1OWMwLjI4NC0yLjAzOS0zLjczMi00LjI4NS04Ljk3Ny01LjAxNWMtNS4yMzctMC43MzEtOS43MTksMC4zMzMtOS45OTYsMi4zNjd6Ii8+DQo8cGF0aCBzdHlsZT0iZmlsbDojRkZGRkZGO3N0cm9rZS13aWR0aDoyLjA3NzU7c3Ryb2tlLWxpbmVjYXA6YnV0dDtzdHJva2UtbGluZWpvaW46bWl0ZXI7IiBkPSJNMzMxLjk0MSwxMzcuNTQzYzAuMjg0LDIuMDM5LTMuNzMyLDcuNDgtOC45NzYsOC4yMDdjLTUuMjM4LDAuNzMtOS43MTgtMy41MjItMTAuMDA1LTUuNTU5Yy0wLjI3Ny0yLjAzOSwzLjc0LTQuMjg1LDguOTc5LTUuMDE1YzUuMjM5LTAuNzMsOS43MTgsMC4zMzMsMTAuMDAyLDIuMzY4eiIvPg0KPHBhdGggZD0iTTM1MC42NzYsMTIzLjQzMmMwLjg2MywxNS45OTQtMy40NDUsMjYuODg4LTMuOTg4LDQzLjkxNGMtMC44MDQsMjQuNzQ4LDExLjc5OSw1My4wNzQtNy4xOTEsODEuNDM1Ii8+DQo8cGF0aCBzdHlsZT0ic3Ryb2tlLXdpZHRoOjM7IiBkPSJNMCw2MC4yMzIiLz4NCjwvZz4NCjwvZz4NCjwvc3ZnPg0K");
 }
 </style>
-<link rel="icon" href="data:image/x-icon;base64,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">
+<link rel="icon" type="image/png" sizes="16x16" id="icon-16.png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAC3ElEQVQ4y3WTX2hTZxjGf993knOa7KSNaRpX2ihZNy2liiusm5MI7mIXomP/wLmbgWOCF9vFLjYohWNglA12JV7MDtSN7cYLEa2iFR3+QRQ7c9pSp9tqsC2jLMZS0+T0JDnn82KmK9I+Vx/v+7wPPM/3voJVMDAw0OK6rmcYhgB49tZc19UyGXkA/E9BfieeH7QsKxwMBtf09/f/A6iV5Q86QAOohwGAZDL57ts7d32tG6GYbdv3JyYmbh74/Mu9QV03q55vNIQjMU2KSvbW1bOXLg5/AeoIiM+AQdHR0bF//1ff/PDbZEmUFiv0bmile32z+unyXVHzfHo7kySiJievjdOTiis1c6d45ND3HcAjy7Kicuf7e749NV4Q+fkSZbdKonkNh4eyolh2cdwqV0YfcCn7N7u2dnF7Mi/iG3sjhmF8AGAYhiY1PRypVD0ApBB4vs+GZAsBTf5vWSlejEWImiFAUavVnHqwUgpVqfPMsM4rbXFebouze2vX0vx76W4WHJdgQOI7T/A8bwIgFAopOV+YfRhrDAPg+4rb96c5d/MP1LIPmCs6/Du3QLXmU87PLAJZAMdxNHnx7JmfN7dHFEAwoLHcTh3FsouUgu1drerKhTPHAP9ZKyCnpqZO6YtzAmC+tMi6tVGiZogFZ8kZl7OTpDelcGf/9Gz7jlWvG4ahJHCvMP3XbKwxhEDQ4D5W+7a1E2sMLQl4vk/hSRlkQDs0eDxvmuZHlmUl+vr68hLgxC9HP34jUVMf9rSogOeIR5UgXa3mUghCgHQeq1Kp5J0fOn0rnU6PNTU1FQGWr/IWoD2VSnUmk8ktr772+jvXF9ojAPGmF2ib+31sbTz6lq7rIpPJFOprHlgmYAN2LpcbyuVyvLl9x7gsiW5fKRKmxow9aR/9cbjw/FVIVsHszPTo+ub/cngpKtXIyMivK/G01QRsO5tN93R+sjGmibEbw4Njo6OHV+I9BSMmJ3spl7kKAAAAAElFTkSuQmCC">
 </head>
 <body>
-<div id="logo"><a href="https://github.com/pllua/pllua-ng/"></a></div>
-<div id="headContainer">
-<h1>Contents</h1>
-<ol>
-<li value="1">
-<a href="#S1">PL/Lua Introduction</a><ol>
-<li value="1"><a href="#S1.1">Quick start</a></li>
-<li value="2"><a href="#S1.2">Basic Examples</a></li>
+<div id="topContainer" class="mainsection"></div>
+<div id="logoContainer" class="maincolumn"><div id="logo"><a href="https://github.com/pllua/pllua-ng/"></a></div></div>
+<main id="mainContainer" class="mainsection"><div id="headcontent" class="maincolumn">
+<h1 id="S0">Contents</h1>
+<nav><ol id="toc" class="toc toc-1">
+<li value="1" class="toc tocentry-1">
+<a href="#S1" class="toc toclink-1">PL/Lua Introduction</a><ol class="toc toc-2">
+<li value="1" class="toc tocentry-2"><a href="#S1.1" class="toc toclink-2">Quick start</a></li>
+<li value="2" class="toc tocentry-2"><a href="#S1.2" class="toc toclink-2">Basic Examples</a></li>
 </ol>
 </li>
-<li value="2">
-<a href="#S2">PL/Lua Reference</a><ol>
-<li value="1"><a href="#S2.1">PostgreSQL environment</a></li>
-<li value="2"><a href="#S2.2">Lua environment</a></li>
-<li value="3"><a href="#S2.3">pllua.elog</a></li>
-<li value="4"><a href="#S2.4">pllua.funcmgr</a></li>
-<li value="5"><a href="#S2.5">pllua.pgtype</a></li>
-<li value="6"><a href="#S2.6">pllua.spi</a></li>
-<li value="7"><a href="#S2.7">pllua.trusted</a></li>
-<li value="8"><a href="#S2.8">pllua.trigger</a></li>
-<li value="9"><a href="#S2.9">pllua.numeric</a></li>
-<li value="10"><a href="#S2.10">pllua.jsonb</a></li>
+<li value="2" class="toc tocentry-1">
+<a href="#S2" class="toc toclink-1">PL/Lua Reference</a><ol class="toc toc-2">
+<li value="1" class="toc tocentry-2"><a href="#S2.1" class="toc toclink-2">PostgreSQL environment</a></li>
+<li value="2" class="toc tocentry-2"><a href="#S2.2" class="toc toclink-2">Lua environment</a></li>
+<li value="3" class="toc tocentry-2"><a href="#S2.3" class="toc toclink-2"><code class="shortcode">pllua.elog</code></a></li>
+<li value="4" class="toc tocentry-2"><a href="#S2.4" class="toc toclink-2"><code class="shortcode">pllua.funcmgr</code></a></li>
+<li value="5" class="toc tocentry-2"><a href="#S2.5" class="toc toclink-2"><code class="shortcode">pllua.pgtype</code></a></li>
+<li value="6" class="toc tocentry-2"><a href="#S2.6" class="toc toclink-2"><code class="shortcode">pllua.spi</code></a></li>
+<li value="7" class="toc tocentry-2"><a href="#S2.7" class="toc toclink-2"><code class="shortcode">pllua.trusted</code></a></li>
+<li value="8" class="toc tocentry-2"><a href="#S2.8" class="toc toclink-2"><code class="shortcode">pllua.trigger</code></a></li>
+<li value="9" class="toc tocentry-2"><a href="#S2.9" class="toc toclink-2"><code class="shortcode">pllua.numeric</code></a></li>
+<li value="10" class="toc tocentry-2"><a href="#S2.10" class="toc toclink-2"><code class="shortcode">pllua.jsonb</code></a></li>
 </ol>
 </li>
-<li value="3">
-<a href="#S3">Building PL/Lua</a><ol>
-<li value="1"><a href="#S3.1">Building the pllua module</a></li>
-<li value="2"><a href="#S3.2">Building the hstore_pllua module</a></li>
-<li value="3"><a href="#S3.3">Building the documentation</a></li>
-<li value="4"><a href="#S3.4">VPATH builds</a></li>
-<li value="5"><a href="#S3.5">Luajit options</a></li>
-<li value="6"><a href="#S3.6">Porting options</a></li>
+<li value="3" class="toc tocentry-1">
+<a href="#S3" class="toc toclink-1">Building PL/Lua</a><ol class="toc toc-2">
+<li value="1" class="toc tocentry-2"><a href="#S3.1" class="toc toclink-2">Building the <code class="shortcode">pllua</code> module</a></li>
+<li value="2" class="toc tocentry-2"><a href="#S3.2" class="toc toclink-2">Building the <code class="shortcode">hstore_pllua</code> module</a></li>
+<li value="3" class="toc tocentry-2"><a href="#S3.3" class="toc toclink-2">Building the documentation</a></li>
+<li value="4" class="toc tocentry-2"><a href="#S3.4" class="toc toclink-2"><code class="shortcode">VPATH</code> builds</a></li>
+<li value="5" class="toc tocentry-2"><a href="#S3.5" class="toc toclink-2">Luajit options</a></li>
+<li value="6" class="toc tocentry-2"><a href="#S3.6" class="toc toclink-2">Porting options</a></li>
 </ol>
 </li>
-</ol>
+</ol></nav>
 </div>
-<div id="bodyContainer">
-<h1 id="S1">PL/Lua Introduction</h1>
+<div id="bodycontent" class="maincolumn bodycontent">
+<h1 id="S1"><span class="hspan-h1">PL/Lua Introduction</span></h1>
 <p>PL/Lua is a procedural language module for the PostgreSQL database
 that allows server-side functions to be written in Lua.</p>
-<h2 id="S1.1">Quick start</h2>
+<h2 id="S1.1"><span class="hspan-h2">Quick start</span></h2>
 <pre class="codeblock"><code>create extension pllua;
 
 create function hello(person text) returns text language pllua as $$
@@ -180,8 +273,8 @@ select hello('Fred');
  Hello, Fred, from Lua!
 (1 row)
 </code></pre>
-<h2 id="S1.2">Basic Examples</h2>
-<h3>Using <code class="shortcode">print()</code> for interactive diagnostics</h3>
+<h2 id="S1.2"><span class="hspan-h2">Basic Examples</span></h2>
+<h3 id="S1.2.1"><span class="hspan-h3">Using <code class="shortcode">print()</code> for interactive diagnostics</span></h3>
 <p>Anything passed to the <code class="shortcode">print()</code> function will be raised as a
 notification at <code class="shortcode">INFO</code> level, causing <code class="shortcode">psql</code> to display it
 interactively; program clients will usually just ignore non-error
@@ -196,7 +289,7 @@ INFO:  Lua 5.3
  
 (1 row)
 </code></pre>
-<h3>Simple arguments and results</h3>
+<h3 id="S1.2.2"><span class="hspan-h3">Simple arguments and results</span></h3>
 <p>Simple scalar types (integers, floats, text, bytea, boolean) are
 converted to the matching Lua type, and conversely for results.</p>
 <pre class="codeblock"><code>create function add2(a integer, b integer) returns integer language pllua
@@ -224,7 +317,7 @@ INFO:  b[2] is  bar
  123 | {fred,jim}
 (1 row)
 </code></pre>
-<h3>Sum of an array</h3>
+<h3 id="S1.2.3"><span class="hspan-h3">Sum of an array</span></h3>
 <pre class="codeblock"><code>create function array_sum(a integer[]) returns integer language pllua
 as $$
   local total = 0
@@ -245,7 +338,7 @@ as $$
   return total
 $$;
 </code></pre>
-<h3>Simple database queries</h3>
+<h3 id="S1.2.4"><span class="hspan-h3">Simple database queries</span></h3>
 <p>The local environment created for each function is a good place to
 cache prepared queries:</p>
 <pre class="codeblock"><code>create table objects (id integer primary key, value text);
@@ -261,7 +354,7 @@ $$;
 <p>The result of executing a query is a table containing rows (if any)
 for select queries, or an integer rowcount for queries that do not
 return rows.</p>
-<h3>Triggers</h3>
+<h3 id="S1.2.5"><span class="hspan-h3">Triggers</span></h3>
 <pre class="codeblock"><code>create function mytrigger() returns trigger language pllua
 as $$
   -- trigger functions are implicitly declared f(trigger,old,new,...)
@@ -269,7 +362,7 @@ as $$
   return new
 $$;
 </code></pre>
-<h3>JSON handling</h3>
+<h3 id="S1.2.6"><span class="hspan-h3">JSON handling</span></h3>
 <p>Values of type <code class="shortcode">json</code> are passed to Lua simply as strings. But the
 <code class="shortcode">jsonb</code> data type is supported in a more direct fashion.</p>
 <p><code class="shortcode">jsonb</code> values can be mapped to Lua tables in a configurable way, and
@@ -308,8 +401,8 @@ originally objects or arrays, so as long as you provide a unique null
 value, this form of round-trip conversion should not change anything.
 (See the <code class="shortcode">pllua.jsonb</code> module documentation for more detail.)</p>
 
-<h1 id="S2">PL/Lua Reference</h1>
-<h2 id="S2.1">PostgreSQL environment</h2>
+<h1 id="S2"><span class="hspan-h1">PL/Lua Reference</span></h1>
+<h2 id="S2.1"><span class="hspan-h2">PostgreSQL environment</span></h2>
 <p>PL/Lua provides two extensions:</p>
 <pre class="codeblock"><code>create extension pllua;  -- installs the trusted language
 create extension plluau;  -- installs the untrusted language
@@ -322,10 +415,9 @@ create extension hstore_plluau;  -- for hstore type in plluau
 <p>These allow direct conversions between hstore values and Lua tables.</p>
 <p>The following optional configuration settings apply to PL/Lua. Most of
 them require superuser privileges to set.</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="shortcode">shared_preload_libraries='pllua'</code></dt>
 <dd>
-
 <p>If set, <code class="shortcode">pllua.so</code> will be loaded in the postmaster process and
 the <code class="shortcode">pllua.on_init</code> string run there. Be careful with this, since
 errors in the init string will prevent PostgreSQL from starting.
@@ -338,13 +430,11 @@ first use within each database session.</p>
 <dt>
 <code class="shortcode">pllua.check_for_interrupts=boolean</code> (default: <code class="shortcode">true</code>)</dt>
 <dd>
-
 <p>If set, a hook function checks for a query cancel interrupt at
 intervals while running Lua code.</p>
 </dd>
 <dt><code class="shortcode">pllua.on_init='lua code chunk'</code></dt>
 <dd>
-
 <p>If set, this string is loaded and run early in the interpreter
 setup process. If <code class="shortcode">shared_preload_libraries</code> is used (see below),
 this string is run in the postmaster process (which is useful for
@@ -354,7 +444,6 @@ is possible. The <code class="shortcode">print()</code> function will output to 
 <dt><code class="shortcode">pllua.on_trusted_init='lua code chunk'</code></dt>
 <dt><code class="longcode">pllua.on_untrusted_init='lua code chunk'</code></dt>
 <dd>
-
 <p>This string is run late in initialization of a trusted or
 untrusted interpreter, as applicable. It can do database access.
 The trusted init string is run outside the trusted environment, so
@@ -365,7 +454,6 @@ described below.</p>
 </dd>
 <dt><code class="shortcode">pllua.on_common_init='lua code chunk'</code></dt>
 <dd>
-
 <p>This string is run late (after the previous init strings) in
 initialization of any interpreter. It can do database access. For
 trusted interpreter, the string is run inside the sandbox.</p>
@@ -373,7 +461,6 @@ trusted interpreter, the string is run inside the sandbox.</p>
 <dt>
 <code class="shortcode">pllua.install_globals=boolean</code> (default: <code class="shortcode">true</code>)</dt>
 <dd>
-
 <p>If true, the <code class="shortcode">spi</code> and <code class="shortcode">pgtype</code> modules are stored as global
 tables, as if by:</p>
 <pre class="codeblock"><code>_G.spi = require 'pllua.spi'
@@ -385,7 +472,6 @@ modules will need to require them explicitly.</p>
 <dt>
 <code class="shortcode">pllua.prebuilt_interpreters=integer</code> (default: 1)</dt>
 <dd>
-
 <p>If <code class="shortcode">pllua.so</code> was loaded in <code class="shortcode">shared_preload_libraries</code>, this
 specifies how many Lua states (interpreters) to prebuild. The
 <code class="shortcode">on_init</code> string is run independently in each one.</p>
@@ -401,7 +487,6 @@ if the prebuilt ones are used up.</p>
 <dt>
 <code class="longcode">pllua.interpreter_reload_ident='arbitrary string'</code> (default: unset)</dt>
 <dd>
-
 <p>If <code class="shortcode">pllua.so</code> is loaded in the postmaster, then altering this
 setting will cause any prebuilt interpreters to be destroyed and
 recreated. Also, if this value is set to a nonempty string,
@@ -420,7 +505,6 @@ next use after the value changes.</p>
 <dt>
 <code class="shortcode">pllua.extra_gc_threshold=real</code> (min 0, default 0)</dt>
 <dd>
-
 <p>These options do not require superuser privilege.</p>
 <p>If <code class="shortcode">multiplier</code> is 0 (the default), then no additional garbage
 collection is done.</p>
@@ -433,14 +517,13 @@ made with a parameter of <code class="shortcode">(allocated_kbytes * multiplier)
 made instead.</p>
 </dd>
 </dl>
-<h2 id="S2.2">Lua environment</h2>
+<h2 id="S2.2"><span class="hspan-h2">Lua environment</span></h2>
 <p>The Lua interpreters are initialized as follows.</p>
 <p>The standard Lua libraries are installed and a number of global functions
 are replaced:</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="shortcode">print()</code></dt>
 <dd>
-
 <p>replaced with a version that outputs <code class="shortcode">INFO:</code> messages to the
 client (except in the init strings, where it outputs <code class="shortcode">LOG:</code>
 to the server log)</p>
@@ -448,18 +531,15 @@ to the server log)</p>
 <dt><code class="shortcode">pcall()</code></dt>
 <dt><code class="shortcode">xpcall()</code></dt>
 <dd>
-
 <p>replaced with versions that provide subtransaction support</p>
 </dd>
 <dt><code class="shortcode">lpcall()</code></dt>
 <dd>
-
 <p>"light" pcall with no subtransactions, but which doesn't
 catch all errors</p>
 </dd>
 <dt><code class="shortcode">coroutine.resume()</code></dt>
 <dd>
-
 <p>replaced with a version that propagates PG errors, like lpcall</p>
 </dd>
 </dl>
@@ -530,7 +610,7 @@ own first-call initialization by ending the function block early:</p>
     --[[ code here is executed only before first call]]
 $$;
 </code></pre>
-<h2 id="S2.3">pllua.elog</h2>
+<h2 id="S2.3"><span class="hspan-h2"><code class="shortcode">pllua.elog</code></span></h2>
 <p>The pllua.elog module is a table of simple functions:</p>
 <pre class="codeblock"><code>elog(severity, message)
 elog(severity, sqlstate, message)
@@ -556,11 +636,11 @@ error(...)   = elog('error',...)
 <p><code class="shortcode">sqlstate</code> parameters may be either 5-character codes or the error
 names from the appendix to the PostgreSQL manual.</p>
 <p>By default these functions are also available via the <code class="shortcode">spi</code> module.</p>
-<h2 id="S2.4">pllua.funcmgr</h2>
+<h2 id="S2.4"><span class="hspan-h2"><code class="shortcode">pllua.funcmgr</code></span></h2>
 <p>This module exposes nothing to Lua.</p>
-<h2 id="S2.5">pllua.pgtype</h2>
+<h2 id="S2.5"><span class="hspan-h2"><code class="shortcode">pllua.pgtype</code></span></h2>
 <p>The pgtype object provides the following functionality:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">pgtype(value)</code></dt>
 <dd>
 if value is a Datum type, returns its typeinfo, else nil</dd>
@@ -589,7 +669,7 @@ of its array type (or nil if no such type exists)</dd>
 </dl>
 <p>The typeinfo object returned from any of the above has the following
 functionality:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">typeinfo(datum)</code></dt>
 <dd>
 Construct a new <code class="shortcode">Datum</code> object by copying from the specified
@@ -623,10 +703,9 @@ For row types, returns the typeinfo of the named column</dd>
 </dl>
 <p>The type constructor call has the following forms according to the
 type category (scalar, row, array, range)</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="shortcode">scalartype(nondatum...)</code></dt>
 <dd>
-
 <p>In order, stopping on the first success:</p>
 <ol>
 <li>
@@ -654,7 +733,6 @@ result for string input than <code class="shortcode">:fromstring</code> would.</
 </dd>
 <dt><code class="shortcode">rowtype(table)</code></dt>
 <dd>
-
 <p>If passed a single Lua table or userdata (other than a <code class="shortcode">Datum</code>),
 this is assumed to be indexable by column names, and a row is
 constructed by applying the typeinfo operation of each column type
@@ -662,7 +740,6 @@ to the indexed value.</p>
 </dd>
 <dt><code class="shortcode">rowtype(...)</code></dt>
 <dd>
-
 <p>otherwise, the number of arguments must equal the arity of the row
 (i.e. the number of undropped columns). Each argument is matched
 positionally to its column, converted to the column's type, and
@@ -671,25 +748,21 @@ for <code class="shortcode">varchar(n)</code>, padding for <code class="shortcod
 </dd>
 <dt><code class="shortcode">arraytype()</code></dt>
 <dd>
-
 <p>constructs an empty array.</p>
 </dd>
 <dt><code class="shortcode">arraytype(val,val,val,...)</code></dt>
 <dd>
-
 <p>constructs a one-dimensional array of the specified values.
 <em>(currently, the ambiguous case where one single Datum is passed
 is resolved as the generic typeinfo(datum) call, NOT this one)</em></p>
 </dd>
 <dt><code class="shortcode">arraytype(table, dim...)</code></dt>
 <dd>
-
 <p>One integer value must be given for each dimension of the array.
 The table is indexed accordingly to populate the new array.</p>
 </dd>
 <dt><code class="shortcode">arraytype(table)</code></dt>
 <dd>
-
 <p>Constructs a one-dimensional array assuming the largest integer
 index in the table as the array size. (Use the above form for
 multi-dimensional arrays or for precise control over the size when
@@ -697,17 +770,14 @@ trailing nulls are allowed.)</p>
 </dd>
 <dt><code class="shortcode">rangetype()</code></dt>
 <dd>
-
 <p>constructs an empty range</p>
 </dd>
 <dt><code class="shortcode">rangetype(string)</code></dt>
 <dd>
-
 <p>as for <code class="shortcode">rangetype:fromstring(string)</code></p>
 </dd>
 <dt><code class="shortcode">rangetype(lo,hi[,bounds])</code></dt>
 <dd>
-
 <p>Constructs a range from specified bounds, with nil values treated
 as infinities, and the "bounds" string interpreted in the usual
 way (i.e. <code class="shortcode">"[]"</code>, <code class="shortcode">"[)"</code>, <code class="shortcode">"(]"</code>, <code class="shortcode">"()"</code>).</p>
@@ -716,10 +786,9 @@ way (i.e. <code class="shortcode">"[]"</code>, <code class="shortcode">"[)"</cod
 <p>Some specific types have additional functions: see the <code class="shortcode">pllua.jsonb</code>
 and <code class="shortcode">pllua.numeric</code> modules.</p>
 <p><code class="shortcode">Datum</code> values themselves provide the following:</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="shortcode">tostring(datum)</code></dt>
 <dd>
-
 <p>returns the datum's standard text representation (inverse
 of <code class="shortcode">typeinfo:fromstring()</code>)</p>
 </dd>
@@ -850,14 +919,13 @@ above.</p>
 (Lua strings are byte strings, not character strings). This makes
 the simple conversion quite different to the <code class="shortcode">fromstring</code>/<code class="shortcode">tostring</code>
 conversion, which uses the PG text representation.</p>
-<h2 id="S2.6">pllua.spi</h2>
+<h2 id="S2.6"><span class="hspan-h2"><code class="shortcode">pllua.spi</code></span></h2>
 <p>The spi module provides the following functionality (as a table of
 functions):</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="longcode">spi.execute("query text", arg, arg, ...)</code></dt>
 <dt><code class="longcode">spi.execute_count("query text", maxrows, arg, arg, ...)</code></dt>
 <dd>
-
 <p>execute the given query text as SQL with the given arguments.
 Returns a table containing a sequence (possibly empty) of rows for
 queries that return rows, otherwise returns an integer count.</p>
@@ -867,7 +935,6 @@ caller's snapshot. Otherwise a new snapshot is taken.</p>
 </dd>
 <dt><code class="longcode">spi.prepare("query text", {argtypes}, [{options}])</code></dt>
 <dd>
-
 <p>returns a statement object. <code class="shortcode">{argtypes}</code> is a table containing
 type names or typeinfo objects. Allowed options are:</p>
 <ul>
@@ -885,14 +952,12 @@ type names or typeinfo objects. Allowed options are:</p>
 </dd>
 <dt><code class="shortcode">spi.rows("query text", args...)</code></dt>
 <dd>
-
 <p>returns an iterator:</p>
 <pre class="codeblock"><code>for r in spi.rows("query") do ...
 </code></pre>
 </dd>
 <dt><code class="shortcode">spi.findcursor("name")</code></dt>
 <dd>
-
 <p>if "name" is the name of an open portal (i.e. cursor), then
 returns a cursor object to access this portal. Otherwise returns
 nil. The cursor is marked as unowned (it will not be closed by
@@ -900,7 +965,6 @@ garbage collection).</p>
 </dd>
 <dt><code class="shortcode">spi.newcursor(["name"])</code></dt>
 <dd>
-
 <p>if "name" is the name of an open portal (i.e. cursor), then
 returns a cursor object (unowned) to access this portal. Otherwise
 creates a new cursor object with no portal, recording the name
@@ -908,7 +972,6 @@ given for use with a later open() call.</p>
 </dd>
 <dt><code class="shortcode">spi.is_atomic()</code></dt>
 <dd>
-
 <p>returns true if the call context is atomic with respect to
 (top-level) transactions; this is always true in pg versions
 before PostgreSQL 11; it is only false when code is being executed
@@ -919,7 +982,6 @@ any explicit transaction. (These are the only contexts in which
 <dt><code class="shortcode">spi.commit()</code></dt>
 <dt><code class="shortcode">spi.rollback()</code></dt>
 <dd>
-
 <p>(Not defined in pg versions before 11). If in a non-atomic
 context, these commit or abort the current transaction, and
 immediately start a new one. An error is raised if they are
@@ -928,48 +990,41 @@ attempted in an atomic context or inside a subtransaction.</p>
 <dt><code class="shortcode">spi.elog(...)</code></dt>
 <dt><code class="longcode">spi.error(...), .warning(...), .notice(...), .info(...), .debug(...), .log(...)</code></dt>
 <dd>
-
 <p>These functions from pllua.elog are accessible via spi.* for
 convenience.</p>
 </dd>
 </dl>
 <p>SPI statement objects have the following functionality:</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="shortcode">stmt:execute(arg, arg, ...)</code></dt>
 <dt><code class="longcode">stmt:execute_count(maxrows, arg, arg, ...)</code></dt>
 <dd>
-
 <p>execute the statement, with the same result as spi.execute</p>
 </dd>
 <dt><code class="shortcode">stmt:getcursor(arg, arg, ...)</code></dt>
 <dd>
-
 <p>return an open cursor (with an arbitrarily assigned name) for
 the statement. The cursor is marked as owned.</p>
 </dd>
 <dt><code class="shortcode">stmt:rows(arg, arg, ...)</code></dt>
 <dd>
-
 <p>return an iterator for the statement execution, as <code class="shortcode">spi.rows()</code></p>
 </dd>
 <dt><code class="shortcode">stmt:numargs()</code></dt>
 <dd>
-
 <p>returns an integer giving the expected number of arguments
 (including any unused numbered params) expected</p>
 </dd>
 <dt><code class="shortcode">stmt:argtype(argnum)</code></dt>
 <dd>
-
 <p>returns the typeinfo for the expected type of the specified arg</p>
 </dd>
 </dl>
 <p>SPI cursor objects have the following functionality:</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="shortcode">cur:open(stmt,arg,arg...)</code></dt>
 <dt><code class="shortcode">cur:open(query_string,arg,arg...)</code></dt>
 <dd>
-
 <p>The cursor object must not be already open. The specified
 statement or query string is executed in a new portal whose name
 is given by the cursor name (if one has been assigned).</p>
@@ -978,17 +1033,14 @@ is given by the cursor name (if one has been assigned).</p>
 </dd>
 <dt><code class="shortcode">cur:isopen()</code></dt>
 <dd>
-
 <p>returns true if the cursor is open</p>
 </dd>
 <dt><code class="shortcode">cur:close()</code></dt>
 <dd>
-
 <p>close the portal (whether or not we created it or own it)</p>
 </dd>
 <dt><code class="shortcode">cur:isowned()</code></dt>
 <dd>
-
 <p>returns true if the cursor is marked as owned. An "owned" cursor
 has its portal closed (if it's still open) if the cursor object is
 garbage-collected; this is intended for cursors opened by Lua
@@ -998,23 +1050,20 @@ is not affected by the collection of the cursor object.</p>
 <dt><code class="shortcode">cur:own()</code></dt>
 <dt><code class="shortcode">cur:disown()</code></dt>
 <dd>
-
 <p>mark the cursor as owned or not. Returns the cursor.</p>
 <p>Typical intended use is <code class="shortcode">return c:disown()</code> when returning a
 cursor opened by a function to its caller.</p>
 </dd>
 <dt><code class="shortcode">cur:name()</code></dt>
 <dd>
-
 <p>returns the open portal name (if the cursor is open) or the
 assigned name (if not).</p>
 </dd>
 <dt><code class="shortcode">cur:fetch([n, [dir]])</code></dt>
 <dd>
-
 <p>Fetch according to the specified number and direction parameters.
 <code class="shortcode">"dir"</code> can be:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">"forward" / "next"</code></dt>
 <dd>
 fetch N rows forward</dd>
@@ -1034,7 +1083,6 @@ fetch row at relative position <code class="shortcode">n</code>
 </dd>
 <dt><code class="shortcode">cur:move([n, [dir]])</code></dt>
 <dd>
-
 <p>Move the cursor without fetching. Note that the cursor is left at
 the same position it would be <em>after</em> executing the same operation
 as a fetch. So to position the cursor such that the next forward
@@ -1053,7 +1101,7 @@ dropped). Cursor options are set on the statement object.</p>
 from SPI cursor objects. But note that when returning a cursor from a
 function, it should be explicitly disowned to ensure that garbage
 collection won't close it from under the caller's use of it.</p>
-<h2 id="S2.7">pllua.trusted</h2>
+<h2 id="S2.7"><span class="hspan-h2"><code class="shortcode">pllua.trusted</code></span></h2>
 <p>The trusted interpreter is implemented using a sandbox system;
 trusted-language code is run in an environment into which only safe
 functions have been copied (or proxied).</p>
@@ -1088,10 +1136,9 @@ might throw an SQL error</p>
 </ul>
 </div>
 <p>The available functions are:</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="longcode">trusted.allow(module, newname, mode, global, preload)</code></dt>
 <dd>
-
 <p>This makes the module <code class="shortcode">module</code> accessible via <code class="shortcode">require 'newname'</code>
 (<code class="shortcode">newname</code> is defaulted to <code class="shortcode">module</code> if nil or omitted) inside the
 sandbox using the adapter specified by <code class="shortcode">mode</code> (default <code class="shortcode">"proxy"</code>).
@@ -1146,12 +1193,10 @@ usage to be just:</p>
 </dd>
 <dt><code class="shortcode">trusted.require(module, newname, mode)</code></dt>
 <dd>
-
 <p>equiv. to <code class="longcode">trusted.allow(module, newname, mode, true, true)</code></p>
 </dd>
 <dt><code class="shortcode">trusted.remove('newname','global')</code></dt>
 <dd>
-
 <p>undoes either of the above (probably not very useful, but you
 could do trusted.remove('os') or whatever)</p>
 </dd>
@@ -1166,13 +1211,13 @@ mode field (loading binary functions is unsafe) and overrides the
 environment to be the trusted sandbox if the caller didn't provide one
 itself (but the caller can still give an explicit environment of nil
 or anything else).</p>
-<h2 id="S2.8">pllua.trigger</h2>
+<h2 id="S2.8"><span class="hspan-h2"><code class="shortcode">pllua.trigger</code></span></h2>
 <p>This module provides nothing directly to Lua, but a <code class="shortcode">trigger</code>
 parameter is passed as the first parameter to trigger functions (and
 a different trigger parameter to event-trigger functions).</p>
 <p>The <code class="shortcode">trigger</code> object for DDL triggers ("event triggers") provides the
 following values when indexed:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">trigger.event</code></dt>
 <dd>
 Event for which the trigger was fired</dd>
@@ -1183,7 +1228,7 @@ Command tag</dd>
 <p>See the PostgreSQL documentation for details.</p>
 <p>The trigger object for DML triggers provides the following values
 when indexed:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">trigger.new</code></dt>
 <dd>
 the "new" row for the operation (or nil)</dd>
@@ -1265,7 +1310,7 @@ the value of <code class="shortcode">trigger.row</code> being used as the new tu
 to <code class="shortcode">trigger.row</code>.</p>
 </li>
 </ol>
-<h2 id="S2.9">pllua.numeric</h2>
+<h2 id="S2.9"><span class="hspan-h2"><code class="shortcode">pllua.numeric</code></span></h2>
 <p>PostgreSQL values of <code class="shortcode">numeric</code> type (henceforth Numeric values) are
 converted to <code class="shortcode">Datum</code> objects as normal, but this module provides
 substantial additional functionality for such types. The methods and
@@ -1289,7 +1334,7 @@ value is.</p>
 not the sign of the divisor.</p>
 <p>These functions are available directly or as methods on a Numeric
 datum. (As direct calls they allow input of any Lua number.)</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">abs</code></dt>
 <dt><code class="shortcode">ceil</code></dt>
 <dt><code class="shortcode">equal</code></dt>
@@ -1316,7 +1361,7 @@ take an optional number of digits parameter</dd>
 </dl>
 <p>The function <code class="shortcode">num.new(x)</code> will construct a new Numeric datum, as will
 <code class="shortcode">pgtype.numeric(x)</code>.</p>
-<h2 id="S2.10">pllua.jsonb</h2>
+<h2 id="S2.10"><span class="hspan-h2"><code class="shortcode">pllua.jsonb</code></span></h2>
 <p><code class="shortcode">jsonb</code> supports an inverse mapping operation for construction of JSON
 values from Lua data:</p>
 <pre class="codeblock"><code>pgtype.jsonb(value,
@@ -1384,36 +1429,31 @@ that the transformation from <code class="shortcode">jsonb</code> to Lua tables 
 the original content <strong>as long as</strong> a unique <code class="shortcode">null</code> value is provided.
 However, for more complex manipulations, the following functions are
 available via <code class="shortcode">require "pllua.jsonb"</code>:</p>
-<dl>
+<dl class="dl-p">
 <dt><code class="shortcode">jsonb.is_object(table)</code></dt>
 <dd>
-
 <p>Returns true if <code class="shortcode">table</code> corresponds to a JSON object, false if
 it corresponds to an array, and no value if neither</p>
 </dd>
 <dt><code class="shortcode">jsonb.is_array(table)</code></dt>
 <dd>
-
 <p>Returns true if <code class="shortcode">table</code> corresponds to a JSON array, false if
 it corresponds to an object, and no value if neither</p>
 </dd>
 <dt><code class="shortcode">jsonb.set_as_array(table)</code></dt>
 <dd>
-
 <p>Mark the table as corresponding to a JSON array, and return it.
 The table must not already have a metatable, unless it's the one
 set by this function or by <code class="shortcode">set_as_object</code>.</p>
 </dd>
 <dt><code class="shortcode">jsonb.set_as_object(table)</code></dt>
 <dd>
-
 <p>Mark the table as corresponding to a JSON object, and return it.
 The table must not already have a metatable, unless it's the one
 set by this function or by <code class="shortcode">set_as_array</code>.</p>
 </dd>
 <dt><code class="shortcode">jsonb.set_as_unknown(table)</code></dt>
 <dd>
-
 <p>Mark the table as not corresponding to either a JSON object or
 array, and return it. This is the only way to remove the metatable
 that marks the JSON type, so you may need it if you want to apply
@@ -1421,18 +1461,18 @@ some other metatable instead.</p>
 </dd>
 </dl>
 
-<h1 id="S3">Building PL/Lua</h1>
+<h1 id="S3"><span class="hspan-h1">Building PL/Lua</span></h1>
 <p>GNU Make is required to build, as usual for PostgreSQL extensions.</p>
 <p>This module assumes you have already built Lua itself, either as a
 shared library or as an archive library with <code class="shortcode">-fPIC</code> (on most
 platforms a non-PIC archive library will not work). A shared library
 is recommended.</p>
-<h2 id="S3.1">Building the <code class="shortcode">pllua</code> module</h2>
+<h2 id="S3.1"><span class="hspan-h2">Building the <code class="shortcode">pllua</code> module</span></h2>
 <p>Lua unfortunately does not provide much in the way of infrastructure
 for determining build locations; accordingly, those have to be
 specified explicitly to build this module. The following values must
 be defined on the <code class="shortcode">make</code> command line or in the environment:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">LUA_INCDIR</code></dt>
 <dd>
 directory containing <code class="shortcode">lua.h</code>, <code class="shortcode">luaconf.h</code>, <code class="shortcode">lualib.h</code>
@@ -1443,7 +1483,7 @@ linker options needed to link, typically <code class="shortcode">-Lsomedir -llua
 </dd>
 </dl>
 <p>And if building with standard Lua:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">LUAC</code></dt>
 <dd>
 name or full path of the luac binary (bytecode compiler)</dd>
@@ -1452,7 +1492,7 @@ name or full path of the luac binary (bytecode compiler)</dd>
 name or full path of the lua binary</dd>
 </dl>
 <p>Or if building with Luajit:</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">LUAJIT</code></dt>
 <dd>
 name or full path of the luajit binary</dd>
@@ -1468,7 +1508,7 @@ case).</p>
      LUALIB="-llua5.3" \
      LUAC="luac5.3" LUA="lua5.3" install
 </code></pre>
-<h2 id="S3.2">Building the <code class="shortcode">hstore_pllua</code> module</h2>
+<h2 id="S3.2"><span class="hspan-h2">Building the <code class="shortcode">hstore_pllua</code> module</span></h2>
 <p>Currently, the <code class="shortcode">hstore_pllua</code> module does not need <code class="shortcode">LUALIB</code> on most
 platforms (since it will reference lua functions either exported by
 <code class="shortcode">pllua.so</code> or by a library loaded by <code class="shortcode">pllua.so</code>).</p>
@@ -1482,22 +1522,21 @@ specifying <code class="shortcode">LIBLUA</code> unnecessarily is harmless.</p>
      LUA_INCDIR="/usr/include/lua5.3" \
      LUAC="luac5.3" LUA="lua5.3" install
 </code></pre>
-<h2 id="S3.3">Building the documentation</h2>
-<p>Specifying BUILD_DOCS=1 will build the HTML documentation from the
+<h2 id="S3.3"><span class="hspan-h2">Building the documentation</span></h2>
+<p>Specifying <code class="shortcode">BUILD_DOCS=1</code> will build the HTML documentation from the
 Markdown doc sources; this requires <code class="shortcode">cmark</code> and <code class="shortcode">xsltproc</code>.</p>
-<p>Additionally specifying BUILD_ICON=1 will include the favicon in the
+<p>Additionally specifying <code class="shortcode">BUILD_ICON=1</code> will include the favicon in the
 HTML documentation; this requires ImageMagick's <code class="shortcode">convert</code> program.</p>
-<h2 id="S3.4">
-<code class="shortcode">VPATH</code> builds</h2>
+<h2 id="S3.4"><span class="hspan-h2"><code class="shortcode">VPATH</code> builds</span></h2>
 <p>Both modules support building with <code class="shortcode">VPATH</code>, which can either be
 explicitly set or, if <code class="shortcode">make -f /path/to/Makefile</code> is used to specify a
 makefile outside the current directory and <code class="shortcode">VPATH</code> is not explicitly
 set, then <code class="shortcode">VPATH</code> will be set to the directory containing the
 Makefile.</p>
-<h2 id="S3.5">Luajit options</h2>
+<h2 id="S3.5"><span class="hspan-h2">Luajit options</span></h2>
 <p><code class="shortcode">PLLUA_CONFIG_OPTS</code> can be used to control certain aspects of pllua's
 behavior when built with Luajit.</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">-DNO_LUAJIT</code></dt>
 <dd>
 disables all use of luajit features</dd>
@@ -1511,10 +1550,10 @@ However, as long as <code class="shortcode">NO_LUAJIT</code> was not specified, 
 freely returned from functions or passed to SQL type constructors.</p>
 <p>Actual JIT compilation of user-supplied lua code is not affected by
 any of these options.</p>
-<h2 id="S3.6">Porting options</h2>
+<h2 id="S3.6"><span class="hspan-h2">Porting options</span></h2>
 <p>If you have problems building on an unusual platform, then these
 options might be useful. The values shown are the defaults if any.</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">BIN_LD</code></dt>
 <dd>
 <code class="shortcode">$(LD) -r -b binary</code>
@@ -1527,7 +1566,7 @@ produce <code class="shortcode">file.o</code> containing a data section populate
 believed to work for most GNU ld and (recent) LLVM lld targets, but it
 is known to fail on some non-mainstream architecture distributions.</p>
 <p>The value of <code class="shortcode">BIN_LD</code> can be set to any suitable equivalent command.</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">OBJCOPY</code></dt>
 <dd>
 <code class="shortcode">objcopy</code>
@@ -1536,7 +1575,7 @@ is known to fail on some non-mainstream architecture distributions.</p>
 <p>The output of <code class="shortcode">BIN_LD</code> is passed through <code class="shortcode">OBJCOPY</code> to make the data
 section read-only, but this is a non-critical operation. If no working
 objcopy is available, this can be set to 'false'.</p>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">BIN_ARCH</code></dt>
 <dd>
 <i>unset</i>
@@ -1554,7 +1593,7 @@ the command</p>
 linux-mips64el to work around build failures with <code class="shortcode">ld -r</code>:</p>
 <pre class="codeblock"><code>BIN_ARCH=mips:isa64r2 BIN_FMT=elf64-tradlittlemips
 </code></pre>
-<dl>
+<dl class="dl-br">
 <dt><code class="shortcode">LUAJITC</code></dt>
 <dd>
 <code class="shortcode">$(LUAJIT) -b -g -t raw</code>
@@ -1569,21 +1608,16 @@ expected to be useful.)</p>
 
 
 
-</div>
-<div id="footerContainer">
-<hr>
-<div id="footer">
+</div></main><footer id="footerContainer" class="mainsection"><div id="footer" class="maincolumn footer">
 <p>Copyright © 2017-2018, Andrew Gierth, aka RhodiumToad</p>
 <p>Licensed under the terms of the MIT license, a copy of which is included
 in the file <code class="shortcode">LICENSE</code> in the distribution.</p>
 <p>The author acknowledges the work of Luis Carvalho and other contributors
 to the original <code class="shortcode">pllua</code> project (of which this is a ground-up redesign).</p>
 <p>"Slonik" the PostgreSQL Elephant logo is used in accordance with the
-<a rel="external nofollow" href="https://wiki.postgresql.org/wiki/Trademark_Policy">trademark policy</a>
+<a href="https://wiki.postgresql.org/wiki/Trademark_Policy" rel="external nofollow">trademark policy</a>
 of the PostgreSQL Project. Additional graphic elements originate from
-the <a rel="external nofollow" href="http://www.lua.org">Lua</a> logo designed by Alexandre Nakonechnyj.</p>
-</div>
-<hr>
-</div>
+the <a href="http://www.lua.org" rel="external nofollow">Lua</a> logo designed by Alexandre Nakonechnyj.</p>
+</div></footer>
 </body>
 </html>
