@@ -7,69 +7,144 @@ body {
 	background-color: #fff;
 }
 
-#headContainer, #bodyContainer, #footer {
+.maincolumn {
 	margin: 0 auto;
 	width: 95%;
 }
-
-@media (min-width:950px) {
-	#headContainer, #bodyContainer, #footer {
+@media (min-width:60em) {
+	.maincolumn {
 		width: 85%;
 	}
 }
 
-#bodyContainer {
+#logo {
+	width: 30vw;
+	height: 30vw;
+	max-width: 30em;
+	max-height: 30em;
+	float: right;
+	margin-top: 2.5vw;
+	margin-right: 0;
+	margin-bottom: 1em;
+	margin-left: 1em;
+	background-color: inherit;
+	background-repeat: no-repeat;
+	background-attachment: scroll;
+	background-size: 100% 100%
+}
+@media (min-width:35em) {
+	#logo {
+		margin-top: 1.75em;
+	}
+}
+
+#logo a {
+	display: inline-block;
+	width: 100%;
+	height: 100%;
+}
+
+#topContainer {
+	border-bottom: 1px solid #666;
+	clear: both;
+}
+
+#bodycontent {
 	clear: both;
 }
 
 #footerContainer {
-	margin-top: 6ex;
-	margin-bottom: 2ex;
+	margin: 3em 0 0 0;
+	padding: 0.5em 0;
+	border-top: 2px solid #666;
+	background-color: #ddd;
+	color: #000;
 }
 
 dd p {
-	margin-top: 1ex;
+	margin-top: 0.5em;
 }
 
 p, ol, ul, dl, pre {
-	line-height: 150%;
+	line-height: 140%;
+}
+
+li.tocentry-1 {
+	margin-top: 0.5em;
 }
 
 dd {
-	margin-bottom: 8px;
+	margin-bottom: 0.5em;
 }
 
 h1 {
-	margin-top: 2ex;
 	font-size: 175%;
 }
-
 h2 {
-	margin-top: 2ex;
 	font-size: 150%;
+}
+h3 {
+	font-size: 120%;
+}
+h1, h2, h3 {
+	margin-top: 1em;
+	margin-bottom: 0.5em;
+}
+
+@supports ( display: flex ) {
+	.bodycontent h1, .bodycontent h2 {
+		display: flex;
+		flex-direction: row;
+		flex: none;
+	}
+	.bodycontent h1::after, .bodycontent h2::after {
+		margin-left: 1em;
+		flex: auto;
+		align-self: center;
+		content: "\a0";
+		height: 0px;
+	}
+	.bodycontent h1::after {
+		border-top: 2px #ddd solid;
+	}
+	.bodycontent h2::after {
+		border-top: 1px #ddd solid;
+	}
+}
+
+code {
+	font-size: 120%;
 }
 
 pre code {
 	padding: 0;
-	font-size: 120%;
 	line-height: 150%;
 }
 
-code.shortcode, code.longcode {
+.bodycontent .shortcode, .bodycontent .longcode {
 	padding: 2px 3px;
-	font-size: 120%;
 	color: #000;
 	background-color: #eee;
 }
 
+.footer .shortcode, .footer .longcode {
+	padding: 2px 3px;
+	color: #000;
+	background-color: #ccc;
+}
+
 /* prevent line-breaks in short code spans */
-code.shortcode {
+.shortcode {
 	white-space: pre;
 }
 
-pre.codeblock {
-	margin: 2ex 2em 2ex 2em;
-	padding: 2ex;
+.longcode {
+	white-space: pre-wrap;
+}
+
+.bodycontent pre.codeblock {
+	margin: 1em 2em;
+	padding: 1em;
 	border-radius: 8px;
 	border-width: 1px;
 	border-style: solid;
@@ -78,24 +153,6 @@ pre.codeblock {
 	box-shadow: 3px 3px 5px #ddd;
 	border-color: #ccc;
 	overflow: auto;
-}
-
-#logo {
-	width: 30vw;
-	height: 33vw;
-	float: right;
-	margin-left: 1em;
-	margin-right: 5vw;
-	background-color: inherit;
-	background-repeat: no-repeat;
-	background-attachment: scroll;
-	background-size: 100% 100%
-}
-
-#logo a {
-	display: inline-block;
-	width: 100%;
-	height: 100%;
 }
 
 a[rel~="external"] {

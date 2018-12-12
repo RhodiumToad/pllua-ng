@@ -1,4 +1,4 @@
-# Makefile for PL/Lua
+# Makefile for PL/Lua		# -*- mode: makefile-gmake -*-
 
 PG_CONFIG ?= pg_config
 
@@ -112,7 +112,7 @@ EXTRA_OBJS = $(addprefix src/, $(OBJS_LUA))
 
 EXTRA_CLEAN = pllua_functable.h plerrcodes.h \
 	$(addprefix src/,$(OBJS_LUA:.o=.luac)) $(EXTRA_OBJS) \
-	logo.css tmpdoc.html icon.ico icon.meta $(DOC_HTML)
+	logo.css tmpdoc.html icon-16.png icon.meta $(DOC_HTML)
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) $(PLLUA_CONFIG_OPTS)
 
@@ -203,14 +203,20 @@ installcheck-parallel: submake $(REGRESS_PREP)
 logo.css: $(srcdir)/doc/logo.svg $(srcdir)/tools/logo.lua
 	$(LUA) $(srcdir)/tools/logo.lua -text -logo $(srcdir)/doc/logo.svg >$@
 
-icon.ico: $(srcdir)/doc/logo.svg
-	convert -size 256x256 -background transparent $(srcdir)/doc/logo.svg \
-		-format ico -define icon:auto-resize=32,16 icon.ico
+# Stripped PNGs are quite a bit smaller than .ico
+#icon.ico: $(srcdir)/doc/logo.svg
+#	convert -size 256x256 -background transparent $(srcdir)/doc/logo.svg \
+#		-format ico -define icon:auto-resize=32,16 icon.ico
 
-icon.meta: icon.ico
-	$(LUA) $(srcdir)/tools/logo.lua -binary -icon icon.ico >$@
+icon-16.png: $(srcdir)/doc/logo.svg
+	convert -size 16x16 -background transparent $(srcdir)/doc/logo.svg \
+		-format png -define png:format=png32 \
+		-define png:exclude-chunk=all icon-16.png
+
+icon.meta: icon-16.png
+	$(LUA) $(srcdir)/tools/logo.lua -binary -icon="16x16" icon-16.png >$@
 
 $(DOC_HTML): $(DOC_SRCS) $(srcdir)/doc/template.xsl $(srcdir)/tools/doc.sh
 	$(srcdir)/tools/doc.sh $(DOC_SRCS) >tmpdoc.html
-	xsltproc --html --encoding utf-8 $(srcdir)/doc/template.xsl tmpdoc.html >$@
-	-rm -- tmpdoc.html
+	xsltproc --encoding utf-8 $(srcdir)/doc/template.xsl tmpdoc.html >$@
+	rm -- tmpdoc.html

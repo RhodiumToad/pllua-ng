@@ -4,7 +4,7 @@ printf "<html><head>\n"
 
 for fn; do
     case "$fn" in
-		*.css)	printf '<style id="%s" type="text/css">\n' "${fn##*/}";
+		*.css)	printf '<style id="%s">\n' "${fn##*/}";
 				cat -- "$fn";
 				printf "</style>\n";;
 		*.js)	printf '<script id="%s" type="text/javascript">\n' "${fn##*/}";

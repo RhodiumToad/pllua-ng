@@ -71,10 +71,10 @@ Example:
 Building the documentation
 --------------------------
 
-Specifying BUILD_DOCS=1 will build the HTML documentation from the
+Specifying `BUILD_DOCS=1` will build the HTML documentation from the
 Markdown doc sources; this requires `cmark` and `xsltproc`.
 
-Additionally specifying BUILD_ICON=1 will include the favicon in the
+Additionally specifying `BUILD_ICON=1` will include the favicon in the
 HTML documentation; this requires ImageMagick's `convert` program.
 
 

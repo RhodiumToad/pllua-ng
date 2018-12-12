@@ -27,6 +27,7 @@ coverage/
 /src/.dir-locals.el
 /pllua.html
 /icon.ico
+/icon-*.png
 /icon.meta
 /logo.css
 /tmpdoc.html

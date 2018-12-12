@@ -1,7 +1,3 @@
-<div id="footerContainer">
-
-----
-
 <div id="footer">
 
 Copyright © 2017-2018, Andrew Gierth, aka RhodiumToad
@@ -16,10 +12,6 @@ to the original `pllua` project (of which this is a ground-up redesign).
 [trademark policy](https://wiki.postgresql.org/wiki/Trademark_Policy)
 of the PostgreSQL Project. Additional graphic elements originate from
 the [Lua](http://www.lua.org) logo designed by Alexandre Nakonechnyj.
-
-</div>
-
-----
 
 </div>
 <!--eof-->

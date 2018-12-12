@@ -115,9 +115,20 @@ else
 	error("unknown mode")
 end
 
-if fmt == "-icon" then
+if fmt:match("^-icon") then
+	local sz = fmt:match("^-icon=(.*)")
+	local basename = fn:match(".*/([^/]+)$") or fn
+	local ext = fn:match("%.([^.]+)$")
+	local mediatype = { ico = "image/x-icon",
+						png = "image/png",
+						gif = "image/gif",
+						jpg = "image/jpeg" }
+	local typ = mediatype[ext]
 	local b64enc = make_encoder("", 120)
-	io.write([[<link rel="icon" href="data:image/x-icon;base64,]], b64enc(str), [[" />
+	io.write([[<link rel="icon" type="]], typ, [[" ]],
+		(sz and [[sizes="]]..sz..[[" ]] or ""),
+		[[id="]]..basename..[[" ]],
+		[[href="data:]], typ, [[;base64,]], b64enc(str), [[" />
 ]])
 elseif fmt == "-logo" then
 	local b64enc = make_encoder("", 120)

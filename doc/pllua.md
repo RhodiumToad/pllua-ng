@@ -236,8 +236,8 @@ own first-call initialization by ending the function block early:
 	$$;
 
 
-pllua.elog
-----------
+`pllua.elog`
+------------
 
 The pllua.elog module is a table of simple functions:
 
@@ -269,13 +269,13 @@ names from the appendix to the PostgreSQL manual.
 By default these functions are also available via the `spi` module.
 
 
-pllua.funcmgr
+`pllua.funcmgr`
 -------------
 
 This module exposes nothing to Lua.
 
 
-pllua.pgtype
+`pllua.pgtype`
 ------------
 
 The pgtype object provides the following functionality:
@@ -558,7 +558,7 @@ the simple conversion quite different to the `fromstring`/`tostring`
 conversion, which uses the PG text representation.
 
 
-pllua.spi
+`pllua.spi`
 ---------
 
 The spi module provides the following functionality (as a table of
@@ -743,7 +743,7 @@ function, it should be explicitly disowned to ensure that garbage
 collection won't close it from under the caller's use of it.
 
 
-pllua.trusted
+`pllua.trusted`
 -------------
 
 The trusted interpreter is implemented using a sandbox system;
@@ -863,7 +863,7 @@ itself (but the caller can still give an explicit environment of nil
 or anything else).
 
 
-pllua.trigger
+`pllua.trigger`
 -------------
 
 This module provides nothing directly to Lua, but a `trigger`
@@ -947,7 +947,7 @@ things:
    to `trigger.row`.
 
 
-pllua.numeric
+`pllua.numeric`
 -------------
 
 PostgreSQL values of `numeric` type (henceforth Numeric values) are
@@ -1000,7 +1000,7 @@ The function `num.new(x)` will construct a new Numeric datum, as will
 `pgtype.numeric(x)`.
 
 
-pllua.jsonb
+`pllua.jsonb`
 -----------
 
 `jsonb` supports an inverse mapping operation for construction of JSON
