@@ -9,7 +9,6 @@ env:
     - PG=9.5 LUAV=lua-5.3.5
     - PG=9.6 LUAV=lua-5.3.5
     - PG=10  LUAV=lua-5.3.5
-    - PG=10  LUAV=lua-5.4.0-work2
     - PG=10  LUAV=LuaJIT-b025b01
     - PG=11  LUAV=lua-5.3.5
 

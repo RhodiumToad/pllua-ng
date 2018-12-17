@@ -33,13 +33,13 @@
 /* assume Lua 5.1 is actually luajit */
 #include "pllua_luajit.h"
 
-#elif LUA_VERSION_NUM >= 503
+#elif LUA_VERSION_NUM == 503
 
 /* Lua version dependencies */
 #include "pllua_luaver.h"
 
 #else
-#error Unsupported Lua version (only Lua 5.3+ and Luajit are supported)
+#error Unsupported Lua version (only Lua 5.3 and Luajit are supported)
 #endif
 
 /*
