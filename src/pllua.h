@@ -125,7 +125,6 @@ pllua_setcontext(pllua_context_type newctx)
 #define PLLUA_CHECK_PG_STACK_DEPTH()							\
 	do { if (stack_is_too_deep()) luaL_error(L, "stack depth exceeded"); } while (0)
 
-
 /*
  * Describes one call to the top-level handler.
  */
@@ -476,6 +475,8 @@ pllua_interpreter *pllua_getstate(bool trusted, pllua_activation_record *act);
 pllua_interpreter *pllua_getinterpreter(lua_State *L);
 int pllua_set_new_ident(lua_State *L);
 void pllua_run_extra_gc(lua_State *L, unsigned long gc_debt);
+PGDLLEXPORT bool pllua_stack_is_too_deep(void);
+PGDLLEXPORT void pllua_stack_depth_error(void);
 
 extern bool pllua_track_gc_debt;
 

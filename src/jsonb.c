@@ -317,6 +317,8 @@ pllua_jsonb_tosql(lua_State *L)
 	volatile Datum datum;
 	pllua_datum *nd;
 
+	PLLUA_CHECK_PG_STACK_DEPTH();
+
 	nullval.type = jbvNull;
 
 	/*
@@ -573,6 +575,8 @@ pllua_jsonb_map(lua_State *L)
 	Jsonb	   *volatile jb;
 	JsonbIterator *it;
 	JsonbIteratorToken r;
+
+	PLLUA_CHECK_PG_STACK_DEPTH();
 
 	lua_settop(L, 2);
 

@@ -1733,6 +1733,8 @@ pllua_datum_row_map(lua_State *L)
 	bool noresult = false;
 	lua_Integer attno = 0;
 
+	PLLUA_CHECK_PG_STACK_DEPTH();
+
 	lua_settop(L, 2);
 
 	if (t->natts < 0)
@@ -2219,6 +2221,8 @@ pllua_datum_array_map(lua_State *L)
 	int funcidx = 0;
 	int nullvalue = 0;
 	bool noresult = false;
+
+	PLLUA_CHECK_PG_STACK_DEPTH();
 
 	lua_settop(L, 2);
 

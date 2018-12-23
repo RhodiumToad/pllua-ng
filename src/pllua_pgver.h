@@ -89,4 +89,17 @@
 	ALLOCSET_SMALL_MINSIZE, ALLOCSET_SMALL_INITSIZE, ALLOCSET_DEFAULT_MAXSIZE
 #endif
 
+/* We want a way to do noinline, but old PGs don't have it. */
+
+#if defined(pg_noinline)
+#define pllua_noinline pg_noinline
+#elif (defined(__GNUC__) && __GNUC__ > 2) || defined(__SUNPRO_C) || defined(__IBMC__)
+#define pllua_noinline __attribute__((noinline))
+/* msvc via declspec */
+#elif defined(_MSC_VER)
+#define pllua_noinline __declspec(noinline)
+#else
+#define pllua_noinline
+#endif
+
 #endif /* PLLUA_PGVER_H */

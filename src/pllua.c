@@ -71,12 +71,19 @@ Datum plluau_inline_handler(PG_FUNCTION_ARGS)
 
 /* Common implementations */
 
+static void pllua_entry_stack_check(void)
+{
+	check_stack_depth();
+}
+
 Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 {
 	pllua_interpreter *volatile interp = NULL;
 	pllua_activation_record act;
 	pllua_func_activation *funcact = (fcinfo->flinfo) ? fcinfo->flinfo->fn_extra : NULL;
 	ErrorContextCallback ecxt;
+
+	pllua_entry_stack_check();
 
 	act.fcinfo = fcinfo;
 	act.retval = (Datum) 0;
@@ -153,6 +160,11 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 	if (!CheckFunctionValidatorAccess(fcinfo->flinfo->fn_oid, funcoid))
 		PG_RETURN_VOID();
 
+	/*
+	 * This doesn't need a stack check because the validator is careful
+	 * not to execute user-supplied Lua code.
+	 */
+
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;
 	act.atomic = true;
@@ -196,6 +208,8 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	pllua_interpreter *volatile interp = NULL;
 	pllua_activation_record act;
 	ErrorContextCallback ecxt;
+
+	pllua_entry_stack_check();
 
 	act.fcinfo = NULL;
 	act.retval = (Datum) 0;

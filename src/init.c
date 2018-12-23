@@ -598,6 +598,68 @@ pllua_runstring(lua_State *L, const char *chunkname, const char *str, bool use_s
 }
 
 /*
+ * Wrapper for stack depth checks of dangerous Lua functions.
+ *
+ * Original function is in upvalue 1. Unfortunately we can't tail call, but in
+ * fact this has the slight benefit that we add another layer of increments to
+ * nCcalls, halving the maximum possible recursion depth for the wrapped
+ * funcs.
+ */
+
+static int
+pllua_stack_check_wrapper(lua_State *L)
+{
+	int nargs = lua_gettop(L);
+	PLLUA_CHECK_PG_STACK_DEPTH();
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_insert(L, 1);
+	lua_call(L, nargs, LUA_MULTRET);
+	return lua_gettop(L);
+}
+
+/*
+ * List of functions we have to add extra stack checks to.
+ */
+struct wrapper_info {
+	const char *name;
+	const char *libname;
+};
+static struct wrapper_info stack_wrap_list[] = {
+	/* no functions in base lib; pcall/xpcall handled in error.c */
+	{ NULL, "string" },
+	{ "format", NULL },		/* invokes metamethods */
+	{ "gsub", NULL },		/* invokes a passed-in function value */
+	{ NULL, "table" },
+	{ "concat", NULL },		/* invokes metamethods */
+	{ NULL, NULL }
+};
+
+static void pllua_wrap_stack_checks(lua_State *L)
+{
+	struct wrapper_info *p;
+
+	lua_getfield(L, LUA_REGISTRYINDEX, "_LOADED");
+	lua_pushglobaltable(L);
+
+	for (p = stack_wrap_list; p->name || p->libname; ++p)
+	{
+		if (p->libname)
+		{
+			lua_getfield(L, -2, p->libname);
+			lua_replace(L, -2);
+		}
+		if (p->name)
+		{
+			lua_getfield(L, -1, p->name);
+			lua_pushcclosure(L, pllua_stack_check_wrapper, 1);
+			lua_setfield(L, -2, p->name);
+		}
+	}
+
+	lua_pop(L, 2);
+}
+
+/*
  * Lua-environment part of interpreter setup.
  *
  * Phase 1 might be executed pre-fork; it can't know whether the interpreter
@@ -646,9 +708,16 @@ pllua_init_state_phase1(lua_State *L)
 	luaL_openlibs(L);
 
 	/*
+	 * Apply stack-checking wrappers to standard library functions that have
+	 * excessive stack use. Must be done after openlibs but before trusted
+	 * setup.
+	 */
+	pllua_wrap_stack_checks(L);
+
+	/*
 	 * Initialize our error handling, which replaces many base functions
-	 * (pcall, xpcall, error, assert). Must be done after openlibs but before
-	 * anything might throw a pg error.
+	 * (pcall, xpcall, etc.). Must be done after openlibs but before anything
+	 * might throw a pg error.
 	 */
 	luaL_requiref(L, "pllua.error", pllua_open_error, 0);
 

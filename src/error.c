@@ -637,6 +637,7 @@ static int finishpcall (lua_State *L, int status, lua_KContext extra) {
 
 int pllua_t_lpcall (lua_State *L) {
   int status;
+  PLLUA_CHECK_PG_STACK_DEPTH();
   luaL_checkany(L, 1);
   lua_pushboolean(L, 1);  /* first result if no errors */
   lua_insert(L, 1);  /* put it in place */
@@ -655,6 +656,7 @@ int pllua_t_lpcall (lua_State *L) {
 int pllua_t_lxpcall (lua_State *L) {
   int status;
   int n = lua_gettop(L);
+  PLLUA_CHECK_PG_STACK_DEPTH();
   luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
   lua_pushboolean(L, 1);  /* first result */
   lua_pushvalue(L, 1);  /* function */
@@ -667,6 +669,7 @@ int pllua_t_lxpcall (lua_State *L) {
 
 int pllua_t_lpcall (lua_State *L) {
   int status;
+  PLLUA_CHECK_PG_STACK_DEPTH();
   luaL_checkany(L, 1);
   lua_pushboolean(L, 1);  /* first result if no errors */
   lua_insert(L, 1);  /* put it in place */
@@ -689,6 +692,7 @@ int pllua_t_lpcall (lua_State *L) {
 int pllua_t_lxpcall (lua_State *L) {
   int status;
   int n = lua_gettop(L);
+  PLLUA_CHECK_PG_STACK_DEPTH();
   luaL_checktype(L, 2, LUA_TFUNCTION);  /* check error function */
   lua_pushboolean(L, 1);  /* first result */
   lua_insert(L, 3);
@@ -882,6 +886,8 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 	MemoryContext oldcontext = CurrentMemoryContext;
 	volatile int rc;
 	volatile bool rethrow = false;
+
+	PLLUA_CHECK_PG_STACK_DEPTH();
 
 	luaL_checkany(L, 1);
 
