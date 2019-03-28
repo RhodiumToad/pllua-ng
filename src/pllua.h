@@ -645,6 +645,9 @@ void pllua_pgfunc_new(lua_State *L);
 FmgrInfo *pllua_pgfunc_init(lua_State *L, int nd, Oid fnoid, int nargs, Oid *argtypes, Oid rettype);
 void pllua_pgfunc_table_new(lua_State *L);
 
+/* paths.c */
+int pllua_open_paths(lua_State *L);
+
 /* preload.c */
 int pllua_preload_compat(lua_State *L);
 

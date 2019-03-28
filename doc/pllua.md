@@ -1095,4 +1095,41 @@ available via `require "pllua.jsonb"`:
     some other metatable instead.
 
 
+`pllua.paths`
+-----------
+
+This module (not available in trusted mode) provides functions which
+return the locations of server directories:
+
++ `bin()`\
+  the directory containing server executables
++ `lib()`\
+  directory for object libraries
++ `pkglib()`\
+  `libdir()`\
+  this is the directory used for `$libdir` expansion in module paths
++ `share()`\
+  directory for ancillary read-only data files
++ `locale`\
+  directory for locale-dependent data, if any
+
+The following paths are also available, though they may not exist (the
+returned value only indicates where they are expected to be based on
+the compile-time options and the location of the server binary):
+
++ `doc`\
+  directory for documentation
++ `etc`\
+  directory for system-wide config files
++ `html`\
+  directory for html documentation
++ `include`\
+  directory for include files
++ `includeserver`\
+  directory for server-specific include files
++ `man`\
+  directory for manual pages
++ `pkginclude`\
+  I have no idea what this is supposed to be for
+
 <!--eof-->

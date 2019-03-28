@@ -729,6 +729,12 @@ pllua_init_state_phase1(lua_State *L)
 	luaL_requiref(L, "pllua.print", pllua_open_print, 0);
 
 	/*
+	 * Paths module does no db access and is safe in postmaster, and on_init
+	 * strings have a legitimate need for it.
+	 */
+	luaL_requiref(L, "pllua.paths", pllua_open_paths, 0);
+
+	/*
 	 * Early init of the trusted sandbox, so that on_init can do trusted setup
 	 * (even though we don't know in on_init whether we're trusted or not).
 	 *
