@@ -1342,14 +1342,14 @@ static void pllua_datum_explode_tuple_inner(lua_State *L, int nd, pllua_datum *d
  */
 static void pllua_datum_explode_tuple(lua_State *L, int nd, pllua_datum *d, pllua_typeinfo *t)
 {
-	if (d->value == (Datum)0)
-		return;
-
 	nd = lua_absindex(L, nd);
 
 	ASSERT_LUA_CONTEXT;
 
 	pllua_datum_deform_tuple(L, nd, d, t);
+
+	if (d->value == (Datum)0)
+		return;
 
 	lua_pushvalue(L, nd);
 	for (;;)

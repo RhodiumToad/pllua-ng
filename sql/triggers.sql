@@ -71,6 +71,7 @@ create function modtrig1() returns trigger language pllua
 as $$
   print(trigger.name,trigger.operation,old,new)
   trigger.row.weight = 10 * trigger.row.qty
+  trigger.row.flag = false
   print(trigger.name,trigger.operation,old,new)
 $$;
 
@@ -79,8 +80,8 @@ create trigger t1
   for each row
   execute procedure modtrig1();
 
-insert into trigtst values (2, 'jim', false, 11, 3.1);
-update trigtst set flag = false where name = 'ermintrude';
+insert into trigtst values (2, 'jim', true, 11, 3.1);
+update trigtst set flag = true where name = 'ermintrude';
 delete from trigtst where name = 'fred';
 select * from trigtst order by id;
 
