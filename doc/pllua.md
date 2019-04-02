@@ -1098,6 +1098,8 @@ available via `require "pllua.jsonb"`:
 `pllua.paths`
 -----------
 
+This module was added in version 2.0.2.
+
 This module (not available in trusted mode) provides functions which
 return the locations of server directories:
 
