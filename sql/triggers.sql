@@ -90,7 +90,7 @@ drop trigger t1 on trigtst;
 -- compatible mode: assign to row wholesale
 create function modtrig2() returns trigger language pllua
 as $$
-  print(trigger.name,trigger.operation,old,new)
+  print(trigger.name,trigger.op,old,new)
   local id,name,flag,qty,weight = new.id, new.name, new.flag, new.qty, new.weight
   qty = 2 + qty
   weight = weight * 2

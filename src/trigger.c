@@ -289,7 +289,8 @@ pllua_trigger_index(lua_State *L)
 	else if (strcmp(str, "op") == 0)
 	{
 		/* some people like shorter names */
-		lua_pushstring(L, "operation");
+		str = "operation";
+		lua_pushstring(L, str);
 		lua_replace(L, 2);
 	}
 	/* previously cached result? */
