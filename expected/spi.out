@@ -42,7 +42,8 @@ do language pllua $$
   stmt = spi.prepare([[ select * from tsttab where id=$1 ]], {"integer"})
   tbl = stmt:execute(1)
   print(tbl[1])
-  tbl = stmt:execute(6)
+  -- __call metamethod
+  tbl = stmt(6)
   print(tbl[1])
   stmt = spi.prepare([[ select * from tsttab where id = ANY ($1) order by id ]],
                      {pgtype.array.integer})

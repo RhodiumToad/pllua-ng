@@ -638,6 +638,8 @@ functions):
 
 SPI statement objects have the following functionality:
 
+  + `stmt(arg, arg, ...)`
+
   + `stmt:execute(arg, arg, ...)`
 
   + `stmt:execute_count(maxrows, arg, arg, ...)`

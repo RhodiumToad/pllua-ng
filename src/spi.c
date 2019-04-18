@@ -1491,6 +1491,7 @@ static struct luaL_Reg spi_stmt_methods[] = {
 };
 static struct luaL_Reg spi_stmt_mt[] = {
 	{ "__gc", pllua_stmt_gc },
+	{ "__call", pllua_spi_execute },
 	{ NULL, NULL }
 };
 
