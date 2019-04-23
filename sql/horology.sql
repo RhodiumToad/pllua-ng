@@ -275,7 +275,7 @@ do language pllua $$
 		     'milliseconds', 'minute', 'month',
 		     'quarter', 'second',
 		     'week', 'year' } do
-    print(k, t[k])
+    print(k, string.format("%.18g",t[k]))
   end
 $$;
 
@@ -302,7 +302,7 @@ do language pllua $$
 $$;
 
 do language pllua $$
-  local t = pgtype.interval('P1Y2M3DT4H5M6S')
+  local t = pgtype.interval('P1Y2M3DT4H5M6.789001S')
 
   for _,k in ipairs{ 'century', 'day', 'decade',
                      'epoch', 'epoch_msec', 'epoch_usec',

@@ -509,7 +509,7 @@ do language pllua $$
 		     'milliseconds', 'minute', 'month',
 		     'quarter', 'second',
 		     'week', 'year' } do
-    print(k, t[k])
+    print(k, string.format("%.18g",t[k]))
   end
 $$;
 INFO:  century	20
@@ -517,8 +517,8 @@ INFO:  day	10
 INFO:  decade	196
 INFO:  dow	5
 INFO:  doy	131
-INFO:  epoch	-51926400.0
-INFO:  epoch_msec	-51926400000.0
+INFO:  epoch	-51926400
+INFO:  epoch_msec	-51926400000
 INFO:  epoch_usec	-51926400000000
 INFO:  hour	0
 INFO:  isodow	5
@@ -531,7 +531,7 @@ INFO:  milliseconds	0
 INFO:  minute	0
 INFO:  month	5
 INFO:  quarter	2
-INFO:  second	0.0
+INFO:  second	0
 INFO:  week	19
 INFO:  year	1968
 do language pllua $$
@@ -574,7 +574,7 @@ INFO:  timezone	3600
 INFO:  timezone_hour	1
 INFO:  timezone_minute	0
 do language pllua $$
-  local t = pgtype.interval('P1Y2M3DT4H5M6S')
+  local t = pgtype.interval('P1Y2M3DT4H5M6.789001S')
 
   for _,k in ipairs{ 'century', 'day', 'decade',
                      'epoch', 'epoch_msec', 'epoch_usec',
@@ -588,17 +588,17 @@ $$;
 INFO:  century	0
 INFO:  day	3
 INFO:  decade	0
-INFO:  epoch	37015506.0
-INFO:  epoch_msec	37015506000.0
-INFO:  epoch_usec	37015506000000
+INFO:  epoch	37015506.789001
+INFO:  epoch_msec	37015506789.001
+INFO:  epoch_usec	37015506789001
 INFO:  hour	4
-INFO:  microseconds	6000000
+INFO:  microseconds	6789001
 INFO:  millennium	0
-INFO:  milliseconds	6000
+INFO:  milliseconds	6789
 INFO:  minute	5
 INFO:  month	2
 INFO:  quarter	1
-INFO:  second	6.0
+INFO:  second	6.789001
 INFO:  year	1
 -- errors (not worth testing many combinations, they all share a code path)
 do language pllua $$ print(pgtype.time('03:45:01.234567').dow) $$;
