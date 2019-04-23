@@ -282,7 +282,7 @@ pllua_time_tosql(lua_State *L)
 	TimestampTz tsval;
 	DateADT dateresult;
 	Datum iresult;
-	Datum result;
+	Datum result = 0;
 	static struct pg_tm ztm = { 0 };
 	struct pg_tm tm;
 	const char *tzname = NULL;
@@ -298,8 +298,6 @@ pllua_time_tosql(lua_State *L)
 	int found_hour = 0;
 	int found_min = 0;
 	int found_sec = 0;
-	int found_isdst = 0;
-	int found_frac = 0;
 	int found_epoch = 0;
 	int found_tz = 0;
 	int found_gmtoff = 0;
@@ -340,10 +338,7 @@ pllua_time_tosql(lua_State *L)
 #undef TMGET
 
 	if (lua_getfield(L, 1, "isdst") != LUA_TNIL)
-	{
-		found_isdst = true;
 		tm.tm_isdst = lua_toboolean(L, -1) ? 1 : 0;
-	}
 
 	lua_settop(L, 1);
 
@@ -360,9 +355,6 @@ pllua_time_tosql(lua_State *L)
 			double fisec = 0;
 			double frac = modf(fabs(tmpflt), &fisec);
 
-			found_sec = 1;
-			found_frac = 1;
-
 			if (tmpflt < 0)
 			{
 				tm.tm_sec = -((int) fisec + 1);
@@ -376,6 +368,7 @@ pllua_time_tosql(lua_State *L)
 		}
 		else
 			tm.tm_sec = tmpint;
+
 		found_sec = 1;
 	}
 
@@ -389,7 +382,6 @@ pllua_time_tosql(lua_State *L)
 			microsecs += (int64) rint(tmpflt * 1000.0);
 		else
 			microsecs += (tmpint * INT64CONST(1000));
-		found_frac = 1;
 	}
 	if (lua_getfield(L, 1, "usec") != LUA_TNIL)
 	{
@@ -397,7 +389,6 @@ pllua_time_tosql(lua_State *L)
 			microsecs += (int64) rint(tmpflt);
 		else
 			microsecs += tmpint;
-		found_frac = 1;
 	}
 
 	/*
