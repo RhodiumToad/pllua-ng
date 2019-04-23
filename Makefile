@@ -98,7 +98,7 @@ HEADERS= $(addprefix src/, $(INCS))
 
 OBJS_C= compile.o datum.o elog.o error.o exec.o globals.o init.o \
 	jsonb.o numeric.o objects.o paths.o pllua.o preload.o spi.o \
-	trigger.o trusted.o
+	time.o trigger.o trusted.o
 
 SRCS_C = $(addprefix $(srcdir)/src/, $(OBJS_C:.o=.c))
 

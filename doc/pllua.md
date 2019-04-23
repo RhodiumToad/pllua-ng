@@ -337,7 +337,10 @@ type category (scalar, row, array, range)
 
     1. If the input value is not a single string, and a transform
        function exists for this type, then the transform function is
-       called to try and convert the value.
+       called to try and convert the value. Certain types (for example
+       `jsonb` and, in version 2.0.3+ of this module, date/time
+       types), have built-in special transform functions which are
+       documented below.
 
     0. If there is more than one input value, an error is raised.
 
@@ -402,8 +405,8 @@ type category (scalar, row, array, range)
     as infinities, and the "bounds" string interpreted in the usual
     way (i.e. `"[]"`, `"[)"`, `"(]"`, `"()"`).
 
-Some specific types have additional functions: see the `pllua.jsonb`
-and `pllua.numeric` modules.
+Some specific types have additional functions: see the `pllua.jsonb`,
+`pllua.numeric` and `pllua.time` modules.
 
 `Datum` values themselves provide the following:
 
@@ -549,8 +552,8 @@ The built-in simple transforms from Lua to PG are:
     SPI cursor object  ->  refcursor
 
 Conversions not listed as "simple transforms" are done with either a
-transform function, if defined, or the type constructor as detailed
-above.
+builtin special transform, an SQL transform function if defined, or
+the type constructor as detailed above.
 
 Notice that for `bytea`, the simple transform just copies the bytes
 (Lua strings are byte strings, not character strings). This makes
@@ -1135,5 +1138,171 @@ the compile-time options and the location of the server binary):
   directory for manual pages
 + `pkginclude`\
   I have no idea what this is supposed to be for
+
+
+`pllua.time`
+-----------
+
+This module was added in version 2.0.3.
+
+SQL types `timestamp with time zone` (aka `timestamptz`), `timestamp`,
+`date`, `time`, `timetz`, and `interval` (collectively referred to
+here as "datetime types") have additional functionality provided by
+this module. All of this functionality is currently available by
+default; the module does not need to be explicitly loaded.
+
+Datetime types allow the following type constructor:
+
+<pre><code>pgtype.<i>typename</i>({ <i>args...</i> })</code></pre>
+
+where the parameter is a table similar to that used by `os.time` with
+many extensions, detailed below.
+
+Datum values of datetime types also support the following method call:
+
+	d:as_table()
+
+which returns the value broken down into a table of calendar values.
+
+For `timestamp with time zone` only,
+
+	d:as_table(timezone)
+
+performs the same breakdown but returns the result relative to the
+specified timezone name (abbreviations not permitted) or offset,
+following the same rules as for the `timezone` field.
+
+(If the input value is infinite, the table will contain only an
+infinite-valued `epoch` field; otherwise no `epoch` field will be
+present.)
+
+Datum values of datetime types also support field accesses such as:
+
+	d.week
+	d.epoch
+	d.epoch_msec
+	d.isoyear
+
+etc. The available field names are those supported by the SQL
+`extract()` function as documented in the
+[PostgreSQL manual](https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-EXTRACT).
+The following extra fields are also supported:
+
+* `isoweek`\
+  alias for `week` (both forms use the ISO week number)
+* `epoch_msec`\
+  `epoch` value scaled to milliseconds
+* `epoch_usec`\
+  `epoch` value scaled to (integer) microseconds
+
+The following entries are recognized in tables representing datetime
+values:
+
+* `year`\
+  Calendar year, e.g. 2019
+* `month`\
+  Month number 1..12
+* `day`\
+  Day of month
+* `hour`\
+  Hour (24-hour clock)
+* `min`\
+  Minute
+* `sec`\
+  Second (with fractional values allowed)
+* `msec`\
+  Milliseconds (with fractional values allowed)
+* `usec`\
+  Microseconds
+* `isdst`\
+  If the specified time is within a DST boundary interval, then this
+  specifies whether it is interpreted according to the DST or non-DST
+  time. Otherwise it is ignored.
+* `epoch`\
+  Specifies a Unix epoch time in seconds (fractions are allowed)
+* `epoch_msec`\
+  Specifies a Unix epoch time in milliseconds (fractions are allowed)
+* `epoch_usec`\
+  Specifies a Unix epoch time in microseconds
+* `timezone`\
+  If a string, this may be a timezone name (**not** an abbreviation),
+  or a UTC offset in the form "+0100". If a number, then it is taken to
+  be a UTC offset in seconds. A boolean value of `true` means to use
+  the current session timezone, for use in contexts where that is not
+  the default.
+* `timezone_abbrev`\
+  Ignored on input, this is set to the timezone abbreviation (e.g. `EST`)
+  for tables generated from `timestamp with time zone` values.
+
+Epoch values and calendar values may not both be specified, but the
+timezone and `msec` and `usec` fractional values may be specified
+alongside either.
+
+Calendar values may be specified outside their normal ranges, and
+(except for the `interval` type) will be normalized before any
+conversion. (In particular, any DST boundaries are not taken into
+account when normalizing.)
+
+Millisecond or microsecond values specified may exceed one second, in
+which case they are applied **after** other conversions (and thus will
+take DST boundaries into account where appropriate).
+
+The values are interpreted according to the requested data type as
+follows:
+
+  + `date`
+
+    If calendar values `year`, `month`, `day` are specified they are
+    used as-is. A timezone must not be specified in this case.
+
+	If an epoch time is specified, then the result is the calendar day
+    in the specified timezone (or `UTC` if not set) which contains the
+    specified epoch time.
+
+  + `timestamp with time zone`
+
+    If an epoch time is specified then no timezone may be specified,
+	and the result corresponds to the specified epoch time.
+
+	If a calendar date and time is specified, then it is interpreted
+    according to the specified timezone (defaulting to the session
+    timezone if not specified). The time fields are optional and
+    default to 0.
+
+  + `timestamp`
+
+    If an epoch time is specified with a timezone, then the result is
+	the corresponding calendar time in the specified timezone at that
+	epoch.
+
+	If an epoch time is specified with no timezone, then it is
+    interpreted as a seconds offset from 1970-01-01 00:00:00, with no
+	DST transitions.
+
+	If a calendar date and time is specified, then no timezone may be
+	specified, and the result is the calendar time. The time fields
+	are optional and default to 0.
+
+  + `time`
+
+    If an epoch is specified, it is assumed to be an offset since
+    midnight. The result is taken modulo 1 day.
+
+	If a calendar time is specified, it is used as-is. Date and
+    timezone fields are ignored.
+
+  + `timetz`
+
+    **WARNING**: this type should not be used for anything.
+
+    A timezone value specified must be an integer or a string offset,
+    not a timezone name. Other input is used as for `time`, and the
+	offset field of the result is set to the specified timezone.
+
+  + `interval`
+
+    An interval is constructed from any combination of the specified
+	fields, which are not normalized first.
+
 
 <!--eof-->

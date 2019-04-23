@@ -799,6 +799,8 @@ pllua_init_state_phase2(lua_State *L)
 
 	luaL_requiref(L, "pllua.jsonb", pllua_open_jsonb, 0);
 
+	luaL_requiref(L, "pllua.time", pllua_open_time, 0);
+
 	/*
 	 * complete the initialization of the trusted-mode sandbox.
 	 * We do this in untrusted interps too, but for those, we don't

@@ -5,6 +5,7 @@ test: trusted
 test: arrays
 test: jsonb
 test: numerics
+test: horology
 test: paths
 test: rowdatum
 test: spi

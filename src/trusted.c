@@ -756,6 +756,7 @@ static struct module_info sandbox_packages_late[] = {
 	{ "pllua.elog",			NULL,	"copy",		NULL			},
 	{ "pllua.numeric",		NULL,	"copy",		NULL			},
 	{ "pllua.jsonb",		NULL,	"copy",		NULL			},
+	{ "pllua.time",			NULL,	"copy",		NULL			},
 	{ NULL, NULL }
 };
 

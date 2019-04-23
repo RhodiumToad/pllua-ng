@@ -2,6 +2,6 @@
 # this must be first since it installs the extension
 test: pllua
 # these should be independent
-test: pllua_old arrays numerics paths rowdatum spi subxact types triggers jsonb trusted
+test: pllua_old arrays numerics paths horology rowdatum spi subxact types triggers jsonb trusted
 # this must run alone because it messes up output from DDL
 test: event_triggers

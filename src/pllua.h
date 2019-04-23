@@ -661,6 +661,9 @@ int pllua_cursor_cleanup_portal(lua_State *L);
 int pllua_spi_newcursor(lua_State *L);
 int pllua_cursor_name(lua_State *L);
 
+/* time.c */
+int pllua_open_time(lua_State *L);
+
 /* trigger.c */
 int pllua_open_trigger(lua_State *L);
 
