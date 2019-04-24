@@ -243,6 +243,7 @@ a[rel~="external"] {
 <li value="9" class="toc tocentry-2"><a href="#S2.9" class="toc toclink-2"><code class="shortcode">pllua.numeric</code></a></li>
 <li value="10" class="toc tocentry-2"><a href="#S2.10" class="toc toclink-2"><code class="shortcode">pllua.jsonb</code></a></li>
 <li value="11" class="toc tocentry-2"><a href="#S2.11" class="toc toclink-2"><code class="shortcode">pllua.paths</code></a></li>
+<li value="12" class="toc tocentry-2"><a href="#S2.12" class="toc toclink-2"><code class="shortcode">pllua.time</code></a></li>
 </ol>
 </li>
 <li value="3" class="toc tocentry-1">
@@ -712,7 +713,10 @@ type category (scalar, row, array, range)</p>
 <li>
 <p>If the input value is not a single string, and a transform
 function exists for this type, then the transform function is
-called to try and convert the value.</p>
+called to try and convert the value. Certain types (for example
+<code class="shortcode">jsonb</code> and, in version 2.0.3+ of this module, date/time
+types), have built-in special transform functions which are
+documented below.</p>
 </li>
 <li>
 <p>If there is more than one input value, an error is raised.</p>
@@ -784,8 +788,8 @@ as infinities, and the "bounds" string interpreted in the usual
 way (i.e. <code class="shortcode">"[]"</code>, <code class="shortcode">"[)"</code>, <code class="shortcode">"(]"</code>, <code class="shortcode">"()"</code>).</p>
 </dd>
 </dl>
-<p>Some specific types have additional functions: see the <code class="shortcode">pllua.jsonb</code>
-and <code class="shortcode">pllua.numeric</code> modules.</p>
+<p>Some specific types have additional functions: see the <code class="shortcode">pllua.jsonb</code>,
+<code class="shortcode">pllua.numeric</code> and <code class="shortcode">pllua.time</code> modules.</p>
 <p><code class="shortcode">Datum</code> values themselves provide the following:</p>
 <dl class="dl-p">
 <dt><code class="shortcode">tostring(datum)</code></dt>
@@ -914,8 +918,8 @@ number  -&gt;  numeric
 SPI cursor object  -&gt;  refcursor
 </code></pre>
 <p>Conversions not listed as "simple transforms" are done with either a
-transform function, if defined, or the type constructor as detailed
-above.</p>
+builtin special transform, an SQL transform function if defined, or
+the type constructor as detailed above.</p>
 <p>Notice that for <code class="shortcode">bytea</code>, the simple transform just copies the bytes
 (Lua strings are byte strings, not character strings). This makes
 the simple conversion quite different to the <code class="shortcode">fromstring</code>/<code class="shortcode">tostring</code>
@@ -997,6 +1001,7 @@ convenience.</p>
 </dl>
 <p>SPI statement objects have the following functionality:</p>
 <dl class="dl-p">
+<dt><code class="shortcode">stmt(arg, arg, ...)</code></dt>
 <dt><code class="shortcode">stmt:execute(arg, arg, ...)</code></dt>
 <dt><code class="longcode">stmt:execute_count(maxrows, arg, arg, ...)</code></dt>
 <dd>
@@ -1508,6 +1513,166 @@ directory for manual pages</dd>
 <dt><code class="shortcode">pkginclude</code></dt>
 <dd>
 I have no idea what this is supposed to be for</dd>
+</dl>
+<h2 id="S2.12"><span class="hspan-h2"><code class="shortcode">pllua.time</code></span></h2>
+<p>This module was added in version 2.0.3.</p>
+<p>SQL types <code class="shortcode">timestamp with time zone</code> (aka <code class="shortcode">timestamptz</code>), <code class="shortcode">timestamp</code>,
+<code class="shortcode">date</code>, <code class="shortcode">time</code>, <code class="shortcode">timetz</code>, and <code class="shortcode">interval</code> (collectively referred to
+here as "datetime types") have additional functionality provided by
+this module. All of this functionality is currently available by
+default; the module does not need to be explicitly loaded.</p>
+<p>Datetime types allow the following type constructor:</p>
+<pre class="codeblock"><code>pgtype.<i>typename</i>({ <i>args...</i> })</code></pre>
+<p>where the parameter is a table similar to that used by <code class="shortcode">os.time</code> with
+many extensions, detailed below.</p>
+<p>Datum values of datetime types also support the following method call:</p>
+<pre class="codeblock"><code>d:as_table()
+</code></pre>
+<p>which returns the value broken down into a table of calendar values.</p>
+<p>For <code class="shortcode">timestamp with time zone</code> only,</p>
+<pre class="codeblock"><code>d:as_table(timezone)
+</code></pre>
+<p>performs the same breakdown but returns the result relative to the
+specified timezone name (abbreviations not permitted) or offset,
+following the same rules as for the <code class="shortcode">timezone</code> field.</p>
+<p>(If the input value is infinite, the table will contain only an
+infinite-valued <code class="shortcode">epoch</code> field; otherwise no <code class="shortcode">epoch</code> field will be
+present.)</p>
+<p>Datum values of datetime types also support field accesses such as:</p>
+<pre class="codeblock"><code>d.week
+d.epoch
+d.epoch_msec
+d.isoyear
+</code></pre>
+<p>etc. The available field names are those supported by the SQL
+<code class="shortcode">extract()</code> function as documented in the
+<a href="https://www.postgresql.org/docs/current/functions-datetime.html#FUNCTIONS-DATETIME-EXTRACT" rel="external nofollow">PostgreSQL manual</a>.
+The following extra fields are also supported:</p>
+<dl class="dl-br">
+<dt><code class="shortcode">isoweek</code></dt>
+<dd>
+alias for <code class="shortcode">week</code> (both forms use the ISO week number)</dd>
+<dt><code class="shortcode">epoch_msec</code></dt>
+<dd>
+<code class="shortcode">epoch</code> value scaled to milliseconds</dd>
+<dt><code class="shortcode">epoch_usec</code></dt>
+<dd>
+<code class="shortcode">epoch</code> value scaled to (integer) microseconds</dd>
+</dl>
+<p>The following entries are recognized in tables representing datetime
+values:</p>
+<dl class="dl-br">
+<dt><code class="shortcode">year</code></dt>
+<dd>
+Calendar year, e.g. 2019</dd>
+<dt><code class="shortcode">month</code></dt>
+<dd>
+Month number 1..12</dd>
+<dt><code class="shortcode">day</code></dt>
+<dd>
+Day of month</dd>
+<dt><code class="shortcode">hour</code></dt>
+<dd>
+Hour (24-hour clock)</dd>
+<dt><code class="shortcode">min</code></dt>
+<dd>
+Minute</dd>
+<dt><code class="shortcode">sec</code></dt>
+<dd>
+Second (with fractional values allowed)</dd>
+<dt><code class="shortcode">msec</code></dt>
+<dd>
+Milliseconds (with fractional values allowed)</dd>
+<dt><code class="shortcode">usec</code></dt>
+<dd>
+Microseconds</dd>
+<dt><code class="shortcode">isdst</code></dt>
+<dd>
+If the specified time is within a DST boundary interval, then this
+specifies whether it is interpreted according to the DST or non-DST
+time. Otherwise it is ignored.</dd>
+<dt><code class="shortcode">epoch</code></dt>
+<dd>
+Specifies a Unix epoch time in seconds (fractions are allowed)</dd>
+<dt><code class="shortcode">epoch_msec</code></dt>
+<dd>
+Specifies a Unix epoch time in milliseconds (fractions are allowed)</dd>
+<dt><code class="shortcode">epoch_usec</code></dt>
+<dd>
+Specifies a Unix epoch time in microseconds</dd>
+<dt><code class="shortcode">timezone</code></dt>
+<dd>
+If a string, this may be a timezone name (<strong>not</strong> an abbreviation),
+or a UTC offset in the form "+0100". If a number, then it is taken to
+be a UTC offset in seconds. A boolean value of <code class="shortcode">true</code> means to use
+the current session timezone, for use in contexts where that is not
+the default.</dd>
+<dt><code class="shortcode">timezone_abbrev</code></dt>
+<dd>
+Ignored on input, this is set to the timezone abbreviation (e.g. <code class="shortcode">EST</code>)
+for tables generated from <code class="shortcode">timestamp with time zone</code> values.</dd>
+</dl>
+<p>Epoch values and calendar values may not both be specified, but the
+timezone and <code class="shortcode">msec</code> and <code class="shortcode">usec</code> fractional values may be specified
+alongside either.</p>
+<p>Calendar values may be specified outside their normal ranges, and
+(except for the <code class="shortcode">interval</code> type) will be normalized before any
+conversion. (In particular, any DST boundaries are not taken into
+account when normalizing.)</p>
+<p>Millisecond or microsecond values specified may exceed one second, in
+which case they are applied <strong>after</strong> other conversions (and thus will
+take DST boundaries into account where appropriate).</p>
+<p>The values are interpreted according to the requested data type as
+follows:</p>
+<dl class="dl-p">
+<dt><code class="shortcode">date</code></dt>
+<dd>
+<p>If calendar values <code class="shortcode">year</code>, <code class="shortcode">month</code>, <code class="shortcode">day</code> are specified they are
+used as-is. A timezone must not be specified in this case.</p>
+<p>If an epoch time is specified, then the result is the calendar day
+in the specified timezone (or <code class="shortcode">UTC</code> if not set) which contains the
+specified epoch time.</p>
+</dd>
+<dt><code class="shortcode">timestamp with time zone</code></dt>
+<dd>
+<p>If an epoch time is specified then no timezone may be specified,
+and the result corresponds to the specified epoch time.</p>
+<p>If a calendar date and time is specified, then it is interpreted
+according to the specified timezone (defaulting to the session
+timezone if not specified). The time fields are optional and
+default to 0.</p>
+</dd>
+<dt><code class="shortcode">timestamp</code></dt>
+<dd>
+<p>If an epoch time is specified with a timezone, then the result is
+the corresponding calendar time in the specified timezone at that
+epoch.</p>
+<p>If an epoch time is specified with no timezone, then it is
+interpreted as a seconds offset from 1970-01-01 00:00:00, with no
+DST transitions.</p>
+<p>If a calendar date and time is specified, then no timezone may be
+specified, and the result is the calendar time. The time fields
+are optional and default to 0.</p>
+</dd>
+<dt><code class="shortcode">time</code></dt>
+<dd>
+<p>If an epoch is specified, it is assumed to be an offset since
+midnight. The result is taken modulo 1 day.</p>
+<p>If a calendar time is specified, it is used as-is. Date and
+timezone fields are ignored.</p>
+</dd>
+<dt><code class="shortcode">timetz</code></dt>
+<dd>
+<p><strong>WARNING</strong>: this type should not be used for anything.</p>
+<p>A timezone value specified must be an integer or a string offset,
+not a timezone name. Other input is used as for <code class="shortcode">time</code>, and the
+offset field of the result is set to the specified timezone.</p>
+</dd>
+<dt><code class="shortcode">interval</code></dt>
+<dd>
+<p>An interval is constructed from any combination of the specified
+fields, which are not normalized first.</p>
+</dd>
 </dl>
 
 <h1 id="S3"><span class="hspan-h1">Building PL/Lua</span></h1>
