@@ -62,6 +62,19 @@
 #define IsObjectIdAttributeNumber(a) ((a) == ObjectIdAttributeNumber)
 #endif
 
+/* cope with variable-length fcinfo in pg12 */
+#if PG_VERSION_NUM < 120000
+#define LOCAL_FCINFO(name_,nargs_) \
+	FunctionCallInfoData name_##data; \
+	FunctionCallInfo name_ = &name_##data
+
+#define LFCI_ARG_VALUE(fci_,n_) ((fci_)->arg[n_])
+#define LFCI_ARGISNULL(fci_,n_) ((fci_)->argnull[n_])
+#else
+#define LFCI_ARG_VALUE(fci_,n_) ((fci_)->args[n_].value)
+#define LFCI_ARGISNULL(fci_,n_) ((fci_)->args[n_].isnull)
+#endif
+
 /* TupleDesc structure change */
 #if PG_VERSION_NUM < 100000
 #define TupleDescAttr(tupdesc, i) ((tupdesc)->attrs[(i)])

@@ -8,6 +8,9 @@
 #include "utils/builtins.h"
 #include "utils/date.h"
 #include "utils/datetime.h"
+#if PG_VERSION_NUM >= 120000
+#include "utils/float.h"
+#endif
 #if PG_VERSION_NUM >= 100000
 #include "utils/fmgrprotos.h"
 #endif
@@ -753,21 +756,21 @@ pllua_time_raw_part(lua_State *L, const char *part, Datum val, Oid oid, PGFuncti
 	{
 		text *part_text = cstring_to_text(part);
 		Datum resd;
-		FunctionCallInfoData fcinfo;
+		LOCAL_FCINFO(fcinfo, 2);
 
 		if (oid == DATEOID)
 			val = DirectFunctionCall1(date_timestamp, val);
 
-		InitFunctionCallInfoData(fcinfo, NULL, 2, InvalidOid, NULL, NULL);
+		InitFunctionCallInfoData(*fcinfo, NULL, 2, InvalidOid, NULL, NULL);
 
-		fcinfo.arg[0] = PointerGetDatum(part_text);
-		fcinfo.arg[1] = val;
-		fcinfo.argnull[0] = false;
-		fcinfo.argnull[1] = false;
+		LFCI_ARG_VALUE(fcinfo,0) = PointerGetDatum(part_text);
+		LFCI_ARG_VALUE(fcinfo,1) = val;
+		LFCI_ARGISNULL(fcinfo,0) = false;
+		LFCI_ARGISNULL(fcinfo,1) = false;
 
-		resd = (*func) (&fcinfo);
+		resd = (*func) (fcinfo);
 
-		if (fcinfo.isnull)
+		if (fcinfo->isnull)
 			*isnull = true;
 		else
 			res = DatumGetFloat8(resd);

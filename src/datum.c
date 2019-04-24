@@ -3499,7 +3499,7 @@ static const char *pllua_typeinfo_raw_output(lua_State *L, Datum value, pllua_ty
 static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
 									  int nf, Oid fnoid, int32 typmod, bool is_explicit)
 {
-	FunctionCallInfoData fcinfo;
+	LOCAL_FCINFO(fcinfo, 3);
 	FmgrInfo *fn = *(FmgrInfo **) lua_touserdata(L, nf);
 
 	Assert(OidIsValid(fnoid));
@@ -3509,17 +3509,17 @@ static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
 	if (*isnull && fn->fn_strict)
 		return;
 
-	InitFunctionCallInfoData(fcinfo, fn, 3, InvalidOid, NULL, NULL);
+	InitFunctionCallInfoData(*fcinfo, fn, 3, InvalidOid, NULL, NULL);
 
-	fcinfo.arg[0] = *val;
-	fcinfo.argnull[0] = *isnull;
-	fcinfo.arg[1] = Int32GetDatum(typmod);
-	fcinfo.argnull[1] = false;
-	fcinfo.arg[2] = BoolGetDatum(is_explicit);
-	fcinfo.argnull[2] = false;
+	LFCI_ARG_VALUE(fcinfo,0) = *val;
+	LFCI_ARGISNULL(fcinfo,0) = *isnull;
+	LFCI_ARG_VALUE(fcinfo,1) = Int32GetDatum(typmod);
+	LFCI_ARGISNULL(fcinfo,1) = false;
+	LFCI_ARG_VALUE(fcinfo,2) = BoolGetDatum(is_explicit);
+	LFCI_ARGISNULL(fcinfo,2) = false;
 
-	*val = FunctionCallInvoke(&fcinfo);
-	*isnull = fcinfo.isnull;
+	*val = FunctionCallInvoke(fcinfo);
+	*isnull = fcinfo->isnull;
 }
 
 static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnull,
@@ -3545,8 +3545,8 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 		int nitems = ArrayGetNItems(ndim,dims);
 		Datum *values = palloc(nitems * sizeof(Datum));
 		bool *isnull = palloc(nitems * sizeof(bool));
-		FunctionCallInfoData fcinfo;
-		FunctionCallInfoData fcinfo2;
+		LOCAL_FCINFO(fcinfo, 3);
+		LOCAL_FCINFO(fcinfo2, 3);
 		bool separate_typmod = typmod >= 0 && OidIsValid(fnoid2);
 		FmgrInfo *fn = elempath == COERCION_PATH_FUNC ? *(FmgrInfo **) lua_touserdata(L, nf) : NULL;
 		FmgrInfo *fn2 = separate_typmod ? *(FmgrInfo **) lua_touserdata(L, nf2) : NULL;
@@ -3566,19 +3566,23 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 		array_iter_setup(&iter, arr);
 
 		if (elempath == COERCION_PATH_FUNC)
-			InitFunctionCallInfoData(fcinfo, fn, 3, InvalidOid, NULL, NULL);
+			InitFunctionCallInfoData(*fcinfo, fn, 3, InvalidOid, NULL, NULL);
 		if (separate_typmod)
-			InitFunctionCallInfoData(fcinfo2, fn2, 3, InvalidOid, NULL, NULL);
+			InitFunctionCallInfoData(*fcinfo2, fn2, 3, InvalidOid, NULL, NULL);
 
 		for (idx = 0; idx < nitems; ++idx)
 		{
-			fcinfo.arg[0] = array_iter_next(&iter, &fcinfo.argnull[0], idx,
-											st->elemtyplen, st->elemtypbyval, st->elemtypalign);
+			LFCI_ARG_VALUE(fcinfo,0) = array_iter_next(&iter,
+													   &LFCI_ARGISNULL(fcinfo,0),
+													   idx,
+													   st->elemtyplen,
+													   st->elemtypbyval,
+													   st->elemtypalign);
 
 			if (elempath == COERCION_PATH_RELABELTYPE)
 			{
-				values[idx] = fcinfo.arg[0];
-				isnull[idx] = fcinfo.argnull[0];
+				values[idx] = LFCI_ARG_VALUE(fcinfo,0);
+				isnull[idx] = LFCI_ARGISNULL(fcinfo,0);
 			}
 
 			switch (elempath)
@@ -3591,9 +3595,9 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 					 * conversions when doing IO casts; separate_typmod should
 					 * not be true.
 					 */
-					if (!fcinfo.argnull[0])
+					if (!LFCI_ARGISNULL(fcinfo,0))
 					{
-						const char *str = pllua_typeinfo_raw_output(L, fcinfo.arg[0], est);
+						const char *str = pllua_typeinfo_raw_output(L, LFCI_ARG_VALUE(fcinfo,0), est);
 						pllua_typeinfo_raw_input(L, &values[idx], edt, str, typmod);
 						isnull[idx] = (str == NULL);
 					}
@@ -3602,16 +3606,16 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 					break;
 
 				case COERCION_PATH_FUNC:
-					if (!fcinfo.argnull[0] || !fn->fn_strict)
+					if (!LFCI_ARGISNULL(fcinfo,0) || !fn->fn_strict)
 					{
-						fcinfo.arg[1] = Int32GetDatum(separate_typmod ? -1 : typmod);
-						fcinfo.argnull[1] = false;
-						fcinfo.arg[2] = BoolGetDatum(is_explicit);
-						fcinfo.argnull[2] = false;
-						fcinfo.isnull = false;
+						LFCI_ARG_VALUE(fcinfo,1) = Int32GetDatum(separate_typmod ? -1 : typmod);
+						LFCI_ARGISNULL(fcinfo,1) = false;
+						LFCI_ARG_VALUE(fcinfo,2) = BoolGetDatum(is_explicit);
+						LFCI_ARGISNULL(fcinfo,2) = false;
+						fcinfo->isnull = false;
 
-						values[idx] = FunctionCallInvoke(&fcinfo);
-						isnull[idx] = fcinfo.isnull;
+						values[idx] = FunctionCallInvoke(fcinfo);
+						isnull[idx] = fcinfo->isnull;
 					}
 					else
 					{
@@ -3622,16 +3626,16 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 				case COERCION_PATH_RELABELTYPE:
 					if (separate_typmod && (!isnull[idx] || !fn2->fn_strict))
 					{
-						fcinfo2.arg[0] = values[idx];
-						fcinfo2.argnull[0] = isnull[idx];
-						fcinfo2.arg[1] = Int32GetDatum(typmod);
-						fcinfo2.argnull[1] = false;
-						fcinfo2.arg[2] = BoolGetDatum(is_explicit);
-						fcinfo2.argnull[2] = false;
-						fcinfo2.isnull = false;
+						LFCI_ARG_VALUE(fcinfo2,0) = values[idx];
+						LFCI_ARGISNULL(fcinfo2,0) = isnull[idx];
+						LFCI_ARG_VALUE(fcinfo2,1) = Int32GetDatum(typmod);
+						LFCI_ARGISNULL(fcinfo2,1) = false;
+						LFCI_ARG_VALUE(fcinfo2,2) = BoolGetDatum(is_explicit);
+						LFCI_ARGISNULL(fcinfo2,2) = false;
+						fcinfo2->isnull = false;
 
-						values[idx] = FunctionCallInvoke(&fcinfo2);
-						isnull[idx] = fcinfo2.isnull;
+						values[idx] = FunctionCallInvoke(fcinfo2);
+						isnull[idx] = fcinfo2->isnull;
 					}
 					break;
 			}
@@ -3692,7 +3696,7 @@ void pllua_typeinfo_check_domain(lua_State *L,
 
 static Datum pllua_typeinfo_raw_tosql(lua_State *L, pllua_typeinfo *t, bool *isnull)
 {
-	FunctionCallInfoData fcinfo;
+	LOCAL_FCINFO(fcinfo, 1);
 	FmgrInfo *fn = *(void **) lua_touserdata(L, lua_upvalueindex(3));
 	Datum result;
 	pllua_node node;
@@ -3706,16 +3710,16 @@ static Datum pllua_typeinfo_raw_tosql(lua_State *L, pllua_typeinfo *t, bool *isn
 	node.magic = PLLUA_MAGIC;
 	node.L = L;
 
-	InitFunctionCallInfoData(fcinfo, fn, 1, InvalidOid, (struct Node *) &node, NULL);
+	InitFunctionCallInfoData(*fcinfo, fn, 1, InvalidOid, (struct Node *) &node, NULL);
 
 	/* actual arg(s) on top of stack */
-	fcinfo.arg[0] = (Datum)0;
-	fcinfo.argnull[0] = true;
+	LFCI_ARG_VALUE(fcinfo,0) = (Datum)0;
+	LFCI_ARGISNULL(fcinfo,0) = true;
 
-	result = FunctionCallInvoke(&fcinfo);
+	result = FunctionCallInvoke(fcinfo);
 
 	if (isnull)
-		*isnull = fcinfo.isnull;
+		*isnull = fcinfo->isnull;
 
 	return result;
 }
@@ -3753,7 +3757,7 @@ static int pllua_typeinfo_tosql(lua_State *L)
 
 static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *t)
 {
-	FunctionCallInfoData fcinfo;
+	LOCAL_FCINFO(fcinfo, 1);
 	FmgrInfo *fn = *(void **) lua_touserdata(L, lua_upvalueindex(3));
 	pllua_node node;
 
@@ -3769,14 +3773,14 @@ static bool pllua_typeinfo_raw_fromsql(lua_State *L, Datum val, pllua_typeinfo *
 	node.magic = PLLUA_MAGIC;
 	node.L = L;
 
-	InitFunctionCallInfoData(fcinfo, fn, 1, InvalidOid, (struct Node *) &node, NULL);
+	InitFunctionCallInfoData(*fcinfo, fn, 1, InvalidOid, (struct Node *) &node, NULL);
 
-	fcinfo.arg[0] = val;
-	fcinfo.argnull[0] = false;
+	LFCI_ARG_VALUE(fcinfo,0) = val;
+	LFCI_ARGISNULL(fcinfo,0) = false;
 
-	FunctionCallInvoke(&fcinfo);
+	FunctionCallInvoke(fcinfo);
 
-	return !fcinfo.isnull;
+	return !fcinfo->isnull;
 }
 
 /*

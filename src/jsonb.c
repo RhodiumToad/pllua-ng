@@ -162,7 +162,7 @@ static void
 pllua_jsonb_from_datum(lua_State *L, JsonbValue *pval,
 					   pllua_datum *d, pllua_typeinfo *dt)
 {
-	FunctionCallInfoData fcinfo;
+	LOCAL_FCINFO(fcinfo, 1);
 	FmgrInfo *fn = *(void **) lua_touserdata(L, -1);
 	Datum res;
 
@@ -174,12 +174,12 @@ pllua_jsonb_from_datum(lua_State *L, JsonbValue *pval,
 		fn = pllua_pgfunc_init(L, -1, fnoid, 1, &dt->typeoid, JSONBOID);
 	}
 
-	InitFunctionCallInfoData(fcinfo, fn, 1, InvalidOid, NULL, NULL);
-	fcinfo.arg[0] = d->value;
-	fcinfo.argnull[0] = false;
-	res = FunctionCallInvoke(&fcinfo);
+	InitFunctionCallInfoData(*fcinfo, fn, 1, InvalidOid, NULL, NULL);
+	LFCI_ARG_VALUE(fcinfo,0) = d->value;
+	LFCI_ARGISNULL(fcinfo,0) = false;
+	res = FunctionCallInvoke(fcinfo);
 
-	if (fcinfo.isnull)
+	if (fcinfo->isnull)
 		pval->type = jbvNull;
 	else
 	{
