@@ -14,7 +14,7 @@ env:
     - PG=10  LUAV=lua-5.3.5
     - PG=10  LUAV=LuaJIT-b025b01
     - PG=11  LUAV=lua-5.3.5
-    - PG=12  PGREPO=trusty-pgdg-testing  LUAV=lua-5.3.5
+    - PG=12  PGREPO=xenial-pgdg-testing  LUAV=lua-5.3.5
 
 addons:
   apt:
