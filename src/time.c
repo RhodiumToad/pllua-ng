@@ -527,14 +527,14 @@ pllua_time_tosql(lua_State *L)
 			{
 				case TIMESTAMPTZOID:
 				case TIMESTAMPOID:
-					if (inf_sign > 0)
+					if (inf_sign != 0)
 					{
-						TIMESTAMP_NOEND(result);
-						break;
-					}
-					else if (inf_sign < 0)
-					{
-						TIMESTAMP_NOBEGIN(result);
+						Timestamp tresult;
+						if (inf_sign > 0)
+							TIMESTAMP_NOEND(tresult);
+						else
+							TIMESTAMP_NOBEGIN(tresult);
+						result = TimestampGetDatum(tresult);
 						break;
 					}
 
