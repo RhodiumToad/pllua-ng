@@ -164,9 +164,9 @@ pllua_destroy_held_states(void)
 		 * happening here; we're trying to shut down, and ignoring an error
 		 * is probably less likely to crash us than rethrowing it.
 		 */
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 		lua_close(L); /* can't throw, but has internal lua catch blocks */
-		pllua_setcontext(PLLUA_CONTEXT_PG);
+		pllua_setcontext(NULL, PLLUA_CONTEXT_PG);
 	}
 }
 
@@ -449,9 +449,10 @@ pllua_fini(int code, Datum arg)
 			 * happening here; we're trying to shut down, and ignoring an error
 			 * is probably less likely to crash us than rethrowing it.
 			 */
-			pllua_setcontext(PLLUA_CONTEXT_LUA);
+			pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 			lua_close(L); /* can't throw, but has internal lua catch blocks */
-			pllua_setcontext(PLLUA_CONTEXT_PG);
+			pllua_pending_error = false;
+			pllua_setcontext(NULL, PLLUA_CONTEXT_PG);
 		}
 		/*
 		 * we intentionally do not worry about deleting the memory contexts
@@ -570,7 +571,10 @@ pllua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 static void
 pllua_hook(lua_State *L, lua_Debug *ar)
 {
-	PLLUA_TRY();
+	/*
+	 * Allow this even if an error is pending.
+	 */
+	PLLUA_TRY_ERROK();
 	{
 		CHECK_FOR_INTERRUPTS();
 	}
@@ -659,6 +663,60 @@ static void pllua_wrap_stack_checks(lua_State *L)
 	lua_pop(L, 2);
 }
 
+static int max_stack = 0;
+
+static int
+pllua_compute_stack_limit(lua_State *L)
+{
+	void *basep = lua_touserdata(L, lua_upvalueindex(1));
+	int depth = lua_tointeger(L, 1);
+
+	if (basep && depth > 1)
+	{
+		ptrdiff_t ssiz = (const char *)&basep - (const char *)basep;
+		int framesize;
+		if (ssiz < 0)
+			ssiz = -ssiz;
+		framesize = (ssiz + depth)/depth;
+		if (framesize > 32)
+		{
+			framesize = (framesize + 15) & ~15;
+			max_stack = 458752 / framesize;
+		}
+	}
+	if (max_stack < 50)
+		max_stack = 50;
+
+	return 0;
+}
+
+static const char *stack_code =
+	"local n,f = ...\n"
+	"local function r(d)\n"
+	"  if d < n then r(d+1) else f(d) end\n"
+	"  return d\n"
+	"end\n"
+	"return r(1)\n";
+
+static void pllua_determine_stack_limit(lua_State *L)
+{
+	if (max_stack == 0)
+	{
+		int rc = luaL_loadbufferx(L, stack_code, strlen(stack_code), "stacksize", "t");
+		if (rc)
+			lua_error(L);
+		/* depth to test */
+		lua_pushinteger(L, 20);
+		/* test function */
+		lua_pushlightuserdata(L, &rc);
+		lua_pushcclosure(L, pllua_compute_stack_limit, 1);
+		lua_call(L, 2, 0);
+	}
+
+	if (max_stack < 50 || lua_setcstacklimit(L, max_stack) == 0)
+		luaL_error(L, "could not set max stack size to %d", max_stack);
+}
+
 /*
  * Lua-environment part of interpreter setup.
  *
@@ -706,6 +764,12 @@ pllua_init_state_phase1(lua_State *L)
 #endif
 
 	luaL_openlibs(L);
+
+	/*
+	 * Determine the stack limit (if this is the first call) and install it in
+	 * the interpreter.
+	 */
+	pllua_determine_stack_limit(L);
 
 	/*
 	 * Apply stack-checking wrappers to standard library functions that have
@@ -944,9 +1008,10 @@ pllua_newstate_phase1(const char *ident)
 		elog(WARNING, "PL/Lua initialization error: %s",
 			 (lua_type(L,-1) == LUA_TSTRING) ? lua_tostring(L,-1) : "(not a string)");
 
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 		lua_close(L); /* can't throw, but has internal lua catch blocks */
-		pllua_setcontext(PLLUA_CONTEXT_PG);
+		pllua_pending_error = false;
+		pllua_setcontext(NULL, PLLUA_CONTEXT_PG);
 
 		MemoryContextSwitchTo(oldcontext);
 		MemoryContextDelete(mcxt);
@@ -1067,11 +1132,17 @@ pllua_newstate_phase2(lua_State *L,
 		e = CopyErrorData();
 		FlushErrorState();
 
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_setcontext(L, PLLUA_CONTEXT_LUA);
 		pllua_ending = true;  /* we're ending _this_ interpreter at least */
 		lua_close(L); /* can't throw, but has internal lua catch blocks */
 		pllua_ending = false;
-		pllua_setcontext(PLLUA_CONTEXT_PG);
+		/*
+		 * We're going to rethrow the error out of our control, so we can
+		 * reset the pending flag. We need to do this before changing the
+		 * context back, since that's when we check the flag.
+		 */
+		pllua_pending_error = false;
+		pllua_setcontext(NULL, PLLUA_CONTEXT_PG);
 
 		MemoryContextDelete(mcxt);
 

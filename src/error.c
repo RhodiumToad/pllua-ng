@@ -13,6 +13,14 @@
 	errstart((elevel_), __FILE__, __LINE__, PG_FUNCNAME_MACRO, TEXTDOMAIN)
 #endif
 
+bool pllua_pending_error = false;
+
+typedef struct pllua_warning_buffer
+{
+	int bufcount;
+	char buf[1000];
+} pllua_warning_buffer;
+
 /*
  * Only used in interpreter startup.
  */
@@ -36,6 +44,81 @@ pllua_poperror(lua_State *L)
 				  "Ignored Lua error: %s",
 				  (lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "(not a string)"));
 	lua_pop(L, 1);
+}
+
+/*
+ * Something tried to switch to PG context with an error pending.
+ */
+void
+pllua_pending_error_violation(lua_State *L)
+{
+	luaL_error(L, "cannot call into PostgreSQL with pending errors");
+}
+
+static void
+pllua_warnfunction(void *warnbuf, const char *msg, int tocont)
+{
+	pllua_warning_buffer *w = warnbuf;
+	size_t msglen = strlen(msg);
+	int pos = w->bufcount;
+
+	/* ignore silly "@directive" */
+	if (!tocont && pos == 0 && msg && msg[0] == '@')
+		return;
+
+	if (msglen < sizeof(w->buf) - pos)
+	{
+		memcpy(w->buf + pos, msg, msglen + 1);
+		w->bufcount += msglen;
+	}
+
+	if (tocont)
+		return;
+
+	if (strstr(w->buf, "error object is not a string") == NULL
+		|| !pllua_pending_error)
+	{
+		PG_TRY();
+		{
+			ereport(WARNING,
+					(errmsg_internal("pllua: %s", w->buf)));
+		}
+		PG_CATCH();
+		{
+			ereport(FATAL,
+					(errmsg_internal("pllua: error while trying to emit internal warning")));
+		}
+		PG_END_TRY();
+
+		w->bufcount = 0;
+		return;
+	}
+
+	ereport(FATAL,
+			(errmsg_internal("pllua: attempt to ignore pending database error")));
+}
+
+/*
+ * Replacement for lua warn() function
+ */
+static int
+pllua_t_warn(lua_State *L)
+{
+	const char *str;
+	int nargs = lua_gettop(L);
+	int i;
+
+	luaL_checkstring(L, 1);  /* at least one argument */
+	for (i = 2; i <= nargs; i++)
+		luaL_checkstring(L, i);  /* make sure all arguments are strings */
+
+	lua_concat(L, nargs);
+	str = lua_tostring(L, 1);
+	if (nargs == 1 && str && str[0] == '@')
+		return 0;
+	if (str)
+		pllua_warning(L, "%s", str);
+	return 0;
 }
 
 /*
@@ -120,6 +203,10 @@ pllua_get_active_error(lua_State *L)
  * safely remove any currently active PG error from the Lua registry because it
  * must have been copied into the PG error handling. (However, we have to do
  * this in a way that can't possibly throw a Lua error.)
+ *
+ * We can also reset the pending error flag here, since it's no longer our
+ * problem, and we can't get back into Lua without catching the error further
+ * up the stack which will set the flag again.
  */
 void
 pllua_error_cleanup(pllua_interpreter *interp, pllua_activation_record *act)
@@ -131,6 +218,7 @@ pllua_error_cleanup(pllua_interpreter *interp, pllua_activation_record *act)
 		luaL_unref(interp->L, LUA_REGISTRYINDEX, act->active_error);
 		act->active_error = LUA_REFNIL;
 	}
+	pllua_pending_error = false;
 }
 
 /*
@@ -205,7 +293,7 @@ pllua_make_recursive_error(void)
 int
 pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int msgh)
 {
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_LUA);
+	pllua_context_type oldctx = pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 	int rc;
 
 	rc = lua_pcall(L, nargs, nresults, msgh);
@@ -213,7 +301,7 @@ pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int msgh)
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
-	pllua_setcontext(oldctx);
+	pllua_setcontext(NULL, oldctx);
 
 	return rc;
 }
@@ -391,6 +479,16 @@ pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt)
 
 	pllua_absorb_pg_error(L);
 
+	/*
+	 * We're going to hand off to Lua here, and we need to ensure that in the
+	 * event that Lua code gets to execute (as can happen in 5.4 due to
+	 * <close> variable handling), it can't call anything that might get back
+	 * into PG. (We check this when switching to PG context - we assume that
+	 * functions that can't throw a PG error are also safe to call in error
+	 * handling.)
+	 */
+	pllua_pending_error = true;
+
 	MemoryContextSwitchTo(mcxt);
 
 	lua_error(L);
@@ -429,7 +527,7 @@ pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 	else
 		luaL_checkstack(L, 3, NULL);
 
-	oldctx = pllua_setcontext(PLLUA_CONTEXT_LUA);
+	oldctx = pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 
 	pllua_pushcfunction(L, func); /* can't throw */
 	lua_pushlightuserdata(L, arg); /* can't throw */
@@ -438,14 +536,14 @@ pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
-	pllua_setcontext(oldctx);
+	pllua_setcontext(NULL, oldctx);
 	return rc;
 }
 #else
 int
 pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 {
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_LUA);
+	pllua_context_type oldctx = pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 	int rc;
 
 	rc = lua_cpcall(L, func, arg);
@@ -453,7 +551,7 @@ pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
-	pllua_setcontext(oldctx);
+	pllua_setcontext(NULL, oldctx);
 	return rc;
 }
 #endif
@@ -466,7 +564,7 @@ pllua_cpcall(lua_State *L, lua_CFunction func, void* arg)
 void
 pllua_pcall(lua_State *L, int nargs, int nresults, int msgh)
 {
-	pllua_context_type oldctx = pllua_setcontext(PLLUA_CONTEXT_LUA);
+	pllua_context_type oldctx = pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 	int rc;
 
 	rc = lua_pcall(L, nargs, nresults, msgh);
@@ -474,7 +572,7 @@ pllua_pcall(lua_State *L, int nargs, int nresults, int msgh)
 	/* check for violation of protocol */
 	Assert(pllua_context == PLLUA_CONTEXT_LUA);
 
-	pllua_setcontext(oldctx);
+	pllua_setcontext(NULL, oldctx);
 
 	if (rc)
 		pllua_rethrow_from_lua(L, rc);
@@ -763,6 +861,7 @@ pllua_subxact_abort(lua_State *L)
 		RollbackAndReleaseCurrentSubTransaction();
 		MemoryContextSwitchTo(xa->mcontext);
 		CurrentResourceOwner = xa->resowner;
+		pllua_pending_error = false;
 	}
 	PLLUA_CATCH_RETHROW();
 }
@@ -925,7 +1024,7 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 
 	ASSERT_LUA_CONTEXT;
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
+	pllua_setcontext(L, PLLUA_CONTEXT_PG);
 	PG_TRY();
 	{
 		xa.resowner = CurrentResourceOwner;
@@ -969,7 +1068,7 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 	}
 	PG_CATCH();
 	{
-		pllua_setcontext(PLLUA_CONTEXT_LUA);
+		pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 		/* absorb the error and get out of pg's error handling */
 		pllua_absorb_pg_error(L);
 		if (xa.onstack)
@@ -983,7 +1082,7 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 		lua_error(L);
 	}
 	PG_END_TRY();
-	pllua_setcontext(PLLUA_CONTEXT_LUA);
+	pllua_setcontext(NULL, PLLUA_CONTEXT_LUA);
 
 	if (rc == LUA_OK)
 	{
@@ -1405,6 +1504,7 @@ static struct luaL_Reg errfuncs2[] = {
 };
 
 static struct luaL_Reg glob_errfuncs[] = {
+	{ "warn", pllua_t_warn },
 	{ "pcall", pllua_t_pcall },
 	{ "xpcall", pllua_t_xpcall },
 	{ "lpcall", pllua_t_lpcall },
@@ -1426,8 +1526,14 @@ int pllua_open_error(lua_State *L)
 	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
 	int i;
 	int refs[30];
+	void *warnbuf;
 
 	lua_settop(L, 0);
+
+	/* Install warning handler */
+	warnbuf = lua_newuserdatauv(L, sizeof(pllua_warning_buffer), 0);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_WARNING_BUFFER);
+	lua_setwarnf(L, pllua_warnfunction, warnbuf);
 
 	/*
 	 * Create and drop a few registry reference entries so that there's a

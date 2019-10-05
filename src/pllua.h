@@ -33,7 +33,7 @@
 /* assume Lua 5.1 is actually luajit */
 #include "pllua_luajit.h"
 
-#elif LUA_VERSION_NUM == 503
+#elif LUA_VERSION_NUM >= 503
 
 /* Lua version dependencies */
 #include "pllua_luaver.h"
@@ -69,7 +69,7 @@
  *
  */
 
-#if LUA_VERSION_NUM == 503
+#if LUA_VERSION_NUM >= 503
 #if LUA_MAXINTEGER == PG_INT64_MAX
 #define PLLUA_INT8_OK
 #endif
@@ -93,14 +93,27 @@ typedef enum
 } pllua_context_type;
 
 extern pllua_context_type pllua_context;
+extern bool pllua_pending_error;
 
 #define ASSERT_PG_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_PG)
 #define ASSERT_LUA_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_LUA)
 
+#ifdef __GCC__
+#define pllua_unlikely(c_) __builtin_expect((c_) != 0, 0)
+#else
+#define pllua_unlikely(c_) ((c_) != 0)
+#endif
+
+void pllua_pending_error_violation(lua_State *L);
+
 static inline pllua_context_type
-pllua_setcontext(pllua_context_type newctx)
+pllua_setcontext(lua_State *L, pllua_context_type newctx)
 {
 	pllua_context_type oldctx = pllua_context;
+	if (L && pllua_unlikely(pllua_pending_error)
+		&& oldctx == PLLUA_CONTEXT_LUA
+		&& newctx == PLLUA_CONTEXT_PG)
+		pllua_pending_error_violation(L);
 	pllua_context = newctx;
 	return oldctx;
 }
@@ -109,14 +122,19 @@ pllua_setcontext(pllua_context_type newctx)
  * Abbreviate the most common form of catch block.
  */
 #define PLLUA_TRY() do {												\
-	pllua_context_type _pllua_oldctx = pllua_setcontext(PLLUA_CONTEXT_PG); \
+	pllua_context_type _pllua_oldctx = pllua_setcontext(L, PLLUA_CONTEXT_PG); \
+	MemoryContext _pllua_oldmcxt = CurrentMemoryContext;				\
+	PG_TRY()
+
+#define PLLUA_TRY_ERROK() do {												\
+	pllua_context_type _pllua_oldctx = pllua_setcontext(NULL, PLLUA_CONTEXT_PG); \
 	MemoryContext _pllua_oldmcxt = CurrentMemoryContext;				\
 	PG_TRY()
 
 #define PLLUA_CATCH_RETHROW()											\
 	PG_CATCH();															\
-	{ pllua_setcontext(_pllua_oldctx); pllua_rethrow_from_pg(L, _pllua_oldmcxt); } \
-	PG_END_TRY(); pllua_setcontext(_pllua_oldctx); } while(0)
+	{ pllua_setcontext(NULL, _pllua_oldctx); pllua_rethrow_from_pg(L, _pllua_oldmcxt); } \
+	PG_END_TRY(); pllua_setcontext(NULL, _pllua_oldctx); } while(0)
 
 #define pllua_debug(L_, ...)											\
 	do { if (pllua_context==PLLUA_CONTEXT_PG) elog(DEBUG1, __VA_ARGS__); \
@@ -466,6 +484,7 @@ extern char PLLUA_ERRCODES_TABLE[];
 extern char PLLUA_PRINT_SEVERITY[];
 extern char PLLUA_GLOBAL_META[];
 extern char PLLUA_SANDBOX_META[];
+extern char PLLUA_WARNING_BUFFER[];
 
 /* functions */
 
@@ -572,6 +591,7 @@ PGDLLEXPORT int pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int m
 PGDLLEXPORT int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg);
 PGDLLEXPORT void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
 PGDLLEXPORT int pllua_trampoline(lua_State *L);
+PGDLLEXPORT void pllua_pending_error_violation(lua_State *L);
 
 void pllua_initial_protected_call(pllua_interpreter *interp,
 								  lua_CFunction func,

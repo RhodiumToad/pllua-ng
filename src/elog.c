@@ -23,7 +23,10 @@ pllua_elog(lua_State *L,
 		   const char *e_table,
 		   const char *e_schema)
 {
-	PLLUA_TRY();
+	/*
+	 * Allow this even if an error is pending.
+	 */
+	PLLUA_TRY_ERROK();
 	{
 		ereport(elevel,
 				(e_code ? errcode(e_code) : 0,
