@@ -242,7 +242,7 @@ pllua_rethrow_from_lua(lua_State *L, int rc)
 	 */
 	if (rc == LUA_ERRMEM)
 	{
-		lua_pop(L, -1);
+		lua_pop(L, 1);
 		elog(ERROR, "pllua: out of memory");
 	}
 
