@@ -409,10 +409,13 @@ static void pllua_freeactivation_cb(void *arg)
 		pllua_poperror(L);
 }
 
+static
 int pllua_resetactivation(lua_State *L)
 {
 	int opos = lua_gettop(L) - 1;
 	pllua_func_activation *act = lua_touserdata(L, -1);
+	lua_State *thread;
+	int rc;
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
@@ -420,17 +423,36 @@ int pllua_resetactivation(lua_State *L)
 		/* unsafe to elog here
 		 *elog(WARNING, "failed to find an activation: %p", act);
 		 */
+		lua_settop(L, opos);
 		return 0;
 	}
 
 	pllua_checkobject(L, -1, PLLUA_ACTIVATION_OBJECT);
 
+	thread = act->thread;
 	act->thread = NULL;
+
+	if (thread)
+	{
+		rc = lua_resetthread(thread);
+		if (rc != LUA_OK)
+		{
+			lua_xmove(act->thread, L, 1);
+			lua_insert(L, -3);
+		}
+	}
+	else
+		rc = LUA_OK;
+
 	lua_getuservalue(L, -1);
 	lua_pushnil(L);
 	lua_rawsetp(L, -2, PLLUA_THREAD_MEMBER);
-	lua_settop(L, opos);
+	lua_pop(L, 3);
 
+	if (rc != LUA_OK)
+		lua_error(L);
+
+	lua_settop(L, opos);
 	return 0;
 }
 
