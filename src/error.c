@@ -53,6 +53,7 @@ void
 pllua_pending_error_violation(lua_State *L)
 {
 	luaL_error(L, "cannot call into PostgreSQL with pending errors");
+	pg_unreachable();
 }
 
 static void
@@ -75,8 +76,8 @@ pllua_warnfunction(void *warnbuf, const char *msg, int tocont)
 	if (tocont)
 		return;
 
-	if (strstr(w->buf, "error object is not a string") == NULL
-		|| !pllua_pending_error)
+	if (!pllua_pending_error
+		|| strstr(w->buf, "error object is not a string") == NULL)
 	{
 		PG_TRY();
 		{

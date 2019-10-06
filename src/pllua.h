@@ -98,19 +98,14 @@ extern bool pllua_pending_error;
 #define ASSERT_PG_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_PG)
 #define ASSERT_LUA_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_LUA)
 
-#ifdef __GCC__
-#define pllua_unlikely(c_) __builtin_expect((c_) != 0, 0)
-#else
-#define pllua_unlikely(c_) ((c_) != 0)
-#endif
-
-void pllua_pending_error_violation(lua_State *L);
+void pllua_pending_error_violation(lua_State *L) pg_attribute_noreturn();
 
 static inline pllua_context_type
 pllua_setcontext(lua_State *L, pllua_context_type newctx)
 {
 	pllua_context_type oldctx = pllua_context;
-	if (L && pllua_unlikely(pllua_pending_error)
+	if (unlikely(pllua_pending_error)
+		&& L
 		&& oldctx == PLLUA_CONTEXT_LUA
 		&& newctx == PLLUA_CONTEXT_PG)
 		pllua_pending_error_violation(L);
