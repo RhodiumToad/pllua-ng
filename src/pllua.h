@@ -22,8 +22,8 @@
 
 #define PLLUA_VERSION_STR "2.0"
 #define PLLUA_VERSION_NUM 200
-#define PLLUA_REVISION_STR "2.0004"
-#define PLLUA_REVISION_NUM 20004
+#define PLLUA_REVISION_STR "2.0005"
+#define PLLUA_REVISION_NUM 20005
 
 /* PG version dependencies */
 #include "pllua_pgver.h"
