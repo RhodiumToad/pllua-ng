@@ -17,16 +17,17 @@ env:
     - PG=9.5 LUAV=lua-5.3.5
     - PG=9.6 LUAV=lua-5.3.5
     - PG=10  LUAV=lua-5.3.5
-    - PG=10  LUAV=LuaJIT-61464b0
     - PG=11  LUAV=lua-5.3.5
     - PG=12  LUAV=lua-5.3.5
+    - PG=12  LUAV=LuaJIT-99d126882
+    - PG=13  PGREPO=xenial-pgdg-testing LUAV=lua-5.3.5
 
 addons:
   apt:
     sources:
     - sourceline: "deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main 12"
       key_url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
-    - sourceline: "deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg-testing main 12"
+    - sourceline: "deb http://apt.postgresql.org/pub/repos/apt/ xenial-pgdg-testing main 13"
       key_url: "https://www.postgresql.org/media/keys/ACCC4CF8.asc"
 
 before_install:

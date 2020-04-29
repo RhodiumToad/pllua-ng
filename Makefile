@@ -80,6 +80,7 @@ objdir := src
 REGRESS_10 := triggers_10
 REGRESS_11 := $(REGRESS_10) procedures
 REGRESS_12 := $(REGRESS_11)
+REGRESS_13 := $(REGRESS_12)
 
 EXTRA_REGRESS = $(REGRESS_$(MAJORVERSION))
 

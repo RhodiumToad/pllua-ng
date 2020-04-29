@@ -5,6 +5,14 @@
 #include "access/xact.h"
 #include "utils/resowner.h"
 
+/* errstart changed in pg13+. */
+#if PG_VERSION_NUM >= 130000
+#define pllua_errstart(elevel_) errstart((elevel_), TEXTDOMAIN)
+#else
+#define pllua_errstart(elevel_) \
+	errstart((elevel_), __FILE__, __LINE__, PG_FUNCNAME_MACRO, TEXTDOMAIN)
+#endif
+
 /*
  * Only used in interpreter startup.
  */
@@ -164,7 +172,7 @@ pllua_make_recursive_error(void)
 	{
 		MemoryContext oldcontext = CurrentMemoryContext;
 
-		if (!errstart(ERROR, __FILE__, __LINE__, PG_FUNCNAME_MACRO, TEXTDOMAIN))
+		if (!pllua_errstart(ERROR))
 			elog(ERROR, "errstart tried to ignore ERROR");
 
 		/* populate error data */

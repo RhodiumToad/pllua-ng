@@ -553,7 +553,7 @@ pllua_evtrigger_index(lua_State *L)
 	if (strcmp(str, "event") == 0)
 		lua_pushstring(L, obj->etd->event);
 	else if (strcmp(str, "tag") == 0)
-		lua_pushstring(L, obj->etd->tag);
+		lua_pushstring(L, GetCommandTagName(obj->etd->tag));
 	else
 		lua_pushnil(L);
 	return 1;

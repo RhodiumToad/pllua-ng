@@ -2,9 +2,13 @@
 
 #include "pllua.h"
 
+#if PG_VERSION_NUM >= 130000
+#include "access/detoast.h"
+#else
+#include "access/tuptoaster.h"
+#endif
 #include "access/htup_details.h"
 #include "access/sysattr.h"
-#include "access/tuptoaster.h"
 #include "catalog/pg_type.h"
 #include "mb/pg_wchar.h"
 #include "parser/parse_coerce.h"
@@ -219,10 +223,9 @@ pllua_get_tuple_type(lua_State *L, Datum value, Oid *typeid, int32 *typmod)
 		PLLUA_TRY();
 		{
 			HeapTupleHeader htup = (HeapTupleHeader)
-				heap_tuple_untoast_attr_slice(
-					(struct varlena *) DatumGetPointer(value),
-					0,
-					sizeof(HeapTupleHeaderData));
+				PG_DETOAST_DATUM_SLICE(value,
+									   0,
+									   sizeof(HeapTupleHeaderData));
 			*typeid = HeapTupleHeaderGetTypeId(htup);
 			if (typmod)
 				*typmod = HeapTupleHeaderGetTypMod(htup);
@@ -1092,8 +1095,7 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 					typtype == TYPTYPE_COMPOSITE)
 				&& VARATT_IS_EXTENDED(DatumGetPointer(values[i])))
 			{
-				struct varlena *vl = (struct varlena *) DatumGetPointer(values[i]);
-				values[i] = PointerGetDatum(heap_tuple_untoast_attr(vl));
+				values[i] = PointerGetDatum(PG_DETOAST_DATUM(values[i]));
 				needsave[i] = true;
 			}
 			else

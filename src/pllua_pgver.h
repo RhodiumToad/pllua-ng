@@ -46,6 +46,21 @@
 #define PG_INT64_MAX	INT64CONST(0x7FFFFFFFFFFFFFFF)
 #endif
 
+/* float4 is always by value in pg >= 13. */
+#if PG_VERSION_NUM >= 130000
+#ifndef USE_FLOAT4_BYVAL
+#define USE_FLOAT4_BYVAL 1
+#endif
+#endif
+
+/*
+ * CommandTag in pg13+ is an enum, not a string. GetCommandTagName returns the
+ * old name, but obviously didn't exist in previous versions.
+ */
+#if PG_VERSION_NUM < 130000
+#define GetCommandTagName(t_) (t_)
+#endif
+
 /* RIP, oids. */
 #if PG_VERSION_NUM >= 120000
 #define TupleDescHasOids(tupdesc) (false)
