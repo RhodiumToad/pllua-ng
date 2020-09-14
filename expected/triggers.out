@@ -494,4 +494,29 @@ select * from trigtst1col2;
  (123,foo)
 (1 row)
 
+-- exercise dropped columns:
+create table trigtst1dcol (col text, dcol text);
+CREATE TABLE
+alter table trigtst1dcol drop column dcol;
+ALTER TABLE
+create trigger t1
+  after insert or update or delete on trigtst1dcol
+  for each row
+  execute procedure misctrig('blah');
+CREATE TRIGGER
+insert into trigtst1dcol values ('foo');
+INFO:  t1	blah
+INFO:  after	row	insert	trigtst1dcol
+INFO:  nil	(foo)
+INSERT 0 1
+update trigtst1dcol set col = 'bar';
+INFO:  t1	blah
+INFO:  after	row	update	trigtst1dcol
+INFO:  (foo)	(bar)
+UPDATE 1
+delete from trigtst1dcol;
+INFO:  t1	blah
+INFO:  after	row	delete	trigtst1dcol
+INFO:  (bar)	nil
+DELETE 1
 --

@@ -1087,7 +1087,9 @@ static void pllua_datum_deform_tuple(lua_State *L, int nd, pllua_datum *d, pllua
 		for (i = 0; i < t->natts; ++i)
 		{
 			Form_pg_attribute att = TupleDescAttr(tupdesc, i);
-			char typtype = (att->attlen == -1) ? get_typtype(getBaseType(att->atttypid)) : '\0';
+			char typtype = ((att->attlen == -1 && !att->attisdropped)
+							? get_typtype(getBaseType(att->atttypid))
+							: '\0');
 			if (!nulls[i]
 				&& att->attlen == -1
 				&& (att->atttypid == RECORDOID ||
@@ -4691,7 +4693,7 @@ static int pllua_typeinfo_row_call(lua_State *L)
 		luaL_error(L, "incorrect number of arguments for type constructor (expected %d got %d)",
 				   t->arity, nargs);
 
-	for (argno = argbase, i = 0; i < nargs; ++i)
+	for (argno = argbase, i = 0; i < t->natts; ++i)
 	{
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
 		Oid coltype = att->atttypid;

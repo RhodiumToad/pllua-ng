@@ -277,4 +277,16 @@ create trigger t1
 insert into trigtst1col2 values (row(1,'foo')::t2col);
 select * from trigtst1col2;
 
+-- exercise dropped columns:
+
+create table trigtst1dcol (col text, dcol text);
+alter table trigtst1dcol drop column dcol;
+create trigger t1
+  after insert or update or delete on trigtst1dcol
+  for each row
+  execute procedure misctrig('blah');
+insert into trigtst1dcol values ('foo');
+update trigtst1dcol set col = 'bar';
+delete from trigtst1dcol;
+
 --
