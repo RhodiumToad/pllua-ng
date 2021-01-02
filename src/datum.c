@@ -3078,13 +3078,13 @@ int pllua_typeinfo_lookup(lua_State *L)
  */
 int pllua_typeinfo_invalidate(lua_State *L)
 {
-	pllua_interpreter *interp = lua_touserdata(L, 1);
-	Oid typoid = interp->inval->inval_typeoid;
-	Oid relid = interp->inval->inval_reloid;
+	pllua_cache_inval *inval = lua_touserdata(L, 1);
+	Oid typoid = inval->inval_typeoid;
+	Oid relid = inval->inval_reloid;
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_TYPES);
 
-	if (interp->inval->inval_type)
+	if (inval->inval_type)
 	{
 		if (OidIsValid(typoid))
 		{
@@ -3107,7 +3107,7 @@ int pllua_typeinfo_invalidate(lua_State *L)
 		}
 	}
 
-	if (interp->inval->inval_rel)
+	if (inval->inval_rel)
 	{
 		lua_pushnil(L);
 		while (lua_next(L, -2))
@@ -5353,7 +5353,7 @@ pllua_typeconv_register(lua_State *L, int tabidx, int typeidx)
 }
 
 /*
- * invalidate(interp)
+ * invalidate(inval)
  */
 int pllua_typeconv_invalidate(lua_State *L)
 {

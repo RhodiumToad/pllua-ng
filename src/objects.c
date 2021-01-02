@@ -69,22 +69,6 @@ void pllua_new_weak_table(lua_State *L, const char *mode, const char *name)
  */
 
 /*
- * pllua_get_memory_cxt
- *
- * Get the memory context associated with the interpreter.
- */
-MemoryContext pllua_get_memory_cxt(lua_State *L)
-{
-	void *p;
-
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
-	p = lua_touserdata(L, -1);
-	lua_pop(L, 1);
-
-	return (MemoryContext) p;
-}
-
-/*
  * Create a refobj of the specified type and value (which may be NULL)
  *
  * Optionally create a table and put it in the uservalue slot.

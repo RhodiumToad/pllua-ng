@@ -43,11 +43,11 @@ static const char *pllua_pg_version_num = NULL;
 
 bool pllua_track_gc_debt = false;
 
-static lua_State *pllua_newstate_phase1(const char *ident);
-static void pllua_newstate_phase2(lua_State *L,
+static pllua_interpreter *pllua_newstate_phase1(const char *ident);
+static void pllua_newstate_phase2(pllua_interpreter_hashent *interp_desc,
+								  pllua_interpreter *interp,
 								  bool trusted,
 								  Oid user_id,
-								  pllua_interpreter *interp_desc,
 								  pllua_activation_record *act);
 static void pllua_fini(int code, Datum arg);
 static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
@@ -61,7 +61,7 @@ pllua_interpreter *
 pllua_getstate(bool trusted, pllua_activation_record *act)
 {
 	Oid	user_id = trusted ? GetUserId() : InvalidOid;
-	pllua_interpreter *interp_desc;
+	pllua_interpreter_hashent *interp_desc;
 	bool found;
 
 	Assert(pllua_context == PLLUA_CONTEXT_PG);
@@ -70,67 +70,50 @@ pllua_getstate(bool trusted, pllua_activation_record *act)
 							  HASH_ENTER,
 							  &found);
 
-	if (found && interp_desc->L)
+	if (found && interp_desc->interp)
 	{
+		pllua_interpreter *interp = interp_desc->interp;
+
+		/*
+		 * Check for an ident change that needs to be signalled to the Lua
+		 * code.
+		 */
 		if (interp_desc->new_ident)
 		{
-			lua_State *L = interp_desc->L;
-			int rc = pllua_cpcall(L, pllua_set_new_ident, interp_desc);
+			int rc = pllua_cpcall(interp->L, pllua_set_new_ident, interp_desc);
 			if (rc)
-				pllua_rethrow_from_lua(L, rc);  /* unlikely, but be safe */
+				pllua_rethrow_from_lua(interp->L, rc);  /* unlikely, but be safe */
 		}
-		return interp_desc;
+
+		return interp;
 	}
 
 	if (!found)
 	{
-		interp_desc->L = NULL;
+		interp_desc->interp = NULL;
 		interp_desc->trusted = trusted;
 		interp_desc->new_ident = false;
-
-		interp_desc->gc_debt = 0;
-
-		interp_desc->cur_activation.fcinfo = NULL;
-		interp_desc->cur_activation.retval = (Datum) 0;
-		interp_desc->cur_activation.trusted = trusted;
-		interp_desc->cur_activation.cblock = NULL;
-		interp_desc->cur_activation.validate_func = InvalidOid;
-		interp_desc->cur_activation.interp = NULL;
-		interp_desc->cur_activation.err_text = NULL;
 	}
 
 	/*
 	 * this can throw a pg error, but is required to ensure the interpreter is
-	 * removed from interp_desc first if it does.
+	 * removed from interp_desc and freed first if it does.
 	 */
 	if (held_states != NIL)
 	{
-		lua_State *L = linitial(held_states);
+		pllua_interpreter *interp = linitial(held_states);
 		held_states = list_delete_first(held_states);
-		pllua_newstate_phase2(L, trusted, user_id, interp_desc, act);
+		pllua_newstate_phase2(interp_desc, interp, trusted, user_id, act);
+		return interp;
 	}
 	else
 	{
-		lua_State *L = pllua_newstate_phase1(pllua_reload_ident);
-		if (!L)
+		pllua_interpreter *interp = pllua_newstate_phase1(pllua_reload_ident);
+		if (!interp)
 			elog(ERROR, "PL/Lua: interpreter creation failed");
-		pllua_newstate_phase2(L, trusted, user_id, interp_desc, act);
+		pllua_newstate_phase2(interp_desc, interp, trusted, user_id, act);
+		return interp;
 	}
-
-	return interp_desc;
-}
-
-/*
- * careful, mustn't throw
- */
-pllua_interpreter *
-pllua_getinterpreter(lua_State *L)
-{
-	void *p;
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
-	p = lua_touserdata(L, -1);
-	lua_pop(L, 1);
-	return p;
 }
 
 static void
@@ -138,15 +121,16 @@ pllua_create_held_states(const char *ident)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 	int i;
+
 	for (i = 0; i < pllua_num_held_interpreters; ++i)
 	{
-		lua_State *L = pllua_newstate_phase1(ident);
-		if (!L)
+		pllua_interpreter *interp = pllua_newstate_phase1(ident);
+		if (!interp)
 		{
 			elog(WARNING, "PL/Lua: interpreter creation failed");
 			break;
 		}
-		held_states = lcons(L, held_states);
+		held_states = lcons(interp, held_states);
 	}
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -157,7 +141,7 @@ pllua_destroy_held_states(void)
 	/* zap a "held" interp if any */
 	while (held_states != NIL)
 	{
-		lua_State *L = linitial(held_states);
+		pllua_interpreter *interp = linitial(held_states);
 		held_states = list_delete_first(held_states);
 		/*
 		 * We intentionally do not worry about trying to rethrow any errors
@@ -165,8 +149,9 @@ pllua_destroy_held_states(void)
 		 * is probably less likely to crash us than rethrowing it.
 		 */
 		pllua_setcontext(PLLUA_CONTEXT_LUA);
-		lua_close(L); /* can't throw, but has internal lua catch blocks */
+		lua_close(interp->L); /* can't throw, but has internal lua catch blocks */
 		pllua_setcontext(PLLUA_CONTEXT_PG);
+		MemoryContextDelete(interp->mcxt);
 	}
 }
 
@@ -210,10 +195,10 @@ pllua_assign_reload_ident(const char *newval, void *extra)
 		else if (pllua_interp_hash)
 		{
 			HASH_SEQ_STATUS hash_seq;
-			pllua_interpreter *interp;
+			pllua_interpreter_hashent *interp_desc;
 			hash_seq_init(&hash_seq, pllua_interp_hash);
-			while ((interp = hash_seq_search(&hash_seq)) != NULL)
-				interp->new_ident = true;
+			while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
+				interp_desc->new_ident = true;
 		}
 	}
 }
@@ -221,7 +206,7 @@ pllua_assign_reload_ident(const char *newval, void *extra)
 int
 pllua_set_new_ident(lua_State *L)
 {
-	pllua_interpreter *interp_desc = lua_touserdata(L, 1);
+	pllua_interpreter_hashent *interp_desc = lua_touserdata(L, 1);
 	lua_pushglobaltable(L);
 	lua_pushliteral(L, "_PL_IDENT_NEW");
 	lua_pushstring(L, pllua_reload_ident);
@@ -387,7 +372,7 @@ void _PG_init(void)
 							 &pllua_gc_threshold,
 							 0,
 							 0,
-							 LONG_MAX / 1024.0,
+							 (double)(LONG_MAX / 1024),
 							 PGC_USERSET, 0,
 							 NULL, NULL, NULL);
 
@@ -398,7 +383,7 @@ void _PG_init(void)
 	 */
 	memset(&hash_ctl, 0, sizeof(hash_ctl));
 	hash_ctl.keysize = sizeof(Oid);
-	hash_ctl.entrysize = sizeof(pllua_interpreter);
+	hash_ctl.entrysize = sizeof(pllua_interpreter_hashent);
 	pllua_interp_hash = hash_create("PLLua interpreters",
 									8,
 									&hash_ctl,
@@ -418,7 +403,7 @@ static void
 pllua_fini(int code, Datum arg)
 {
 	HASH_SEQ_STATUS hash_seq;
-	pllua_interpreter *interp_desc;
+	pllua_interpreter_hashent *interp_desc;
 
 	elog(DEBUG2, "pllua_fini");
 
@@ -440,10 +425,11 @@ pllua_fini(int code, Datum arg)
 	hash_seq_init(&hash_seq, pllua_interp_hash);
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
 	{
-		if (interp_desc->L)
+		if (interp_desc->interp
+			&& interp_desc->interp->L)
 		{
-			lua_State *L = interp_desc->L;
-			interp_desc->L = NULL;
+			lua_State *L = interp_desc->interp->L;
+			interp_desc->interp->L = NULL;
 			/*
 			 * We intentionally do not worry about trying to rethrow any errors
 			 * happening here; we're trying to shut down, and ignoring an error
@@ -470,23 +456,24 @@ static void
 pllua_callback_broadcast(Datum arg, lua_CFunction cfunc, pllua_cache_inval *inval)
 {
 	HASH_SEQ_STATUS hash_seq;
-	pllua_interpreter *interp_desc;
+	pllua_interpreter_hashent *interp_desc;
 
 	hash_seq_init(&hash_seq, pllua_interp_hash);
 	while ((interp_desc = hash_seq_search(&hash_seq)) != NULL)
 	{
-		lua_State *L = interp_desc->L;
-		if (L
+		pllua_interpreter *interp = interp_desc->interp;
+		if (interp
+			&& interp->L
 			&& (arg == (Datum)0
-				|| arg == PointerGetDatum(interp_desc)))
+				|| arg == PointerGetDatum(interp)))
 		{
 			int rc;
-			interp_desc->inval = inval;
-			rc = pllua_cpcall(L, /* keep line split to avoid functable hack */
+			interp->inval = *inval;
+			rc = pllua_cpcall(interp->L, /* keep line split to avoid functable hack */
 							  cfunc,
-							  interp_desc);
+							  &interp->inval);
 			if (rc)
-				pllua_poperror(L);
+				pllua_poperror(interp->L);
 		}
 	}
 }
@@ -561,6 +548,17 @@ pllua_alloc(void *ud, void *ptr, size_t osize, size_t nsize)
 	}
 
 	return nptr;
+}
+
+/*
+ * Some luajit builds need their own allocator, but since we want to repurpose
+ * the alloc "ud" value, we have to insert a shim.
+ */
+static void *
+pllua_alloc_shim(void *ud, void *ptr, size_t osize, size_t nsize)
+{
+	pllua_interpreter *interp = ud;
+	return interp->allocf(interp->alloc_ud, ptr, osize, nsize);
 }
 
 /*
@@ -664,16 +662,13 @@ static void pllua_wrap_stack_checks(lua_State *L)
  *
  * Phase 1 might be executed pre-fork; it can't know whether the interpreter
  * will be trusted, what the language oid is, what the user id is or anything
- * related to the database state. Nor does it have a pointer to the
- * pllua_interpreter structure.
+ * related to the database state. The pllua_interpreter structure exists but
+ * is not completely populated.
  */
 static int
 pllua_init_state_phase1(lua_State *L)
 {
-	MemoryContext  *mcxt = lua_touserdata(L, 1);
-	MemoryContext  *emcxt = lua_touserdata(L, 2);
-	ErrorData	   *edata = lua_touserdata(L, 3);
-	const char	   *ident = lua_touserdata(L, 4);
+	const char	   *ident = lua_touserdata(L, 1);
 
 	lua_pushliteral(L, PLLUA_VERSION_STR);
 	lua_setglobal(L, "_PLVERSION");
@@ -689,14 +684,6 @@ pllua_init_state_phase1(lua_State *L)
 	lua_setglobal(L, "_PL_IDENT");
 	lua_pushinteger(L, (lua_Integer) time(NULL));
 	lua_setglobal(L, "_PL_LOAD_TIME");
-	lua_pushlightuserdata(L, mcxt);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
-	lua_pushlightuserdata(L, emcxt);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
-	lua_pushlightuserdata(L, edata);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
-	lua_pushlightuserdata(L, 0);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
 
 #if LUA_VERSION_NUM < 504
 	/* install our hack to push C functions without throwing error */
@@ -770,10 +757,7 @@ pllua_init_state_phase2(lua_State *L)
 	bool		trusted = lua_toboolean(L, 1);
 	lua_Integer	user_id = lua_tointeger(L, 2);
 	lua_Integer	lang_oid = lua_tointeger(L, 3);
-	pllua_interpreter *interp = lua_touserdata(L, 4);
 
-	lua_pushlightuserdata(L, interp);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_INTERP);
 	lua_pushinteger(L, user_id);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_USERID);
 	lua_pushinteger(L, lang_oid);
@@ -879,13 +863,13 @@ pllua_run_init_strings(lua_State *L)
  * Phase 1 can run in postmaster, before we know anything about what the
  * interp will be used for or by whom.
  */
-static lua_State *
+static pllua_interpreter *
 pllua_newstate_phase1(const char *ident)
 {
 	MemoryContext	mcxt = NULL;
 	MemoryContext	emcxt = NULL;
 	MemoryContext	oldcontext = CurrentMemoryContext;
-	ErrorData	   *edata;
+	pllua_interpreter *interp = NULL;
 	lua_State	   *L = NULL;
 	int				rc;
 
@@ -901,16 +885,40 @@ pllua_newstate_phase1(const char *ident)
 
 	MemoryContextSwitchTo(mcxt);
 
-	edata = pllua_make_recursive_error();
+	interp = palloc0(sizeof(pllua_interpreter));
+	interp->mcxt = mcxt;
+	interp->emcxt = emcxt;
+
+	interp->edata = pllua_make_recursive_error();
+
+	interp->gc_debt = 0;
+	interp->user_id = InvalidOid;
+	interp->db_ready = false;
+
+	interp->cur_activation.fcinfo = NULL;
+	interp->cur_activation.retval = (Datum) 0;
+	interp->cur_activation.trusted = false;
+	interp->cur_activation.cblock = NULL;
+	interp->cur_activation.validate_func = InvalidOid;
+	interp->cur_activation.interp = NULL;
+	interp->cur_activation.active_error = LUA_REFNIL;
+	interp->cur_activation.err_text = NULL;
 
 #if LUA_VERSION_NUM == 501
 	L = luaL_newstate();
 #else
-	L = lua_newstate(pllua_alloc, NULL);
+	L = lua_newstate(pllua_alloc, interp);
 #endif
 
 	if (!L)
 		elog(ERROR, "Out of memory creating Lua interpreter");
+
+	interp->L = L;
+
+	/* Insert our alloc shim if the allocator is not our one. */
+	interp->allocf = lua_getallocf(L, &interp->alloc_ud);
+	if (interp->allocf != pllua_alloc)
+		lua_setallocf(L, pllua_alloc_shim, interp);
 
 	lua_atpanic(L, pllua_panic);  /* can't throw */
 
@@ -923,11 +931,8 @@ pllua_newstate_phase1(const char *ident)
 
 	/* note that pllua_pushcfunction is not available yet. */
 	lua_pushcfunction(L, pllua_init_state_phase1);
-	lua_pushlightuserdata(L, mcxt);
-	lua_pushlightuserdata(L, emcxt);
-	lua_pushlightuserdata(L, edata);
 	lua_pushlightuserdata(L, (void *) ident);
-	rc = pllua_pcall_nothrow(L, 4, 0, 0);
+	rc = pllua_pcall_nothrow(L, 1, 0, 0);
 
 	/*
 	 * We don't allow phase1 init to do anything that interacts with pg in any
@@ -936,8 +941,8 @@ pllua_newstate_phase1(const char *ident)
 	 * out-of-memory errors).
 	 *
 	 * So, we avoid trying to rethrow any error here, because we might be in
-	 * the postmaster and that would be fatal. Leave it to the caller to decide
-	 * what to do.
+	 * the postmaster and that would be fatal. Leave it to the caller to
+	 * decide what to do.
 	 */
 	if (rc)
 	{
@@ -948,10 +953,10 @@ pllua_newstate_phase1(const char *ident)
 		lua_close(L); /* can't throw, but has internal lua catch blocks */
 		pllua_setcontext(PLLUA_CONTEXT_PG);
 
+		interp = NULL;
+
 		MemoryContextSwitchTo(oldcontext);
 		MemoryContextDelete(mcxt);
-
-		L = NULL;
 	}
 	else
 	{
@@ -959,7 +964,7 @@ pllua_newstate_phase1(const char *ident)
 		MemoryContextSetParent(mcxt, TopMemoryContext);
 	}
 
-	return L;
+	return interp;
 }
 
 
@@ -967,26 +972,23 @@ pllua_newstate_phase1(const char *ident)
  * PG-environment part of interpreter setup.
  */
 static void
-pllua_newstate_phase2(lua_State *L,
+pllua_newstate_phase2(pllua_interpreter_hashent *interp_desc,
+					  pllua_interpreter *interp,
 					  bool trusted,
 					  Oid user_id,
-					  pllua_interpreter *interp_desc,
 					  pllua_activation_record *act)
 {
 	static bool first_time = true;
 	MemoryContext oldcontext = CurrentMemoryContext;
-	volatile MemoryContext mcxt = NULL;  /* L's mcxt if known */
+	lua_State *L = interp->L;
 
 	ASSERT_PG_CONTEXT;
+
+	interp->user_id = user_id;
 
 	PG_TRY();
 	{
 		Oid		langoid;
-
-		/* can't throw */
-		lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
-		mcxt = lua_touserdata(L, -1);
-		lua_pop(L, 1);
 
 		/*
 		 * Get our own language oid; this is somewhat unnecessarily hard.
@@ -1016,8 +1018,7 @@ pllua_newstate_phase2(lua_State *L,
 		lua_pushboolean(L, trusted);
 		lua_pushinteger(L, (lua_Integer) user_id);
 		lua_pushinteger(L, (lua_Integer) langoid);
-		lua_pushlightuserdata(L, interp_desc);
-		pllua_pcall(L, 4, 0, 0);
+		pllua_pcall(L, 3, 0, 0);
 
 		if (first_time)
 		{
@@ -1029,7 +1030,7 @@ pllua_newstate_phase2(lua_State *L,
 			first_time = false;
 		}
 
-		interp_desc->L = L;
+		interp_desc->interp = interp;
 
 		/*
 		 * force invalidation of the caches now anyway, since we might have
@@ -1037,14 +1038,17 @@ pllua_newstate_phase2(lua_State *L,
 		 * callbacks will ignore us); but for this interpreter only, no need to
 		 * involve any others.
 		 */
-		pllua_relcache_callback(PointerGetDatum(interp_desc), InvalidOid);
-		pllua_syscache_typeoid_callback(PointerGetDatum(interp_desc), TYPEOID, 0);
-		pllua_syscache_cast_callback(PointerGetDatum(interp_desc), CASTSOURCETARGET, 0);
+		pllua_relcache_callback(PointerGetDatum(interp), InvalidOid);
+		pllua_syscache_typeoid_callback(PointerGetDatum(interp), TYPEOID, 0);
+		pllua_syscache_cast_callback(PointerGetDatum(interp), CASTSOURCETARGET, 0);
 
 		/*
 		 * Now that we have everything set up, it should finally be safe to run
 		 * some arbitrary code that might access the db.
 		 */
+
+		interp->db_ready = true;
+
 		lua_pushcfunction(L, pllua_run_init_strings);
 		pllua_pcall(L, 0, 0, 0);
 	}
@@ -1053,7 +1057,7 @@ pllua_newstate_phase2(lua_State *L,
 		ErrorData *e;
 		Assert(pllua_context == PLLUA_CONTEXT_PG);
 
-		interp_desc->L = NULL;
+		interp_desc->interp = NULL;
 
 		/*
 		 * If we got a lua error (which could be a caught pg error) during the
@@ -1073,7 +1077,7 @@ pllua_newstate_phase2(lua_State *L,
 		pllua_ending = false;
 		pllua_setcontext(PLLUA_CONTEXT_PG);
 
-		MemoryContextDelete(mcxt);
+		MemoryContextDelete(interp->mcxt);
 
 		ReThrowError(e);
 	}
