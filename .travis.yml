@@ -16,6 +16,7 @@ git:
 env:
   matrix:
     - PG=9.6 LUAV=lua-5.3.6
+    - PG=9.6 LUAV=lua-5.4.2
     - PG=10  LUAV=lua-5.3.6
     - PG=11  LUAV=lua-5.3.6
     - PG=12  LUAV=lua-5.3.6
