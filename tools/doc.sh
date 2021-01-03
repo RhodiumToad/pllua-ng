@@ -24,7 +24,7 @@ for fn; do
     esac
 done
 
-cmark "$@" || exit 1
+cmark --unsafe "$@" || exit 1
 
 printf "</body></html>\n"
 

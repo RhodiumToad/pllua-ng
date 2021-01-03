@@ -1,5 +1,5 @@
 
-pllua [![Build Status](https://travis-ci.org/pllua/pllua-ng.svg)](https://travis-ci.org/pllua/pllua-ng)
+pllua [![Build Status](https://travis-ci.org/pllua/pllua.svg)](https://travis-ci.org/pllua/pllua)
 =====
 
 Embeds Lua into PostgreSQL as a procedural language module.
@@ -17,7 +17,7 @@ time; support for Lua 5.4 will be added soon.
 Documentation is being migrated from this README to a more comprehensive
 document:
 
-[Documentation](https://pllua.github.io/pllua-ng/)
+[Documentation](https://pllua.github.io/pllua/)
 
 
 COMPATIBILITY WITH 0.x (previous pllua-ng releases)

@@ -1,6 +1,6 @@
 <div id="footer">
 
-Copyright © 2017-2018, Andrew Gierth, aka RhodiumToad
+Copyright © 2017-2021, Andrew Gierth, aka RhodiumToad
 
 Licensed under the terms of the MIT license, a copy of which is included
 in the file `LICENSE` in the distribution.

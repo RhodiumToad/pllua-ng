@@ -3,8 +3,8 @@
   <xsl:output method="html" version="5.0" doctype-system="about:legacy-compat" />
 
   <!-- any variables we might want to use later -->
-  <xsl:variable name="canon_url">https://pllua.github.io/pllua-ng/</xsl:variable>
-  <xsl:variable name="canon_site">https://github.com/pllua/pllua-ng/</xsl:variable>
+  <xsl:variable name="canon_url">https://pllua.github.io/pllua/</xsl:variable>
+  <xsl:variable name="canon_site">https://github.com/pllua/pllua/</xsl:variable>
 
   <!--
       general purpose utility templates
