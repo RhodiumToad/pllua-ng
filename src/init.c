@@ -50,7 +50,8 @@ static void pllua_newstate_phase2(pllua_interpreter_hashent *interp_desc,
 								  Oid user_id,
 								  pllua_activation_record *act);
 static void pllua_fini(int code, Datum arg);
-static void *pllua_alloc (void *ud, void *ptr, size_t osize, size_t nsize);
+static void pllua_warnfunction(void *p, const char *msg, int tocont);
+static void *pllua_alloc(void *ud, void *ptr, size_t osize, size_t nsize);
 
 /*
  * pllua_getstate
@@ -562,6 +563,50 @@ pllua_alloc_shim(void *ud, void *ptr, size_t osize, size_t nsize)
 	return interp->allocf(interp->alloc_ud, ptr, osize, nsize);
 }
 
+static void
+pllua_warnfunction(void *p, const char *msg, int tocont)
+{
+	pllua_interpreter *interp = p;
+	size_t msglen = strlen(msg);
+	int pos = interp->warncount;
+	char *buf = interp->warnbuf;
+
+	/* ignore silly "@directive" */
+	if (!tocont && pos == 0 && msg && msg[0] == '@')
+		return;
+
+	if (msglen < sizeof(interp->warnbuf) - pos)
+	{
+		memcpy(buf + pos, msg, msglen + 1);
+		interp->warncount += msglen;
+	}
+
+	if (tocont)
+		return;
+
+	if (!pllua_pending_error
+		|| strstr(buf, "error object is not a string") == NULL)
+	{
+		PG_TRY();
+		{
+			ereport(WARNING,
+					(errmsg_internal("pllua: %s", buf)));
+		}
+		PG_CATCH();
+		{
+			ereport(FATAL,
+					(errmsg_internal("pllua: error while trying to emit internal warning")));
+		}
+		PG_END_TRY();
+
+		interp->warncount = 0;
+		return;
+	}
+
+	ereport(FATAL,
+			(errmsg_internal("pllua: attempt to ignore pending database error")));
+}
+
 /*
  * Hook function to check for interrupts. We have lua call this for every
  * function return or set number of opcodes executed.
@@ -910,6 +955,7 @@ pllua_newstate_phase1(const char *ident)
 
 #if LUA_VERSION_NUM == 501
 	L = luaL_newstate();
+	(void) pllua_alloc;
 #else
 	L = lua_newstate(pllua_alloc, interp);
 #endif
@@ -926,7 +972,6 @@ pllua_newstate_phase1(const char *ident)
 
 	lua_atpanic(L, pllua_panic);  /* can't throw */
 
-#if LUA_VERSION_NUM == 504
 	/* This is a runtime detection for the broken versions 5.4.0 and 5.4.1,
 	 * which require ugly hacks to support setting the stack limit. Rather
 	 * than keep such hacks, we just refuse to run with them at all; in 5.4.2
@@ -941,7 +986,10 @@ pllua_newstate_phase1(const char *ident)
 		ereport(ERROR,
 				errmsg_internal("Unacceptable Lua version (5.4.0-5.4.1) installed"),
 				errhint("Install 5.4.2 or later instead"));
-#endif
+
+	interp->warncount = 0;
+	/* Install warning handler */
+	lua_setwarnf(L, pllua_warnfunction, interp);
 
 	/*
 	 * Since we just created this interpreter, we know we're not in any

@@ -741,7 +741,7 @@ struct module_info
 static struct module_info sandbox_packages_early[] = {
 	{ "coroutine",				NULL,		"copy",		"coroutine"		},
 	{ "string",					NULL,		"copy",		"string"		},
-#if LUA_VERSION_NUM == 503
+#if LUA_VERSION_NUM >= 503
 	{ "utf8",					NULL,		"copy",		"utf8"			},
 #endif
 	{ "table",					NULL,		"copy",		"table"			},

@@ -15,12 +15,6 @@
 
 bool pllua_pending_error = false;
 
-typedef struct pllua_warning_buffer
-{
-	int bufcount;
-	char buf[1000];
-} pllua_warning_buffer;
-
 /*
  * Only used in interpreter startup.
  */
@@ -56,50 +50,6 @@ pllua_pending_error_violation(lua_State *L)
 	pg_unreachable();
 }
 
-#if LUA_VERSION_NUM >= 504
-static void
-pllua_warnfunction(void *warnbuf, const char *msg, int tocont)
-{
-	pllua_warning_buffer *w = warnbuf;
-	size_t msglen = strlen(msg);
-	int pos = w->bufcount;
-
-	/* ignore silly "@directive" */
-	if (!tocont && pos == 0 && msg && msg[0] == '@')
-		return;
-
-	if (msglen < sizeof(w->buf) - pos)
-	{
-		memcpy(w->buf + pos, msg, msglen + 1);
-		w->bufcount += msglen;
-	}
-
-	if (tocont)
-		return;
-
-	if (!pllua_pending_error
-		|| strstr(w->buf, "error object is not a string") == NULL)
-	{
-		PG_TRY();
-		{
-			ereport(WARNING,
-					(errmsg_internal("pllua: %s", w->buf)));
-		}
-		PG_CATCH();
-		{
-			ereport(FATAL,
-					(errmsg_internal("pllua: error while trying to emit internal warning")));
-		}
-		PG_END_TRY();
-
-		w->bufcount = 0;
-		return;
-	}
-
-	ereport(FATAL,
-			(errmsg_internal("pllua: attempt to ignore pending database error")));
-}
-#endif
 
 /*
  * Replacement for lua warn() function
@@ -1529,16 +1479,6 @@ int pllua_open_error(lua_State *L)
 	int refs[30];
 
 	lua_settop(L, 0);
-
-#if LUA_VERSION_NUM >= 504
-	{
-		pllua_warning_buffer *warnbuf = lua_newuserdatauv(L, sizeof(pllua_warning_buffer), 0);
-		warnbuf->bufcount = 0;
-		/* Install warning handler */
-		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_WARNING_BUFFER);
-		lua_setwarnf(L, pllua_warnfunction, warnbuf);
-	}
-#endif
 
 	/*
 	 * Create and drop a few registry reference entries so that there's a

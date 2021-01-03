@@ -39,7 +39,7 @@
 #include "pllua_luaver.h"
 
 #else
-#error Unsupported Lua version (only Lua 5.3 and Luajit are supported)
+#error Unsupported Lua version (only Lua 5.3+ and Luajit are supported)
 #endif
 
 /*
@@ -206,6 +206,10 @@ typedef struct pllua_interpreter
 
 	/* convenience copy so as not to point lightuserdata at stack */
 	pllua_cache_inval inval;
+
+	/* buffer for warning system */
+	int			warncount;
+	char		warnbuf[PLLUA_WARNBUF_SIZE];
 } pllua_interpreter;
 
 typedef struct pllua_interpreter_hashent
