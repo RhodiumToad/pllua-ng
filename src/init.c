@@ -663,60 +663,6 @@ static void pllua_wrap_stack_checks(lua_State *L)
 	lua_pop(L, 2);
 }
 
-static int max_stack = 0;
-
-static int
-pllua_compute_stack_limit(lua_State *L)
-{
-	void *basep = lua_touserdata(L, lua_upvalueindex(1));
-	int depth = lua_tointeger(L, 1);
-
-	if (basep && depth > 1)
-	{
-		ptrdiff_t ssiz = (const char *)&basep - (const char *)basep;
-		int framesize;
-		if (ssiz < 0)
-			ssiz = -ssiz;
-		framesize = (ssiz + depth)/depth;
-		if (framesize > 32)
-		{
-			framesize = (framesize + 15) & ~15;
-			max_stack = 458752 / framesize;
-		}
-	}
-	if (max_stack < 50)
-		max_stack = 50;
-
-	return 0;
-}
-
-static const char *stack_code =
-	"local n,f = ...\n"
-	"local function r(d)\n"
-	"  if d < n then r(d+1) else f(d) end\n"
-	"  return d\n"
-	"end\n"
-	"return r(1)\n";
-
-static void pllua_determine_stack_limit(lua_State *L)
-{
-	if (max_stack == 0)
-	{
-		int rc = luaL_loadbufferx(L, stack_code, strlen(stack_code), "stacksize", "t");
-		if (rc)
-			lua_error(L);
-		/* depth to test */
-		lua_pushinteger(L, 20);
-		/* test function */
-		lua_pushlightuserdata(L, &rc);
-		lua_pushcclosure(L, pllua_compute_stack_limit, 1);
-		lua_call(L, 2, 0);
-	}
-
-	if (max_stack < 50 || lua_setcstacklimit(L, max_stack) == 0)
-		luaL_error(L, "could not set max stack size to %d", max_stack);
-}
-
 /*
  * Lua-environment part of interpreter setup.
  *
@@ -977,6 +923,23 @@ pllua_newstate_phase1(const char *ident)
 		elog(ERROR, "Out of memory creating Lua interpreter");
 
 	lua_atpanic(L, pllua_panic);  /* can't throw */
+
+#if LUA_VERSION_NUM == 504
+	/* This is a runtime detection for the broken versions 5.4.0 and 5.4.1,
+	 * which require ugly hacks to support setting the stack limit. Rather
+	 * than keep such hacks, we just refuse to run with them at all; in 5.4.2
+	 * and (we hope!) later, lua_setcstacklimit does nothing and returns a
+	 * constant. The 5.4.0-1 setcstacklimit returns 0 if the requested value
+	 * is unreasonably large, so we use that as the test.
+	 *
+	 * Note: this will prevent starting postmaster if we're configured for
+	 * preloaded states and the wrong lua version is present.
+	 */
+	if (lua_setcstacklimit(L, (unsigned)-1) == 0)
+		ereport(ERROR,
+				errmsg_internal("Unacceptable Lua version (5.4.0-5.4.1) installed"),
+				errhint("Install 5.4.2 or later instead"));
+#endif
 
 	/*
 	 * Since we just created this interpreter, we know we're not in any
