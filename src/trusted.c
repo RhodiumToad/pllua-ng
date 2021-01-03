@@ -703,6 +703,7 @@ static struct global_info sandbox_lua_globals[] = {
 	{ "tonumber", NULL },
 	{ "tostring", NULL },
 	{ "type", NULL },
+	{ "unpack", NULL },  /* for luajit */
 	{ "warn", NULL },
 	{ "_VERSION", NULL },
 	{ "_PLVERSION", NULL },
