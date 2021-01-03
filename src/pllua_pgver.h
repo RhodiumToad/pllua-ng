@@ -119,9 +119,16 @@
 
 /* We want a way to do noinline, but old PGs don't have it. */
 
+#ifndef __has_builtin
+#define __has_builtin(x_) 0
+#endif
+#ifndef __has_attribute
+#define __has_attribute(x_) 0
+#endif
+
 #if defined(pg_noinline)
 #define pllua_noinline pg_noinline
-#elif (defined(__GNUC__) && __GNUC__ > 2) || defined(__SUNPRO_C) || defined(__IBMC__)
+#elif __has_attribute(noinline) || (defined(__GNUC__) && __GNUC__ > 2) || defined(__SUNPRO_C) || defined(__IBMC__)
 #define pllua_noinline __attribute__((noinline))
 /* msvc via declspec */
 #elif defined(_MSC_VER)
@@ -129,5 +136,16 @@
 #else
 #define pllua_noinline
 #endif
+
+/* and likewise for unlikely() */
+#if !defined(unlikely)
+
+#if !defined(__builtin_expect) && !defined(__GNUC__) && !__has_builtin(__builtin_expect)
+#define __builtin_expect(x_,y_) (x_)
+#endif
+#define likely(x)	(__builtin_expect(!!(x), 1))
+#define unlikely(x)	(__builtin_expect(!!(x), 0))
+
+#endif /* unlikely */
 
 #endif /* PLLUA_PGVER_H */

@@ -1382,7 +1382,7 @@ static int pllua_spi_stmt_rows(lua_State *L)
 	lua_pushcclosure(L, pllua_spi_stmt_rows_iter, 3);
 	lua_pushnil(L);
 	lua_pushnil(L);
-	lua_rotate(L, -4, -1);
+	lua_pushvalue(L, -4);
 	return 4;
 }
 

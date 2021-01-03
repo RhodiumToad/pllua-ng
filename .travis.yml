@@ -19,7 +19,7 @@ env:
     - PG=10  LUAV=lua-5.3.6
     - PG=11  LUAV=lua-5.3.6
     - PG=12  LUAV=lua-5.3.6
-    - PG=12  LUAV=LuaJIT-99d126882
+    - PG=12  LUAV=LuaJIT-1e66d0f9e
     - PG=13  LUAV=lua-5.3.6
     - PG=13  LUAV=lua-5.4.2
 

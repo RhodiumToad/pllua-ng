@@ -1534,7 +1534,8 @@ int pllua_open_error(lua_State *L)
 
 #if LUA_VERSION_NUM >= 504
 	{
-		void *warnbuf = lua_newuserdatauv(L, sizeof(pllua_warning_buffer), 0);
+		pllua_warning_buffer *warnbuf = lua_newuserdatauv(L, sizeof(pllua_warning_buffer), 0);
+		warnbuf->bufcount = 0;
 		/* Install warning handler */
 		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_WARNING_BUFFER);
 		lua_setwarnf(L, pllua_warnfunction, warnbuf);
