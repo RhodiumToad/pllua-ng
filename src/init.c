@@ -984,8 +984,8 @@ pllua_newstate_phase1(const char *ident)
 	 */
 	if (lua_setcstacklimit(L, (unsigned)-1) == 0)
 		ereport(ERROR,
-				errmsg_internal("Unacceptable Lua version (5.4.0-5.4.1) installed"),
-				errhint("Install 5.4.2 or later instead"));
+				(errmsg_internal("Unacceptable Lua version (5.4.0-5.4.1) installed"),
+				 errhint("Install 5.4.2 or later instead")));
 
 	interp->warncount = 0;
 	/* Install warning handler */
