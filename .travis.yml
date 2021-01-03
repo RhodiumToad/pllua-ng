@@ -14,13 +14,13 @@ git:
 
 env:
   matrix:
-    - PG=9.5 LUAV=lua-5.3.5
-    - PG=9.6 LUAV=lua-5.3.5
-    - PG=10  LUAV=lua-5.3.5
-    - PG=11  LUAV=lua-5.3.5
-    - PG=12  LUAV=lua-5.3.5
+    - PG=9.6 LUAV=lua-5.3.6
+    - PG=10  LUAV=lua-5.3.6
+    - PG=11  LUAV=lua-5.3.6
+    - PG=12  LUAV=lua-5.3.6
     - PG=12  LUAV=LuaJIT-99d126882
-    - PG=13  PGREPO=xenial-pgdg-testing LUAV=lua-5.3.5
+    - PG=13  LUAV=lua-5.3.6
+    - PG=13  LUAV=lua-5.4.2
 
 addons:
   apt:
