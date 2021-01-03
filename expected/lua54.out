@@ -11,6 +11,7 @@ $$;
 INFO:  close called
 ERROR:  error
 -- close metamethod on cursor
+begin;
 do language pllua $$
   for r in spi.rows([[ select * from generate_series(1,5) i ]]) do
     print(r)
@@ -25,6 +26,7 @@ select * from pg_cursors;  -- should be empty
 ------+-----------+-------------+-----------+---------------+---------------
 (0 rows)
 
+commit;
 -- lua error in close method
 do language pllua $$
   local tc <close>

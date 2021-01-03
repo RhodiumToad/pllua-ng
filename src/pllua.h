@@ -651,6 +651,7 @@ int pllua_get_cur_act(lua_State *L);
 FmgrInfo *pllua_get_cur_flinfo(lua_State *L);
 bool pllua_get_cur_act_readonly(lua_State *L);
 int pllua_freeactivation(lua_State *L);
+int pllua_resetactivation(lua_State *L);
 
 lua_State *pllua_activate_thread(lua_State *L, int nd, ExprContext *econtext);
 void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprContext *econtext);

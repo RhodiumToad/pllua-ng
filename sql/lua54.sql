@@ -15,6 +15,7 @@ do language pllua $$
 $$;
 
 -- close metamethod on cursor
+begin;
 do language pllua $$
   for r in spi.rows([[ select * from generate_series(1,5) i ]]) do
     print(r)
@@ -22,6 +23,7 @@ do language pllua $$
   end
 $$;
 select * from pg_cursors;  -- should be empty
+commit;
 
 -- lua error in close method
 do language pllua $$

@@ -387,7 +387,7 @@ void _PG_init(void)
 							 &pllua_gc_threshold,
 							 0,
 							 0,
-							 LONG_MAX / 1024.0,
+							 (double)(LONG_MAX / 1024),
 							 PGC_USERSET, 0,
 							 NULL, NULL, NULL);
 
@@ -710,12 +710,6 @@ pllua_init_state_phase1(lua_State *L)
 #endif
 
 	luaL_openlibs(L);
-
-	/*
-	 * Determine the stack limit (if this is the first call) and install it in
-	 * the interpreter.
-	 */
-	pllua_determine_stack_limit(L);
 
 	/*
 	 * Apply stack-checking wrappers to standard library functions that have

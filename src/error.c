@@ -56,6 +56,7 @@ pllua_pending_error_violation(lua_State *L)
 	pg_unreachable();
 }
 
+#if LUA_VERSION_NUM >= 504
 static void
 pllua_warnfunction(void *warnbuf, const char *msg, int tocont)
 {
@@ -98,6 +99,7 @@ pllua_warnfunction(void *warnbuf, const char *msg, int tocont)
 	ereport(FATAL,
 			(errmsg_internal("pllua: attempt to ignore pending database error")));
 }
+#endif
 
 /*
  * Replacement for lua warn() function
@@ -1527,14 +1529,17 @@ int pllua_open_error(lua_State *L)
 	int ncodes = sizeof(ecodes)/sizeof(ecodes[0]) - 1;
 	int i;
 	int refs[30];
-	void *warnbuf;
 
 	lua_settop(L, 0);
 
-	/* Install warning handler */
-	warnbuf = lua_newuserdatauv(L, sizeof(pllua_warning_buffer), 0);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_WARNING_BUFFER);
-	lua_setwarnf(L, pllua_warnfunction, warnbuf);
+#if LUA_VERSION_NUM >= 504
+	{
+		void *warnbuf = lua_newuserdatauv(L, sizeof(pllua_warning_buffer), 0);
+		/* Install warning handler */
+		lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_WARNING_BUFFER);
+		lua_setwarnf(L, pllua_warnfunction, warnbuf);
+	}
+#endif
 
 	/*
 	 * Create and drop a few registry reference entries so that there's a
