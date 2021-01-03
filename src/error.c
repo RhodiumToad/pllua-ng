@@ -411,11 +411,9 @@ static ErrorData *
 pllua_absorb_pg_error(lua_State *L)
 {
 	ErrorData *volatile edata = NULL;
-	MemoryContext emcxt;
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	MemoryContext emcxt = interp->emcxt;
 
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ERRORCONTEXT);
-	emcxt = lua_touserdata(L, -1);
-	lua_pop(L, 1);
 	MemoryContextSwitchTo(emcxt);
 
 	/*
@@ -1128,7 +1126,7 @@ pllua_t_pcall_guts(lua_State *L, bool is_xpcall)
 int
 pllua_t_pcall(lua_State *L)
 {
-	if (pllua_getinterpreter(L))
+	if (pllua_getinterpreter(L)->db_ready)
 		return pllua_t_pcall_guts(L, false);
 	else
 		return pllua_t_lpcall(L);
@@ -1137,7 +1135,7 @@ pllua_t_pcall(lua_State *L)
 int
 pllua_t_xpcall(lua_State *L)
 {
-	if (pllua_getinterpreter(L))
+	if (pllua_getinterpreter(L)->db_ready)
 		return pllua_t_pcall_guts(L, true);
 	else
 		return pllua_t_lxpcall(L);
@@ -1573,11 +1571,11 @@ int pllua_open_error(lua_State *L)
 	lua_pop(L, 1);
 
 	/*
-	 * init.c stored a lightuserdata pointer to the pre-built recursive error
-	 * object; replace it with a full userdata
+	 * init.c allocated the pre-built error object; make a full userdata for
+	 * it
 	 */
 	lua_pushcfunction(L, pllua_newerror);
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
+	lua_pushlightuserdata(L, pllua_getinterpreter(L)->edata);
 	lua_call(L, 1, 1);
 	lua_rawsetp(L, LUA_REGISTRYINDEX, PLLUA_RECURSIVE_ERROR);
 
