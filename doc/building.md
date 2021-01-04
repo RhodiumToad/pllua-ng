@@ -8,6 +8,10 @@ shared library or as an archive library with `-fPIC` (on most
 platforms a non-PIC archive library will not work). A shared library
 is recommended.
 
+PL/Lua is developed and tested against LuaJIT 2.1beta, Lua 5.3, and
+Lua 5.4. In the case of Lua 5.4, a runtime check is performed to
+ensure that version 5.4.2 or later is used, to avoid excessive stack
+usage from the stack-based VM of earlier 5.4 releases.
 
 Building the `pllua` module
 ---------------------------

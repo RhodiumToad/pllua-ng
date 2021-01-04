@@ -91,9 +91,43 @@ method uses the array mapping function provided by the array userdata:
 	  local total = 0
 	  a{ null = 0,
 	     map = function(v,...) total = total + v end,
-		 discard = true }
+	     discard = true }
 	  return total
 	$$;
+
+### Returning multiple rows (SRFs)
+
+Functions that return multiple rows (i.e. `RETURNS SETOF ...`) work as
+coroutines; each row should be returned by passing it to
+`coroutine.yield`, and when done, the function should return no
+values. As a special case, if the function does a `return` with values
+before doing any yield, it is considered to return 1 row.
+
+	create function val3() returns setof integer language pllua
+	as $$
+	  for i = 1,3 do
+	    coroutine.yield(i)
+	  end
+    $$;
+	select val3();
+	 val3
+	------
+	    1
+	    2
+	    3
+	(3 rows)
+
+SRFs written in PL/Lua run in value-per-call mode, so the execution of
+the function may be (but often will not be) interleaved with other
+parts of the query, depending on which part of the query the function
+was called from.
+
+In Lua 5.4, if execution of an SRF is aborted early due to a LIMIT
+clause or other form of rescan in the calling query, or if the calling
+portal is closed, then any `<close>` variables (including implicit
+ones in `for` iterators) in the function are immediately closed. In
+earlier Lua versions, the coroutine and any referenced objects are
+subject to garbage collection at some indefinite future time.
 
 ### Simple database queries
 
