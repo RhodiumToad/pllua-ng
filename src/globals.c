@@ -48,7 +48,6 @@ char PLLUA_ERRCODES_TABLE[] = "errcodes table";
 char PLLUA_PRINT_SEVERITY[] = "severity level for print() output";
 char PLLUA_GLOBAL_META[] = "global table proxy metatable";
 char PLLUA_SANDBOX_META[] = "sandbox table proxy metatable";
-char PLLUA_WARNING_BUFFER[] = "warning function buffer";
 
 #if LUA_VERSION_NUM == 501
 int pllua_getsubtable(lua_State *L, int i, const char *name)

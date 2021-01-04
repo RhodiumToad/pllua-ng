@@ -496,7 +496,6 @@ extern char PLLUA_ERRCODES_TABLE[];
 extern char PLLUA_PRINT_SEVERITY[];
 extern char PLLUA_GLOBAL_META[];
 extern char PLLUA_SANDBOX_META[];
-extern char PLLUA_WARNING_BUFFER[];
 
 /* functions */
 
