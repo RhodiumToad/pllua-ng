@@ -336,11 +336,41 @@ as $$
   local total = 0
   a{ null = 0,
      map = function(v,...) total = total + v end,
-	 discard = true }
+     discard = true }
   return total
 $$;
 </code></pre>
-<h3 id="S1.2.4"><span class="hspan-h3">Simple database queries</span></h3>
+<h3 id="S1.2.4"><span class="hspan-h3">Returning multiple rows (SRFs)</span></h3>
+<p>Functions that return multiple rows (i.e. <code class="shortcode">RETURNS SETOF ...</code>) work as
+coroutines; each row should be returned by passing it to
+<code class="shortcode">coroutine.yield</code>, and when done, the function should return no
+values. As a special case, if the function does a <code class="shortcode">return</code> with values
+before doing any yield, it is considered to return 1 row.</p>
+<pre class="codeblock"><code>create function val3() returns setof integer language pllua
+as $$
+  for i = 1,3 do
+    coroutine.yield(i)
+  end
+$$;
+select val3();
+ val3
+------
+    1
+    2
+    3
+(3 rows)
+</code></pre>
+<p>SRFs written in PL/Lua run in value-per-call mode, so the execution of
+the function may be (but often will not be) interleaved with other
+parts of the query, depending on which part of the query the function
+was called from.</p>
+<p>In Lua 5.4, if execution of an SRF is aborted early due to a LIMIT
+clause or other form of rescan in the calling query, or if the calling
+portal is closed, then any <code class="shortcode">&lt;close&gt;</code> variables (including implicit
+ones in <code class="shortcode">for</code> iterators) in the function are immediately closed. In
+earlier Lua versions, the coroutine and any referenced objects are
+subject to garbage collection at some indefinite future time.</p>
+<h3 id="S1.2.5"><span class="hspan-h3">Simple database queries</span></h3>
 <p>The local environment created for each function is a good place to
 cache prepared queries:</p>
 <pre class="codeblock"><code>create table objects (id integer primary key, value text);
@@ -356,7 +386,7 @@ $$;
 <p>The result of executing a query is a table containing rows (if any)
 for select queries, or an integer rowcount for queries that do not
 return rows.</p>
-<h3 id="S1.2.5"><span class="hspan-h3">Triggers</span></h3>
+<h3 id="S1.2.6"><span class="hspan-h3">Triggers</span></h3>
 <pre class="codeblock"><code>create function mytrigger() returns trigger language pllua
 as $$
   -- trigger functions are implicitly declared f(trigger,old,new,...)
@@ -364,7 +394,7 @@ as $$
   return new
 $$;
 </code></pre>
-<h3 id="S1.2.6"><span class="hspan-h3">JSON handling</span></h3>
+<h3 id="S1.2.7"><span class="hspan-h3">JSON handling</span></h3>
 <p>Values of type <code class="shortcode">json</code> are passed to Lua simply as strings. But the
 <code class="shortcode">jsonb</code> data type is supported in a more direct fashion.</p>
 <p><code class="shortcode">jsonb</code> values can be mapped to Lua tables in a configurable way, and
@@ -1681,6 +1711,10 @@ fields, which are not normalized first.</p>
 shared library or as an archive library with <code class="shortcode">-fPIC</code> (on most
 platforms a non-PIC archive library will not work). A shared library
 is recommended.</p>
+<p>PL/Lua is developed and tested against LuaJIT 2.1beta, Lua 5.3, and
+Lua 5.4. In the case of Lua 5.4, a runtime check is performed to
+ensure that version 5.4.2 or later is used, to avoid excessive stack
+usage from the stack-based VM of earlier 5.4 releases.</p>
 <h2 id="S3.1"><span class="hspan-h2">Building the <code class="shortcode">pllua</code> module</span></h2>
 <p>Lua unfortunately does not provide much in the way of infrastructure
 for determining build locations; accordingly, those have to be
