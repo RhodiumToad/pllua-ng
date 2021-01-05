@@ -11,8 +11,10 @@ versions 9.5, 9.6, 10, 11, 12 and 13. It is known that this module
 will never work on pg versions before 9.5 (we rely critically on
 memory context callbacks, which were introduced in that version).
 
-Lua 5.3 and LuaJIT 2.1beta (with COMPAT52) are fully supported at this
-time; support for Lua 5.4 will be added soon.
+Lua 5.4 (only 5.4.2 onwards), Lua 5.3, and LuaJIT 2.1beta (with
+COMPAT52) are fully supported at this time. (Lua 5.4.0 and 5.4.1 are
+checked for at runtime and rejected, because they would otherwise
+require runtime stack limit calculations.)
 
 Documentation is being migrated from this README to a more comprehensive
 document:

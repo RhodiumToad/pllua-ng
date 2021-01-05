@@ -422,7 +422,7 @@
             <nav>
               <ol id="toc" class="toc toc-1">
                 <xsl:apply-templates mode="toc" select="//body//h1">
-                  <xsl:with-param name="maxdepth" select="2" />
+                  <xsl:with-param name="maxdepth" select="3" />
                 </xsl:apply-templates>
               </ol>
             </nav>
