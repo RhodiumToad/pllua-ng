@@ -13,10 +13,10 @@ PG_CONFIG ?= pg_config
 PLLUA_CONFIG_OPTS ?=
 
 # General
-LUA_INCDIR ?= /usr/local/include/lua54
-LUALIB ?= -L/usr/local/lib -llua-5.4
-LUAC ?= luac54
-LUA ?= lua54
+LUA_INCDIR ?= /usr/local/include/lua53
+LUALIB ?= -L/usr/local/lib -llua-5.3
+LUAC ?= luac53
+LUA ?= lua53
 
 # LuaJIT
 #LUA_INCDIR = /usr/local/include/luajit-2.1
