@@ -58,6 +58,7 @@
  * versions.
  */
 #if LUA_VERSION_NUM < 504
+
 static inline int
 pllua_resume(lua_State *L, lua_State *from, int nargs, int *nret)
 {
@@ -70,6 +71,19 @@ pllua_resume(lua_State *L, lua_State *from, int nargs, int *nret)
 	return rc;
 }
 #define lua_resume(L_,f_,a_,r_) (pllua_resume(L_,f_,a_,r_))
-#endif
+
+#define lua_setwarnf(L_, f_, p_) ((void)(f_))
+
+#define lua_setcstacklimit(L_, n_) (200)
+
+#define lua_resetthread(L_) (LUA_OK)
+
+#define PLLUA_WARNBUF_SIZE 4
+
+#else
+
+#define PLLUA_WARNBUF_SIZE 1000
+
+#endif /* LUA_VERSION_NUM < 504 */
 
 #endif

@@ -33,13 +33,13 @@
 /* assume Lua 5.1 is actually luajit */
 #include "pllua_luajit.h"
 
-#elif LUA_VERSION_NUM == 503
+#elif LUA_VERSION_NUM >= 503
 
 /* Lua version dependencies */
 #include "pllua_luaver.h"
 
 #else
-#error Unsupported Lua version (only Lua 5.3 and Luajit are supported)
+#error Unsupported Lua version (only Lua 5.3+ and Luajit are supported)
 #endif
 
 /*
@@ -69,7 +69,7 @@
  *
  */
 
-#if LUA_VERSION_NUM == 503
+#if LUA_VERSION_NUM >= 503
 #if LUA_MAXINTEGER == PG_INT64_MAX
 #define PLLUA_INT8_OK
 #endif
@@ -93,14 +93,22 @@ typedef enum
 } pllua_context_type;
 
 extern pllua_context_type pllua_context;
+extern bool pllua_pending_error;
 
 #define ASSERT_PG_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_PG)
 #define ASSERT_LUA_CONTEXT Assert(pllua_context == PLLUA_CONTEXT_LUA)
 
+void pllua_pending_error_violation(lua_State *L) pg_attribute_noreturn();
+
 static inline pllua_context_type
-pllua_setcontext(pllua_context_type newctx)
+pllua_setcontext(lua_State *L, pllua_context_type newctx)
 {
 	pllua_context_type oldctx = pllua_context;
+	if (unlikely(pllua_pending_error)
+		&& L
+		&& oldctx == PLLUA_CONTEXT_LUA
+		&& newctx == PLLUA_CONTEXT_PG)
+		pllua_pending_error_violation(L);
 	pllua_context = newctx;
 	return oldctx;
 }
@@ -109,14 +117,19 @@ pllua_setcontext(pllua_context_type newctx)
  * Abbreviate the most common form of catch block.
  */
 #define PLLUA_TRY() do {												\
-	pllua_context_type _pllua_oldctx = pllua_setcontext(PLLUA_CONTEXT_PG); \
+	pllua_context_type _pllua_oldctx = pllua_setcontext(L, PLLUA_CONTEXT_PG); \
+	MemoryContext _pllua_oldmcxt = CurrentMemoryContext;				\
+	PG_TRY()
+
+#define PLLUA_TRY_ERROK() do {												\
+	pllua_context_type _pllua_oldctx = pllua_setcontext(NULL, PLLUA_CONTEXT_PG); \
 	MemoryContext _pllua_oldmcxt = CurrentMemoryContext;				\
 	PG_TRY()
 
 #define PLLUA_CATCH_RETHROW()											\
 	PG_CATCH();															\
-	{ pllua_setcontext(_pllua_oldctx); pllua_rethrow_from_pg(L, _pllua_oldmcxt); } \
-	PG_END_TRY(); pllua_setcontext(_pllua_oldctx); } while(0)
+	{ pllua_setcontext(NULL, _pllua_oldctx); pllua_rethrow_from_pg(L, _pllua_oldmcxt); } \
+	PG_END_TRY(); pllua_setcontext(NULL, _pllua_oldctx); } while(0)
 
 #define pllua_debug(L_, ...)											\
 	do { if (pllua_context==PLLUA_CONTEXT_PG) elog(DEBUG1, __VA_ARGS__); \
@@ -157,21 +170,29 @@ typedef struct pllua_cache_inval
 	bool		inval_cast;
 	Oid			inval_typeoid;
 	Oid			inval_reloid;
+	Oid			pad0_;
 } pllua_cache_inval;
 
 /*
- * Top-level data for one interpreter. We keep a hashtable of these per user_id
- * (for trusted mode isolation). We keep a pointer to this in the Lua registry
- * and use it to access the current activation fields (which are saved/restored
- * on recursive entries).
+ * Top-level data for one interpreter. We keep a hashtable of these per
+ * user_id (for trusted mode isolation). We keep a pointer to this in the Lua
+ * state and use it to access the current activation fields (which are
+ * saved/restored on recursive entries).
  */
 typedef struct pllua_interpreter
 {
-	Oid			user_id;		/* Hash key (must be first!) */
 	lua_State  *L;				/* The interpreter proper */
 
-	bool		trusted;
-	bool		new_ident;
+	lua_Alloc	allocf;
+	void	   *alloc_ud;		/* saved ud value for allocator */
+
+	MemoryContext mcxt;
+	MemoryContext emcxt;
+
+	ErrorData  *edata;
+
+	Oid			user_id;
+	bool		db_ready;
 
 	unsigned long gc_debt;		/* estimated additional GC debt */
 
@@ -183,8 +204,23 @@ typedef struct pllua_interpreter
 	int			errdepth;
 	bool		update_errdepth;
 
-	pllua_cache_inval *inval;
+	/* convenience copy so as not to point lightuserdata at stack */
+	pllua_cache_inval inval;
+
+	/* buffer for warning system */
+	int			warncount;
+	char		warnbuf[PLLUA_WARNBUF_SIZE];
 } pllua_interpreter;
+
+typedef struct pllua_interpreter_hashent
+{
+	Oid			user_id;		/* hash key, must be first */
+
+	bool		trusted;
+	bool		new_ident;
+
+	pllua_interpreter *interp;
+} pllua_interpreter_hashent;
 
 /* We abuse the node system to pass this in fcinfo->context */
 
@@ -393,14 +429,11 @@ extern bool pllua_ending;
  * The registry looks like this (all keys are light userdata):
  *
  * global state:
- * reg[PLLUA_MEMORYCONTEXT] = light(MemoryContext) - for refobj data
- * reg[PLLUA_ERRORCONTEXT] = light(MemoryContext) - for error handling
  * reg[PLLUA_USERID] = int user_id for trusted, InvalidOid for untrusted
  * reg[PLLUA_TRUSTED] = boolean
  * reg[PLLUA_LANG_OID] = oid of language
  * reg[PLLUA_LAST_ERROR] = last pg error object to enter error handling
  * reg[PLLUA_RECURSIVE_ERROR] = preallocated error object
- * reg[PLLUA_INTERP] = pllua_interpreter struct
  *
  * registries for cached data:
  * reg[PLLUA_FUNCS] = { [integer oid] = funcinfo object }
@@ -427,9 +460,6 @@ extern bool pllua_ending;
  *
  */
 
-extern char PLLUA_MEMORYCONTEXT[];
-extern char PLLUA_ERRORCONTEXT[];
-extern char PLLUA_INTERP[];
 extern char PLLUA_USERID[];
 extern char PLLUA_LANG_OID[];
 extern char PLLUA_TRUSTED[];
@@ -472,7 +502,30 @@ extern char PLLUA_SANDBOX_META[];
 /* init.c */
 
 pllua_interpreter *pllua_getstate(bool trusted, pllua_activation_record *act);
-pllua_interpreter *pllua_getinterpreter(lua_State *L);
+
+/*
+ * careful, mustn't throw
+ */
+static inline pllua_interpreter *
+pllua_getinterpreter(lua_State *L)
+{
+	void *p;
+	lua_getallocf(L, &p);
+	return p;
+}
+
+/*
+ * pllua_get_memory_cxt
+ *
+ * Get the memory context associated with the interpreter.
+ */
+static inline MemoryContext
+pllua_get_memory_cxt(lua_State *L)
+{
+	pllua_interpreter *interp = pllua_getinterpreter(L);
+	return interp->mcxt;
+}
+
 int pllua_set_new_ident(lua_State *L);
 void pllua_run_extra_gc(lua_State *L, unsigned long gc_debt);
 PGDLLEXPORT bool pllua_stack_is_too_deep(void);
@@ -572,6 +625,7 @@ PGDLLEXPORT int pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int m
 PGDLLEXPORT int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg);
 PGDLLEXPORT void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
 PGDLLEXPORT int pllua_trampoline(lua_State *L);
+PGDLLEXPORT void pllua_pending_error_violation(lua_State *L);
 
 void pllua_initial_protected_call(pllua_interpreter *interp,
 								  lua_CFunction func,
@@ -609,7 +663,6 @@ PGDLLEXPORT int pllua_pairs_next(lua_State *L);
 bool pllua_isobject(lua_State *L, int nd, char *objtype);
 void pllua_newmetatable(lua_State *L, char *objtype, luaL_Reg *mt);
 void pllua_new_weak_table(lua_State *L, const char *mode, const char *name);
-MemoryContext pllua_get_memory_cxt(lua_State *L);
 void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool uservalue);
 void **pllua_torefobject(lua_State *L, int nd, char *objtype);
 void *pllua_newobject(lua_State *L, char *objtype, size_t sz, bool uservalue);

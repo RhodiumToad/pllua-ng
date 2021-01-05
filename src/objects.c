@@ -69,22 +69,6 @@ void pllua_new_weak_table(lua_State *L, const char *mode, const char *name)
  */
 
 /*
- * pllua_get_memory_cxt
- *
- * Get the memory context associated with the interpreter.
- */
-MemoryContext pllua_get_memory_cxt(lua_State *L)
-{
-	void *p;
-
-	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_MEMORYCONTEXT);
-	p = lua_touserdata(L, -1);
-	lua_pop(L, 1);
-
-	return (MemoryContext) p;
-}
-
-/*
  * Create a refobj of the specified type and value (which may be NULL)
  *
  * Optionally create a table and put it in the uservalue slot.
@@ -413,6 +397,8 @@ int pllua_resetactivation(lua_State *L)
 {
 	int opos = lua_gettop(L) - 1;
 	pllua_func_activation *act = lua_touserdata(L, -1);
+	lua_State *thread = act->thread;
+	int rc = LUA_OK;
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, PLLUA_ACTIVATIONS);
 	if (lua_rawgetp(L, -1, act) == LUA_TNIL)
@@ -420,17 +406,35 @@ int pllua_resetactivation(lua_State *L)
 		/* unsafe to elog here
 		 *elog(WARNING, "failed to find an activation: %p", act);
 		 */
+		lua_settop(L, opos);
 		return 0;
 	}
 
 	pllua_checkobject(L, -1, PLLUA_ACTIVATION_OBJECT);
 
 	act->thread = NULL;
+
+	if (thread)
+	{
+		rc = lua_resetthread(thread);
+		if (rc != LUA_OK)
+		{
+			lua_xmove(act->thread, L, 1);
+			lua_insert(L, -3);
+		}
+	}
+
 	lua_getuservalue(L, -1);
 	lua_pushnil(L);
 	lua_rawsetp(L, -2, PLLUA_THREAD_MEMBER);
-	lua_settop(L, opos);
 
+	if (rc != LUA_OK)
+	{
+		lua_pop(L, 3);
+		lua_error(L);
+	}
+
+	lua_settop(L, opos);
 	return 0;
 }
 

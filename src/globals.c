@@ -13,9 +13,6 @@ pllua_context_type pllua_context = PLLUA_CONTEXT_PG;
  * diagnostic purposes.
  */
 
-char PLLUA_MEMORYCONTEXT[] = "memory context";
-char PLLUA_ERRORCONTEXT[] = "error memory context";
-char PLLUA_INTERP[] = "interp";
 char PLLUA_FUNCS[] = "funcs";
 char PLLUA_ACTIVATIONS[] = "activations";
 char PLLUA_TYPES[] = "types";

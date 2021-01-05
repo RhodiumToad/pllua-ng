@@ -13,10 +13,10 @@ PG_CONFIG ?= pg_config
 PLLUA_CONFIG_OPTS ?=
 
 # General
-LUA_INCDIR ?= /usr/local/include/lua53
-LUALIB ?= -L/usr/local/lib -llua-5.3
-LUAC ?= luac53
-LUA ?= lua53
+LUA_INCDIR ?= /usr/local/include/lua54
+LUALIB ?= -L/usr/local/lib -llua-5.4
+LUAC ?= luac54
+LUA ?= lua54
 
 # LuaJIT
 #LUA_INCDIR = /usr/local/include/luajit-2.1
@@ -27,6 +27,11 @@ ifdef LUAJIT
 LUAJITC ?= $(LUAJIT) -b -g -t raw
 LUA = $(LUAJIT)
 LUAC = $(REORDER_O) $(LUAJITC)
+endif
+
+LUAVER = $(shell $(LUA) -e 'print(_VERSION:match("^Lua ([0-9.]+)"))')
+ifeq ($(filter 5.1 5.3 5.4, $(LUAVER)),)
+$(error failed to get valid lua version)
 endif
 
 # if no OBJCOPY or not needed, this can be set to true (or false)
@@ -83,7 +88,9 @@ REGRESS_12 := $(REGRESS_11)
 REGRESS_13 := $(REGRESS_12)
 REGRESS_14 := $(REGRESS_13)
 
-EXTRA_REGRESS = $(REGRESS_$(MAJORVERSION))
+REGRESS_LUA_5.4 := lua54
+
+EXTRA_REGRESS = $(REGRESS_$(MAJORVERSION)) $(REGRESS_LUA_$(LUAVER))
 
 REGRESS = --schedule=$(srcdir)/serial_schedule $(EXTRA_REGRESS)
 REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule $(EXTRA_REGRESS)

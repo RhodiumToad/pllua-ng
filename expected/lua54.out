@@ -1,0 +1,73 @@
+--
+\set VERBOSITY terse
+--
+-- 5.4-specific features.
+-- simple close metamethod
+do language pllua $$
+  local tc <close>
+    = setmetatable({}, { __close = function() print("close called") end })
+  spi.error("error")
+$$;
+INFO:  close called
+ERROR:  error
+-- close metamethod on cursor
+begin;
+do language pllua $$
+  for r in spi.rows([[ select * from generate_series(1,5) i ]]) do
+    print(r)
+    if r.i > 2 then break end
+  end
+$$;
+INFO:  (1)
+INFO:  (2)
+INFO:  (3)
+select * from pg_cursors;  -- should be empty
+ name | statement | is_holdable | is_binary | is_scrollable | creation_time 
+------+-----------+-------------+-----------+---------------+---------------
+(0 rows)
+
+commit;
+-- lua error in close method
+do language pllua $$
+  local tc <close>
+    = setmetatable({}, { __close = function() error("inner error") end })
+  error("outer error")
+$$;
+WARNING:  pllua: error in __close metamethod ([string "DO-block"]:3: inner error)
+ERROR:  pllua: [string "DO-block"]:4: outer error
+-- db access in close method with outer lua error
+do language pllua $$
+  local tc <close>
+    = setmetatable({}, { __close = function() print(pgtype.numeric(0)) end })
+  error("outer error")
+$$;
+INFO:  0
+ERROR:  pllua: [string "DO-block"]:4: outer error
+-- db access in close method with outer db error
+do language pllua $$
+  local tc <close>
+    = setmetatable({}, { __close = function() print(pgtype.numeric(0)) end })
+  spi.error("outer error")
+$$;
+WARNING:  pllua: error in __close metamethod (cannot call into PostgreSQL with pending errors)
+ERROR:  outer error
+-- close metamethod in SRF
+create function pg_temp.sf1(n integer) returns setof integer
+  language pllua
+  as $$
+    local x <close>
+        = setmetatable({}, { __close = function() print("close called") end })
+    for i = n, n+3 do
+        coroutine.yield(i)
+    end
+$$;
+select * from (values (1),(2)) v(n), lateral (select * from pg_temp.sf1(v.n) limit 1) s;
+INFO:  close called
+INFO:  close called
+ n | sf1 
+---+-----
+ 1 |   1
+ 2 |   2
+(2 rows)
+
+--end

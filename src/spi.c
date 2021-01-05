@@ -1274,6 +1274,18 @@ static int pllua_cursor_gc(lua_State *L)
 	return 0;
 }
 
+static int pllua_cursor_meta_close(lua_State *L)
+{
+	pllua_spi_cursor *curs = pllua_toobject(L, 1, PLLUA_SPI_CURSOR_OBJECT);
+
+	if (!curs || !curs->portal || !curs->is_live || !curs->is_ours)
+		return 0;
+
+	pllua_cursor_setportal(L, 1, curs, NULL, false);
+
+	return 0;
+}
+
 
 /*
  * rows iterator
@@ -1344,7 +1356,7 @@ static int pllua_spi_stmt_rows_iter(lua_State *L)
 }
 
 /*
- * s:rows(args)  returns iterator, nil, nil
+ * s:rows(args)  returns iterator, nil, nil, cursor
  *
  */
 static int pllua_spi_stmt_rows(lua_State *L)
@@ -1364,12 +1376,14 @@ static int pllua_spi_stmt_rows(lua_State *L)
 	lua_call(L, lua_gettop(L) - 1, 1);
 
 	curs->is_private = 1;
+	lua_pushvalue(L, -1);
 	lua_pushinteger(L, 0);
 	lua_pushinteger(L, 0);
 	lua_pushcclosure(L, pllua_spi_stmt_rows_iter, 3);
 	lua_pushnil(L);
 	lua_pushnil(L);
-	return 3;
+	lua_pushvalue(L, -4);
+	return 4;
 }
 
 /*
@@ -1464,6 +1478,7 @@ static struct luaL_Reg spi_cursor_methods[] = {
 };
 static struct luaL_Reg spi_cursor_mt[] = {
 	{ "__gc", pllua_cursor_gc },
+	{ "__close", pllua_cursor_meta_close },
 	{ NULL, NULL }
 };
 

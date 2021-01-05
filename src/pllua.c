@@ -100,7 +100,7 @@ Datum pllua_common_call(FunctionCallInfo fcinfo, bool trusted)
 		act.atomic = castNode(CallContext, fcinfo->context)->atomic;
 #endif
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
+	pllua_setcontext(NULL, PLLUA_CONTEXT_PG);
 
 	/*
 	 * this catch block exists to save/restore the error context stack and
@@ -175,7 +175,7 @@ Datum pllua_common_validator(FunctionCallInfo fcinfo, bool trusted)
 	act.active_error = LUA_REFNIL;
 	act.err_text = NULL;
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
+	pllua_setcontext(NULL, PLLUA_CONTEXT_PG);
 
 	/*
 	 * this catch block exists to save/restore the error context stack and
@@ -225,7 +225,7 @@ Datum pllua_common_inline(FunctionCallInfo fcinfo, bool trusted)
 	act.atomic = act.cblock->atomic;
 #endif
 
-	pllua_setcontext(PLLUA_CONTEXT_PG);
+	pllua_setcontext(NULL, PLLUA_CONTEXT_PG);
 
 	/* probably excess paranoia */
 	if (act.cblock->langIsTrusted != act.trusted)
