@@ -42,13 +42,14 @@ jobs:
          echo LUAC="$PWD/work-lua/src/luac"
          echo LUA_INCDIR="$PWD/work-lua/src"
          echo LUALIB="-L$PWD/work-lua -llua"
+         echo lua_osver="$(lsb_release -rs)"
         ) >>$GITHUB_ENV
     - name: get cached lua build
       id: cache-lua
       uses: actions/cache@v2
       with:
         path: work-lua
-        key: ${{ runner.os }}-000000-work-lua-${{ env.LUAV }}
+        key: ${{ runner.os }}-${{ env.lua_osver }}-000000-work-lua-${{ env.LUAV }}
     - name: lua install
       if: ${{ steps.cache-lua.outputs.cache-hit != 'true' && ! contains(env.LUAV, 'LuaJIT') }}
       run: |
