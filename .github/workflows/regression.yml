@@ -1,0 +1,76 @@
+name: Regression test
+
+on:
+  push:
+    branches: [ master, test_actions ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: sh
+    strategy:
+      matrix:
+        lua: [ 5.3.6, 5.4.2, LuaJIT-1e66d0f9e ]
+        pg: [ 9.5, 9.6, 10, 11, 12, 13 ]
+        pgrepo: [ "" ]
+    env:
+      PG:       ${{ matrix.pg }}
+      PGREPO:   ${{ matrix.pgrepo }}
+      LUAV:     ${{ matrix.lua }}
+      LUA_URL:  "http://www.lua.org/ftp/lua-${{ matrix.lua }}.tar.gz"
+      LUA:      "${{ env.GITHUB_WORKSPACE }}/work-lua/src/lua"
+      LUAC:     "${{ env.GITHUB_WORKSPACE }}/work-lua/src/luac"
+      LUA_INCDIR: "${{ env.GITHUB_WORKSPACE }}/work-lua/src"
+      LUALIB:   "-L${{ env.GITHUB_WORKSPACE }}/work-lua -llua"
+    steps:
+    - uses: actions/checkout@v2
+    - name: cleanup pg
+      run: |
+        sudo sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+        sudo apt-get -y --purge remove postgresql libpq-dev libpq5 postgresql-client-common postgresql-common
+        sudo apt-get update
+        sudo rm -rf /var/lib/postgresql
+    - name: install pg
+      run: |
+        sudo apt-get -y \
+               -o Dpkg::Options::=--force-confdef \
+               -o Dpkg::Options::=--force-confnew \
+               ${PGREPO:+-t "$PGREPO"} \
+               install postgresql-${PG:?} postgresql-contrib-${PG:?} postgresql-server-dev-${PG:?}
+    - name: lua install
+      if: ! contains(env.LUAV, "LuaJIT")
+      run: |
+        mkdir work-lua
+        wget -O- "${LUA_URL}" | tar -zxf - --strip-components=1 -C work-lua
+        make -C work-lua/src \
+          SYSCFLAGS="-DLUA_USE_POSIX -DLUA_USE_DLOPEN -ULUA_COMPAT_5_2" \
+          SYSLIBS="-Wl,-E -ldl" \
+          MYCFLAGS="-fPIC" liblua.a lua luac
+        ln -s src/liblua.a work-lua/liblua.a
+    - name: luajit install
+      if: contains(env.LUAV, "LuaJIT")
+      run: |
+        wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUAV#LuaJIT-}".tar.gz \
+          | tar -zxf - --strip-components=1 -C work-lua
+        make -C work-lua/src \
+          XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
+          CFLAGS="-fPIC -O3" libluajit.a luajit
+        echo LUAJIT="$PWD/work-lua/src/luajit" >>$GITHUB_ENV
+        echo LUAJITC="cp" >>$GITHUB_ENV
+        ln -s src/libluajit.a work-lua/liblua.a
+    - name: pg user
+      run: |
+        sudo -u postgres createuser -s "$USER"
+    - name: build and test
+      run: |
+        make && sudo make install && time make installcheck
+    - name: build and test hstore
+      run: |
+        make -C hstore && sudo make -C hstore install && time make -C hstore installcheck
+    - name: show output
+      if: always()
+      run: |
+        cat regression.diffs || true
+        cat hstore/regression.diffs || true
