@@ -68,10 +68,10 @@ jobs:
         sudo -u postgres createuser -s "$USER"
     - name: build and test
       run: |
-        make && sudo make install && time make installcheck
+        make && sudo -E make install && time make installcheck
     - name: build and test hstore
       run: |
-        make -C hstore && sudo make -C hstore install && time make -C hstore installcheck
+        make -C hstore && sudo -E make -C hstore install && time make -C hstore installcheck
     - name: show output
       if: always()
       run: |
