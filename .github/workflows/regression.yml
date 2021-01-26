@@ -19,11 +19,6 @@ jobs:
       PG:       ${{ matrix.pg }}
       PGREPO:   ${{ matrix.pgrepo }}
       LUAV:     ${{ matrix.lua }}
-      LUA_URL:  "http://www.lua.org/ftp/lua-${{ matrix.lua }}.tar.gz"
-      LUA:      "${{ env.GITHUB_WORKSPACE }}/work-lua/src/lua"
-      LUAC:     "${{ env.GITHUB_WORKSPACE }}/work-lua/src/luac"
-      LUA_INCDIR: "${{ env.GITHUB_WORKSPACE }}/work-lua/src"
-      LUALIB:   "-L${{ env.GITHUB_WORKSPACE }}/work-lua -llua"
     steps:
     - uses: actions/checkout@v2
     - name: cleanup pg
@@ -39,6 +34,14 @@ jobs:
                -o Dpkg::Options::=--force-confnew \
                ${PGREPO:+-t "$PGREPO"} \
                install postgresql-${PG:?} postgresql-contrib-${PG:?} postgresql-server-dev-${PG:?}
+    - name: lua environment
+      run: |
+        (echo LUA_URL="http://www.lua.org/ftp/lua-$LUAV.tar.gz"
+         echo LUA="$PWD/work-lua/src/lua"
+         echo LUAC="$PWD/work-lua/src/luac"
+         echo LUA_INCDIR="$PWD/work-lua/src"
+         echo LUALIB="-L$PWD/work-lua -llua"
+        ) >>$GITHUB_ENV
     - name: lua install
       if: ! contains(env.LUAV, "LuaJIT")
       run: |
