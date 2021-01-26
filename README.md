@@ -1,5 +1,5 @@
 
-pllua [![Build Status](https://travis-ci.org/pllua/pllua.svg)](https://travis-ci.org/pllua/pllua)
+pllua [![Build Status](https://github.com/pllua/pllua/workflows/Build/badge.svg)](https://github.com/pllua/pllua/actions?query=workflow%3ABuild)
 =====
 
 Embeds Lua into PostgreSQL as a procedural language module.
