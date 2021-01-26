@@ -1,5 +1,4 @@
 --
-Moo!
 CREATE EXTENSION pllua;
 CREATE EXTENSION plluau;
 \set VERBOSITY terse
