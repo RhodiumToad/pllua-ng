@@ -50,7 +50,7 @@ jobs:
         path: work-lua
         key: ${{ runner.os }}-000000-work-lua-${{ env.LUAV }}
     - name: lua install
-      if: ${{ steps.cache-lua.output.cache-hit != 'true' && ! contains(env.LUAV, 'LuaJIT') }}
+      if: ${{ steps.cache-lua.outputs.cache-hit != 'true' && ! contains(env.LUAV, 'LuaJIT') }}
       run: |
         mkdir work-lua
         wget -O- "${LUA_URL}" | tar -zxf - --strip-components=1 -C work-lua
@@ -60,7 +60,7 @@ jobs:
           MYCFLAGS="-fPIC" liblua.a lua luac
         ln -s src/liblua.a work-lua/liblua.a
     - name: luajit install
-      if: ${{ steps.cache-lua.output.cache-hit != 'true' && contains(env.LUAV, 'LuaJIT') }}
+      if: ${{ steps.cache-lua.outputs.cache-hit != 'true' && contains(env.LUAV, 'LuaJIT') }}
       run: |
         mkdir work-lua
         wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUAV#LuaJIT-}".tar.gz \
