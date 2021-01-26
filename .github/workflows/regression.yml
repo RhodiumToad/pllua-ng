@@ -56,6 +56,7 @@ jobs:
     - name: luajit install
       if: ${{ contains(env.LUAV, 'LuaJIT') }}
       run: |
+        mkdir work-lua
         wget -O- https://github.com/LuaJIT/LuaJIT/archive/"${LUAV#LuaJIT-}".tar.gz \
           | tar -zxf - --strip-components=1 -C work-lua
         make -C work-lua/src \
