@@ -1,5 +1,5 @@
 
-pllua [![Build Status](https://github.com/RhodiumToad/pllua-ng/workflows/Regression%20test/badge.svg?branch=test_actions)](https://github.com/RhodiumToad/pllua-ng/actions?query=workflow%3ABuild+branch%3Atest_actions)
+pllua [![Build Status](https://github.com/RhodiumToad/pllua-ng/workflows/Build/badge.svg?branch=test_actions)](https://github.com/RhodiumToad/pllua-ng/actions?query=workflow%3ABuild+branch%3Atest_actions)
 =====
 
 Embeds Lua into PostgreSQL as a procedural language module.
