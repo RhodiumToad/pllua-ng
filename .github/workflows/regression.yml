@@ -24,7 +24,7 @@ jobs:
     - name: cleanup pg
       run: |
         sudo sh /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-        sudo apt-get -y --purge remove postgresql libpq-dev libpq5 postgresql-client-common postgresql-common
+        sudo apt-get -y --purge --no-upgrade remove postgresql libpq-dev libpq5 postgresql-client-common postgresql-common
         #sudo apt-get update
         sudo rm -rf /var/lib/postgresql
     - name: install pg
