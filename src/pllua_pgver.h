@@ -46,6 +46,11 @@
 #define PG_INT64_MAX	INT64CONST(0x7FFFFFFFFFFFFFFF)
 #endif
 
+/* catalog OID #defines changed in 14. */
+#if PG_VERSION_NUM < 140000
+#define EVENT_TRIGGEROID EVTTRIGGEROID
+#endif
+
 /* float4 is always by value in pg >= 13. */
 #if PG_VERSION_NUM >= 130000
 #ifndef USE_FLOAT4_BYVAL

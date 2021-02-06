@@ -366,7 +366,7 @@ pllua_load_from_proctup(lua_State *L,
 	func_info->variadic_any = procStruct->provariadic == ANYOID;
 	func_info->readonly = (procStruct->provolatile != PROVOLATILE_VOLATILE);
 	func_info->is_trigger = (procStruct->prorettype == TRIGGEROID);
-	func_info->is_event_trigger = (procStruct->prorettype == EVTTRIGGEROID);
+	func_info->is_event_trigger = (procStruct->prorettype == EVENT_TRIGGEROID);
 	func_info->polymorphic = false;		/* set below */
 
 	Assert(func_info->nargs == procStruct->proargtypes.dim1);
@@ -690,7 +690,7 @@ pllua_acceptable_pseudotype(lua_State *L,
 	{
 		/* only as return types */
 		case TRIGGEROID:
-		case EVTTRIGGEROID:
+		case EVENT_TRIGGEROID:
 		case VOIDOID:
 			return !is_input;
 

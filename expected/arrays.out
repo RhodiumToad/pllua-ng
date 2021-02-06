@@ -23,7 +23,7 @@ insert into adata(b) values
   (array(select 'val'||i from generate_series(1,10000) i));
 insert into adata(c) values
   ('{}'),
-  (array[1.234,exp(1.0::numeric(32,30)),27!]),
+  (array[1.234,exp(1.0::numeric(32,30)),factorial(27)]),
   (array(select i from generate_series(1,100) i)),
   (array(select i from generate_series(1,10000) i));
 insert into adata(d) values
