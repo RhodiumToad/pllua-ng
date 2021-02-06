@@ -82,7 +82,7 @@ int
 pllua_register_error(lua_State *L)
 {
 	pllua_interpreter *interp = pllua_getinterpreter(L);
-	if (interp)
+	if (interp && interp->db_ready)
 	{
 		int oref = interp->cur_activation.active_error;
 		/*
