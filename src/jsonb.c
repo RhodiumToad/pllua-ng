@@ -22,9 +22,9 @@
  * Must push keytable, prevkey, index(=1)
  * where prevkey is nil for objects and 0 for arrays
  *
- * For objects, keytable is a sequence of string keys (we must ensure they are
- * LUA_TSTRING values). For arrays, keytable is a sequence of integers in
- * ascending order giving the "present" keys.
+ * For objects, keytable is a sequence of string or number keys. For arrays,
+ * keytable is a sequence of integers in ascending order giving the "present"
+ * keys.
  *
  * We already checked that this is a container (defined as a Lua table or a
  * value with a __pairs metamethod).
@@ -111,9 +111,7 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 				}
 				break;
 			case LUA_TSTRING:
-				break;
 			case LUA_TNUMBER:
-				lua_tostring(L, -1);  /* alters stack value as side effect */
 				break;
 			default:
 				luaL_error(L, "cannot serialize scalar value of type %s as key", luaL_typename(L, -1));
@@ -484,7 +482,6 @@ pllua_jsonb_tosql(lua_State *L)
 					{
 						size_t len = 0;
 						const char *ptr = lua_tolstring(L, -2, &len);
-						Assert(lua_type(L, -2) == LUA_TSTRING);
 						curval.type = jbvString;
 						curval.val.string.val = palloc(len);
 						curval.val.string.len = len;
