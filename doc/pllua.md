@@ -269,6 +269,72 @@ names from the appendix to the PostgreSQL manual.
 By default these functions are also available via the `spi` module.
 
 
+`pllua.error`
+-------------
+
+SQL errors caught in Lua code are represented as objects rather than
+strings, though `print()` or `tostring()` will give a formatted text
+representation. The pllua.error module provides the following simple
+functions as a table:
+
++ `err.type(e)`\
+  returns `"error"` if `e` is an SQL error object, otherwise nothing
++ `err.errcode(e)`\
+  returns `e.errcode` if `e` is an SQL error object, otherwise nothing
++ `err.category(e)`\
+  returns `e.category` if `e` is an SQL error object, otherwise nothing
+
+Error objects themselves have the following string fields always
+present:
+
++ `category`\
+  The error category name, e.g. `"data_exception"`, or a 5-character
+  sqlstate category code (xx000) if no name is known
++ `errcode`\
+  The error code name, e.g. `"numeric_value_out_of_range"`, or a
+  5-character sqlstate if no name for the error is known
++ `severity`\
+  A string `"error"` (other values like `"warning"` should never be seen)
++ `sqlstate`\
+  The 5-character sqlstate code for the error
++ `message`\
+  The error message text
+
+The following optional fields (unless stated, values are string or
+nil) may be present, if supplied by the code that raised the error:
+
++ `context`\
+  The error context
++ `column`\
+  Name of a column associated with the error, if any
++ `constraint`\
+  Name of a constraint associated with the error, if any
++ `datatype`\
+  Name of a data type associated with the error, if any
++ `detail`\
+  Detail message supplied for the error, if any
++ `hint`\
+  The hint text for the error
++ `internal_position`\
+  integer; the character position within the internal query
++ `internal_query`\
+  internal query text for the error
++ `message_id`\
+  Untranslated error message text (not available in PostgreSQL 9.5)
++ `pg_source_file`\
+  Source file of the error
++ `pg_source_function`\
+  Source function name of the error
++ `pg_source_line`\
+  integer; source line number of the error
++ `position`\
+  integer; character position of the error within the original query
++ `schema`\
+  Name of a schema associated with the error, if any
++ `table`\
+  Name of a table associated with the error, if any
+
+
 `pllua.funcmgr`
 -------------
 
