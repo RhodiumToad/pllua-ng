@@ -55,7 +55,9 @@
 
 /*
  * Handle API differences for lua_resume by emulating the 5.4 API on earlier
- * versions.
+ * versions. Also fake out the warning system on earlier versions, and provide
+ * a minimal emulation of <close> that works for normal exits (leaving error
+ * exits to be cleaned up by the GC, but that can't be helped).
  */
 #if LUA_VERSION_NUM < 504
 
@@ -80,9 +82,21 @@ pllua_resume(lua_State *L, lua_State *from, int nargs, int *nret)
 
 #define PLLUA_WARNBUF_SIZE 4
 
+#define lua_toclose(L_, i_) ((void)0)
+
+static inline void
+pllua_closevar(lua_State *L, int idx)
+{
+	if (lua_toboolean(L, idx)
+		&& luaL_callmeta(L, idx, "__close"))
+		lua_pop(L, 1);
+}
+
 #else
 
 #define PLLUA_WARNBUF_SIZE 1000
+
+#define pllua_closevar(L_, i_) ((void)0)
 
 #endif /* LUA_VERSION_NUM < 504 */
 

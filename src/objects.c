@@ -825,6 +825,7 @@ static struct luaL_Reg funcobj_mt[] = {
 
 static struct luaL_Reg mcxtobj_mt[] = {
 	{ "__gc", pllua_mcxtobject_gc },
+	{ "__close", pllua_mcxtobject_gc },
 	{ NULL, NULL }
 };
 
