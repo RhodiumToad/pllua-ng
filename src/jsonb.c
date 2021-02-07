@@ -1091,8 +1091,6 @@ pllua_jsonb_type(lua_State *L)
 	{
 		PLLUA_TRY();
 		{
-			JsonbValue	scalar;
-			JsonbContainer *jbc;
 			Jsonb *jb;
 
 			/*
@@ -1100,16 +1098,49 @@ pllua_jsonb_type(lua_State *L)
 			 * a child datum) that has a short header or is compressed.
 			 */
 			jb = DatumGetJsonbP(d->value);
-			jbc = &jb->root;
 
-			if (JsonbExtractScalar(jbc, &scalar))
-				typ = JsonbTypeName(&scalar);
-			else if (JsonContainerIsArray(jbc))
+			/*
+			 * this code works around missing backend functions in older PG
+			 * versions, consider removing it when support for those is
+			 * removed
+			 */
+			if (JB_ROOT_IS_SCALAR(jb))
+			{
+				JsonbValue	scalar;
+				JsonbIterator *it;
+				JsonbIteratorToken tok PG_USED_FOR_ASSERTS_ONLY;
+
+				it = JsonbIteratorInit(&jb->root);
+
+				tok = JsonbIteratorNext(&it, &scalar, true);
+				Assert(tok == WJB_BEGIN_ARRAY);
+				Assert(scalar.val.array.nElems == 1 && scalar.val.array.rawScalar);
+
+				tok = JsonbIteratorNext(&it, &scalar, true);
+				Assert(tok == WJB_ELEM);
+
+				switch (scalar.type)
+				{
+					case jbvNumeric:	typ = "number";		break;
+					case jbvString:		typ = "string";		break;
+					case jbvBool:		typ = "boolean";	break;
+					case jbvNull:		typ = "null";		break;
+					default:
+						elog(ERROR, "unrecognized jsonb value type: %d", scalar.type);
+				}
+
+				tok = JsonbIteratorNext(&it, &scalar, true);
+				Assert(tok == WJB_END_ARRAY);
+
+				tok = JsonbIteratorNext(&it, &scalar, true);
+				Assert(tok == WJB_DONE);
+			}
+			else if (JB_ROOT_IS_ARRAY(jb))
 				typ = "array";
-			else if (JsonContainerIsObject(jbc))
+			else if (JB_ROOT_IS_OBJECT(jb))
 				typ = "object";
 			else
-				elog(ERROR, "invalid jsonb container type: 0x%08x", jbc->header);
+				elog(ERROR, "invalid jsonb container type: 0x%08x", *(uint32 *) VARDATA(jb));
 
 			if ((Pointer)jb != DatumGetPointer(d->value))
 				pfree(jb);
