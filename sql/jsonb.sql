@@ -36,6 +36,15 @@ How to circles mensurate.
   f = pgtype.jsonb(a, { empty_object = true })
   print(f)
 
+  for k,v in pairs(b) do
+    print(k,type(v),v)
+    if k == "mixed" then
+      for k2,v2 in pairs(v) do print("",k2,type(v2),v2) end
+    end
+  end
+
+  b { map = print, norecurse = true, pg_numeric = true, discard = true }
+
   spi.execute([[ create temp table jt1 as select $1 as a ]], b)
 
 $$;

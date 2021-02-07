@@ -538,7 +538,8 @@ mapping/deserialization operation:
 	jsonbval{ map = function(key,val,...) ... return key,val end,
 	          null = (any value, default nil),
 	          discard = (boolean, default false),
-	          pg_numeric = (boolean, default false)
+	          pg_numeric = (boolean, default false),
+			  norecurse = (boolean, default false)
 	        }
 
 The result in all cases is returned as a Lua table, not a datum,
@@ -559,10 +560,16 @@ path values passed to any other function call. If `discard` is not
 specified, then the function is also called for completed containers
 (in which case `val` will be a table). If `pg_numeric` is not true,
 then numeric values are converted to Lua numbers, otherwise they
-remain as `Datum` values of `numeric` type (for which see below). All
-tables returned from a `jsonb` mapping will be tagged with metatables
-that record whether they were originally arrays or objects; see the
-`pllua.jsonb` module for details.
+remain as `Datum` values of `numeric` type (for which see below). If
+`norecurse` is true, array or object values will be treated as datums
+of jsonb type, otherwise they will be recursed into.
+
+The `norecurse` option was added in version 2.0.8 and is ignored in
+earlier versions.
+
+All tables returned from a `jsonb` mapping will be tagged with
+metatables that record whether they were originally arrays or objects;
+see the `pllua.jsonb` module for details.
 
 Substitution of null values happens BEFORE the mapping function is
 called; if that's not what you want, then do the substitution
@@ -1091,6 +1098,13 @@ values from Lua data:
 
 <div class="no-dl-fudge">
 
+* `Datum` values of type `numeric` convert to json numbers
+
+* `Datum` values of other types convert to json in the same way as they
+  do in SQL; in particular, `jsonb` and `json` values are included
+  directly, and values with casts to `jsonb` have those casts
+  respected
+
 * Tables which have had the is_object or is_array metatable set (see
   below), which will convert to objects or arrays respectively (for
   arrays, any non-integer keys will be ignored)
@@ -1113,13 +1127,6 @@ values from Lua data:
 
 * Values of type `nil`, `boolean`, `number`, `string` are converted to
   corresponding json values
-
-* `Datum` values of type `numeric` convert to json numbers
-
-* `Datum` values of other types convert to json in the same way as they
-  do in SQL; in particular, `jsonb` and `json` values are included
-  directly, and values with casts to `jsonb` have those casts
-  respected
 
 * Values of other types that possess a `__tostring` metamethod are
   converted to strings
@@ -1164,6 +1171,26 @@ available via `require "pllua.jsonb"`:
     array, and return it. This is the only way to remove the metatable
     that marks the JSON type, so you may need it if you want to apply
     some other metatable instead.
+
+In addition the following functions are provided from version 2.0.8 on:
+
+  + `jsonb.pairs(val)`
+
+    Equivalent to `pairs()` but accepts only a `jsonb` Datum. Note that
+	`pairs(val)` also works in this case.
+
+    If the JSON value is an array, then this will process the keys in
+    numerical order, identically to `jsonb.ipairs` below. This is also
+    true for `pairs(val)` on a `jsonb` Datum, even though it's not
+    true for Lua tables.
+
+  + `jsonb.ipairs(val)`
+
+    Roughly equivalent to what `ipairs()` would do, accepting a
+    `jsonb` value that must be an array. Does not stop on null values,
+	and the first index returned is index 0.
+
+    Note that `ipairs(val)` does not work on `jsonb` Datums.
 
 
 `pllua.paths`

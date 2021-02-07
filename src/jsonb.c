@@ -203,14 +203,15 @@ pllua_jsonb_from_datum(lua_State *L, JsonbValue *pval,
 
 /*
  * Called with the scalar value on top of the stack, which it is allowed to
- * change if need be
+ * change if need be.
  *
- * Must fill in the JsonbValue with data allocated in tmpcxt.
+ * Must fill in the JsonbValue with data allocated in tmpcxt, or return false
+ * to treat the value as a container instead.
  *
  * Upvalue 2 is the typeinfo pgtype.numeric.
  *
  */
-static void
+static bool
 pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 {
 	pllua_typeinfo *dt;
@@ -220,11 +221,11 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 	{
 		case LUA_TNIL:
 			pval->type = jbvNull;
-			return;
+			return true;
 		case LUA_TBOOLEAN:
 			pval->type = jbvBool;
 			pval->val.boolean = lua_toboolean(L, -1);
-			return;
+			return true;
 		case LUA_TNUMBER:
 			/* must convert to numeric */
 			lua_pushvalue(L, lua_upvalueindex(3));
@@ -243,7 +244,7 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 					MemoryContextSwitchTo(oldcontext);
 				}
 				PLLUA_CATCH_RETHROW();
-				return;
+				return true;
 			}
 			else if ((d = pllua_toanydatum(L, -1, &dt)))
 			{
@@ -257,8 +258,10 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 				}
 				PLLUA_CATCH_RETHROW();
 				lua_pop(L, 2);
-				return;
+				return true;
 			}
+			if (pllua_is_container(L, -1))
+				return false;
 			if (luaL_getmetafield(L, -1, "__tostring") == LUA_TNIL)
 				luaL_error(L, "cannot serialize userdata which lacks both __pairs and __tostring");
 			lua_insert(L, -2);
@@ -281,9 +284,12 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 				MemoryContextSwitchTo(oldcontext);
 			}
 			PLLUA_CATCH_RETHROW();
-			return;
+			return true;
+		case LUA_TTABLE:
+			return false;
 		default:
 			luaL_error(L, "cannot serialize scalar value of type %s", luaL_typename(L, -1));
+			return true;
 	}
 }
 
@@ -376,18 +382,17 @@ pllua_jsonb_tosql(lua_State *L)
 		lua_replace(L, 1);
 	}
 
-	if (!pllua_is_container(L, 1))
+	/* note that here, we don't want to treat a jsonb value as a container,
+	 * even though it is */
+
+	lua_pushvalue(L, 1);
+
+	if (pllua_jsonb_toscalar(L, &curval, tmpcxt))
 	{
-		JsonbValue sval;
-
-		lua_pushvalue(L, 1);
-
-		pllua_jsonb_toscalar(L, &sval, tmpcxt);
-
 		PLLUA_TRY();
 		{
 			MemoryContext oldcontext = MemoryContextSwitchTo(tmpcxt);
-			datum = PointerGetDatum(JsonbValueToJsonb(&sval));
+			datum = PointerGetDatum(JsonbValueToJsonb(&curval));
 			MemoryContextSwitchTo(oldcontext);
 		}
 		PLLUA_CATCH_RETHROW();
@@ -396,8 +401,6 @@ pllua_jsonb_tosql(lua_State *L)
 	{
 		JsonbIteratorToken tok;
 		int depth = 1;
-
-		lua_pushvalue(L, 1);
 
 		tok = pllua_jsonb_pushkeys(L, empty_object, array_thresh, array_frac);
 		/* stack: ... value=newcontainer newkeylist newprevkey newindex */
@@ -509,17 +512,16 @@ pllua_jsonb_tosql(lua_State *L)
 					lua_call(L, 1, 1);
 				}
 
-				if (pllua_is_container(L, -1))
+				if (pllua_jsonb_toscalar(L, &curval, tmpcxt))
+				{
+					pval = &curval;
+				}
+				else
 				{
 					tok = pllua_jsonb_pushkeys(L, empty_object, array_thresh, array_frac);
 					/* stack: ... value=newcontainer newkeylist newprevkey newindex */
 					luaL_checkstack(L, 20, NULL);
 					++depth;
-				}
-				else
-				{
-					pval = &curval;
-					pllua_jsonb_toscalar(L, pval, tmpcxt);
 				}
 
 				PLLUA_TRY();
@@ -569,6 +571,7 @@ pllua_jsonb_map(lua_State *L)
 	int nullvalue;
 	bool keep_numeric = false;
 	bool noresult = false;
+	bool norecurse = false;
 	Jsonb	   *volatile jb;
 	JsonbIterator *it;
 	JsonbIteratorToken r;
@@ -593,6 +596,10 @@ pllua_jsonb_map(lua_State *L)
 			if (lua_getfield(L, 2, "discard") &&
 				lua_toboolean(L, -1))
 				noresult = true;
+			lua_pop(L, 1);
+			if (lua_getfield(L, 2, "norecurse") &&
+				lua_toboolean(L, -1))
+				norecurse = true;
 			lua_pop(L, 1);
 			if (lua_getfield(L, 2, "pg_numeric") &&
 				lua_toboolean(L, -1))
@@ -634,6 +641,17 @@ pllua_jsonb_map(lua_State *L)
 		int patht_len = 0;
 		int i = 0;
 		bool is_scalar = (JB_ROOT_IS_SCALAR(jb)) ? true : false;
+		bool notfirst = false;
+		MemoryContext tmpcxt;
+		int tmpcxt_idx;
+
+		if (norecurse)
+		{
+			tmpcxt = pllua_newmemcontext(L, "jsonb map temp context",
+										 ALLOCSET_START_SMALL_SIZES);
+			tmpcxt_idx = lua_absindex(L, -1);
+			lua_toclose(L, tmpcxt_idx);
+		}
 
 		PLLUA_TRY();
 		{
@@ -654,11 +672,13 @@ pllua_jsonb_map(lua_State *L)
 
 			PLLUA_TRY();
 			{
-				vr = JsonbIteratorNext(&it, &v, false);
+				/* skip subobjects if not recursing, except on first call */
+				vr = JsonbIteratorNext(&it, &v, notfirst && norecurse);
 			}
 			PLLUA_CATCH_RETHROW();
 
 			r = vr;
+			notfirst = true;
 
 			if (r == WJB_DONE)
 				break;
@@ -724,6 +744,22 @@ pllua_jsonb_map(lua_State *L)
 					else if (v.type == jbvString)
 					{
 						lua_pushlstring(L, v.val.string.val, v.val.string.len);
+					}
+					else
+					{
+						volatile Datum d;
+
+						PLLUA_TRY();
+						{
+							MemoryContext oldcxt = MemoryContextSwitchTo(tmpcxt);
+							Assert(norecurse);
+							MemoryContextReset(tmpcxt);
+							d = PointerGetDatum(JsonbValueToJsonb(&v));
+							MemoryContextSwitchTo(oldcxt);
+						}
+						PLLUA_CATCH_RETHROW();
+
+						pllua_datum_single(L, d, false, lua_upvalueindex(2), t);
 					}
 					if (r == WJB_KEY)
 					{
@@ -810,6 +846,9 @@ pllua_jsonb_map(lua_State *L)
 					luaL_error(L, "unexpected return from jsonb iterator");
 			}
 		}
+
+		if (norecurse)
+			pllua_closevar(L, tmpcxt_idx);
 	}
 
 	PLLUA_TRY();
@@ -822,8 +861,230 @@ pllua_jsonb_map(lua_State *L)
 	return noresult ? 0 : 1;
 }
 
+
+struct jsonb_pairs_state
+{
+	JsonbIterator *it;
+	Jsonb *jb;
+	lua_Integer index;
+	bool is_ipairs;
+	MemoryContext mcxt;
+	MemoryContext tmpcxt;
+};
+
+/*
+ * upvalues:
+ *   1 = lightudata ptr to state
+ *   2 = jsonb typeinfo
+ *   3 = numeric typeinfo
+ *   4 = original datum
+ */
+static int
+pllua_jsonb_pairs_next(lua_State *L)
+{
+	pllua_typeinfo *numt = *pllua_torefobject(L, lua_upvalueindex(3), PLLUA_TYPEINFO_OBJECT);
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
+	struct jsonb_pairs_state *statep = lua_touserdata(L, lua_upvalueindex(1));
+	volatile JsonbIteratorToken vr;
+	volatile Datum d;
+	Jsonb *jb = statep->jb;
+	JsonbValue vk;
+	JsonbValue vv;
+	bool root_scalar = false;
+
+	PLLUA_CHECK_PG_STACK_DEPTH();
+
+	/* initial call? */
+	if (statep->it == NULL)
+	{
+		if (JB_ROOT_COUNT(jb) == 0)
+			goto end;
+
+		if (statep->is_ipairs && (!JB_ROOT_IS_ARRAY(jb) || JB_ROOT_IS_SCALAR(jb)))
+			luaL_error(L, "argument of jsonb ipairs must be a jsonb array");
+
+		if (JB_ROOT_IS_SCALAR(jb))
+			root_scalar = true;
+
+		PLLUA_TRY();
+		{
+			MemoryContext oldcxt = MemoryContextSwitchTo(statep->mcxt);
+			statep->it = JsonbIteratorInit(&jb->root);
+			vr = JsonbIteratorNext(&statep->it, &vv, false);
+			Assert(vr != WJB_VALUE);
+			MemoryContextSwitchTo(oldcxt);
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+	else
+	{
+		PLLUA_TRY();
+		{
+			MemoryContext oldcxt = MemoryContextSwitchTo(statep->mcxt);
+			vr = JsonbIteratorNext(&statep->it, &vv, true);
+			Assert(vr != WJB_VALUE);
+			MemoryContextSwitchTo(oldcxt);
+			MemoryContextReset(statep->tmpcxt);
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+
+	for (;;)
+	{
+		switch (vr)
+		{
+			case WJB_DONE:
+				goto end;
+
+			case WJB_BEGIN_ARRAY:
+			case WJB_BEGIN_OBJECT:
+			case WJB_END_ARRAY:
+			case WJB_END_OBJECT:
+				PLLUA_TRY();
+				{
+					MemoryContext oldcxt = MemoryContextSwitchTo(statep->mcxt);
+					vr = JsonbIteratorNext(&statep->it, &vv, true);
+					Assert(vr != WJB_VALUE);
+					MemoryContextSwitchTo(oldcxt);
+				}
+				PLLUA_CATCH_RETHROW();
+				continue;
+
+			case WJB_VALUE:
+				/* shouldn't happen */
+				goto end;
+
+			case WJB_KEY:
+				if (vv.type != jbvString)
+					luaL_error(L, "unexpected type for jsonb key");
+				vk = vv;
+				PLLUA_TRY();
+				{
+					MemoryContext oldcxt = MemoryContextSwitchTo(statep->mcxt);
+					vr = JsonbIteratorNext(&statep->it, &vv, true);
+					Assert(vr == WJB_VALUE);
+					MemoryContextSwitchTo(oldcxt);
+				}
+				PLLUA_CATCH_RETHROW();
+				/* FALLTHROUGH */
+			case WJB_ELEM:
+				if (vr == WJB_VALUE)
+					lua_pushlstring(L, vk.val.string.val, vk.val.string.len);
+				else if (root_scalar)
+					lua_pushboolean(L, true);
+				else
+					lua_pushinteger(L, statep->index++);
+
+				if (vv.type == jbvNull)
+				{
+					lua_pushnil(L);
+				}
+				else if (vv.type == jbvBool)
+				{
+					lua_pushboolean(L, vv.val.boolean);
+				}
+				else if (vv.type == jbvNumeric)
+				{
+					pllua_datum_single(L, NumericGetDatum(vv.val.numeric), false, lua_upvalueindex(3), numt);
+				}
+				else if (vv.type == jbvString)
+				{
+					lua_pushlstring(L, vv.val.string.val, vv.val.string.len);
+				}
+				else
+				{
+					PLLUA_TRY();
+					{
+						MemoryContext oldcxt = MemoryContextSwitchTo(statep->tmpcxt);
+						d = PointerGetDatum(JsonbValueToJsonb(&vv));
+						MemoryContextSwitchTo(oldcxt);
+					}
+					PLLUA_CATCH_RETHROW();
+					pllua_datum_single(L, d, false, lua_upvalueindex(2), t);
+				}
+
+				return 2;
+
+			default:
+				luaL_error(L, "unexpected return from jsonb iterator");
+		}
+	}
+
+end:
+	PLLUA_TRY();
+	{
+		MemoryContextReset(statep->mcxt);
+	}
+	PLLUA_CATCH_RETHROW();
+	return 0;
+}
+
+static int
+pllua_jsonb_pairs_common(lua_State *L, bool is_ipairs)
+{
+	pllua_datum *d = pllua_checkdatum(L, 1, lua_upvalueindex(2));
+	pllua_typeinfo *t = *pllua_torefobject(L, lua_upvalueindex(2), PLLUA_TYPEINFO_OBJECT);
+	struct jsonb_pairs_state *volatile statep = NULL;
+	MemoryContext mcxt;
+
+	PLLUA_CHECK_PG_STACK_DEPTH();
+
+	lua_settop(L, 1);
+
+	if (t->typeoid != JSONBOID)
+		luaL_error(L, "datum is not of type jsonb");
+
+	/* loop context object at index 2 */
+	mcxt = pllua_newmemcontext(L, "jsonb pairs loop context",
+							   ALLOCSET_START_SMALL_SIZES);
+
+	PLLUA_TRY();
+	{
+		MemoryContext oldcxt = MemoryContextSwitchTo(mcxt);
+		struct jsonb_pairs_state *p = palloc(sizeof(struct jsonb_pairs_state));
+		p->mcxt = mcxt;
+		p->tmpcxt = AllocSetContextCreate(mcxt, "jsonb pairs temp context",
+										  ALLOCSET_START_SMALL_SIZES);
+		p->it = NULL;
+		p->index = 0;
+		p->is_ipairs = is_ipairs;
+		/*
+		 * This can detoast, but only will for a value coming from a row (hence
+		 * a child datum) that has a short header or is compressed.
+		 */
+		p->jb = DatumGetJsonbP(d->value);
+		statep = p;
+		MemoryContextSwitchTo(oldcxt);
+	}
+	PLLUA_CATCH_RETHROW();
+
+	lua_pushlightuserdata(L, statep);
+	lua_pushvalue(L, lua_upvalueindex(2));
+	lua_pushvalue(L, lua_upvalueindex(3));
+	lua_pushvalue(L, 1);
+	lua_pushcclosure(L, pllua_jsonb_pairs_next, 4);
+	lua_pushnil(L);
+	lua_pushnil(L);
+	lua_pushvalue(L, 2);  /* put the loop mcxt in the close slot */
+	return 4;
+}
+
+static int
+pllua_jsonb_pairs(lua_State *L)
+{
+	return pllua_jsonb_pairs_common(L, false);
+}
+
+static int
+pllua_jsonb_ipairs(lua_State *L)
+{
+	return pllua_jsonb_pairs_common(L, true);
+}
+
+
 static luaL_Reg jsonb_meta[] = {
 	{ "__call", pllua_jsonb_map },
+	{ "__pairs", pllua_jsonb_pairs },
 	{ "tosql", pllua_jsonb_tosql },
 	{ NULL, NULL }
 };
@@ -898,6 +1159,8 @@ static luaL_Reg jsonb_funcs[] = {
 	{ "set_as_object", pllua_jsonb_table_set_object },
 	{ "set_as_array", pllua_jsonb_table_set_array },
 	{ "set_as_unknown", pllua_jsonb_table_set_unknown },
+	{ "pairs", pllua_jsonb_pairs },
+	{ "ipairs", pllua_jsonb_ipairs },
 	{ NULL, NULL }
 };
 
@@ -941,18 +1204,20 @@ int pllua_open_jsonb(lua_State *L)
 	lua_setfield(L, 1, "object_mt");
 
 	lua_newtable(L);  /* module table at index 2 */
-
-	lua_pushvalue(L, 1);
-	lua_getfield(L, 1, "jsonb_type");
-	luaL_setfuncs(L, jsonb_funcs, 2);
-
 	lua_getfield(L, 1, "jsonb_type");	/* jsonb typeinfo at index 3 */
-	lua_getuservalue(L, -1);  /* datum metatable at index 4 */
+	lua_getfield(L, 1, "numeric_type");  /* numeric's typeinfo at index 4 */
+
+	lua_pushvalue(L, 2);
+	lua_pushvalue(L, 1);
+	lua_pushvalue(L, 3);
+	lua_pushvalue(L, 4);
+	luaL_setfuncs(L, jsonb_funcs, 3);
+
+	lua_getuservalue(L, 3);  /* datum metatable */
 
 	lua_pushvalue(L, 1);  /* first upvalue for jsonb metamethods */
 	lua_pushvalue(L, 3);  /* second upvalue for jsonb metamethods */
-	lua_getfield(L, 1, "numeric_type");  /* third upvalue is numeric's typeinfo */
-
+	lua_pushvalue(L, 4);  /* third upvalue for jsonb metamethods */
 	luaL_setfuncs(L, jsonb_meta, 3);
 
 	lua_pushvalue(L, 2);

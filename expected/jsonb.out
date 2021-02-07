@@ -33,6 +33,15 @@ How to circles mensurate.
   f = pgtype.jsonb(a, { empty_object = true })
   print(f)
 
+  for k,v in pairs(b) do
+    print(k,type(v),v)
+    if k == "mixed" then
+      for k2,v2 in pairs(v) do print("",k2,type(v2),v2) end
+    end
+  end
+
+  b { map = print, norecurse = true, pg_numeric = true, discard = true }
+
   spi.execute([[ create temp table jt1 as select $1 as a ]], b)
 
 $$;
@@ -41,6 +50,59 @@ INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now
 INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": [], "mixed": [null, null, 123, "foo", null, "true", "false", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"], "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [[], []], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
 INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": [], "mixed": {"3": 123, "4": "foo", "6": true, "7": false, "23": "fred"}, "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [[], []], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
 INFO:  {"foo": "If this were real data, it would make more sense.", "piem": "Now I, even I, would celebrate\nIn rhymes unapt the great\nImmortal Syracusan rivaled nevermore,\nWho in his wondrous lore,\nPassed on before,\nLeft men his guidance\nHow to circles mensurate.\n", "empty": {}, "mixed": [null, null, 123, "foo", null, true, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"], "names": ["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"], "empty2": [{}, {}], "nested": ["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}], "json_test": "This is only a test."}
+INFO:  foo	string	If this were real data, it would make more sense.
+INFO:  piem	string	Now I, even I, would celebrate
+In rhymes unapt the great
+Immortal Syracusan rivaled nevermore,
+Who in his wondrous lore,
+Passed on before,
+Left men his guidance
+How to circles mensurate.
+
+INFO:  empty	userdata	[]
+INFO:  mixed	userdata	[null, null, 123, "foo", null, true, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"]
+INFO:  	0	nil	nil
+INFO:  	1	nil	nil
+INFO:  	2	userdata	123
+INFO:  	3	string	foo
+INFO:  	4	nil	nil
+INFO:  	5	boolean	true
+INFO:  	6	boolean	false
+INFO:  	7	nil	nil
+INFO:  	8	nil	nil
+INFO:  	9	nil	nil
+INFO:  	10	nil	nil
+INFO:  	11	nil	nil
+INFO:  	12	nil	nil
+INFO:  	13	nil	nil
+INFO:  	14	nil	nil
+INFO:  	15	nil	nil
+INFO:  	16	nil	nil
+INFO:  	17	nil	nil
+INFO:  	18	nil	nil
+INFO:  	19	nil	nil
+INFO:  	20	nil	nil
+INFO:  	21	nil	nil
+INFO:  	22	string	fred
+INFO:  names	userdata	["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"]
+INFO:  empty2	userdata	[[], []]
+INFO:  nested	userdata	["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}]
+INFO:  json_test	string	This is only a test.
+INFO:  foo	If this were real data, it would make more sense.
+INFO:  piem	Now I, even I, would celebrate
+In rhymes unapt the great
+Immortal Syracusan rivaled nevermore,
+Who in his wondrous lore,
+Passed on before,
+Left men his guidance
+How to circles mensurate.
+
+INFO:  empty	[]
+INFO:  mixed	[null, null, 123, "foo", null, true, false, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "fred"]
+INFO:  names	["Dougal", "Florence", "Ermintrude", "Zebedee", "Brian", "Dylan"]
+INFO:  empty2	[[], []]
+INFO:  nested	["arrayelem", {"subobject": {"subarray": [[[123]]]}, "object key": "object val"}]
+INFO:  json_test	This is only a test.
 select a, pg_typeof(a) from jt1;
                                                                                                                                                                                                                                                                                                                                          a                                                                                                                                                                                                                                                                                                                                         | pg_typeof 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------
