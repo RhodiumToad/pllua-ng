@@ -1081,6 +1081,46 @@ pllua_jsonb_ipairs(lua_State *L)
 	return pllua_jsonb_pairs_common(L, true);
 }
 
+static int
+pllua_jsonb_type(lua_State *L)
+{
+	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(2));
+	const char *typ = NULL;
+
+	if (d)
+	{
+		PLLUA_TRY();
+		{
+			JsonbValue	scalar;
+			JsonbContainer *jbc;
+			Jsonb *jb;
+
+			/*
+			 * This can detoast, but only will for a value coming from a row (hence
+			 * a child datum) that has a short header or is compressed.
+			 */
+			jb = DatumGetJsonbP(d->value);
+			jbc = &jb->root;
+
+			if (JsonbExtractScalar(jbc, &scalar))
+				typ = JsonbTypeName(&scalar);
+			else if (JsonContainerIsArray(jbc))
+				typ = "array";
+			else if (JsonContainerIsObject(jbc))
+				typ = "object";
+			else
+				elog(ERROR, "invalid jsonb container type: 0x%08x", jbc->header);
+
+			if ((Pointer)jb != DatumGetPointer(d->value))
+				pfree(jb);
+		}
+		PLLUA_CATCH_RETHROW();
+	}
+
+	lua_pushstring(L, typ);
+	return 1;
+}
+
 
 static luaL_Reg jsonb_meta[] = {
 	{ "__call", pllua_jsonb_map },
@@ -1161,6 +1201,7 @@ static luaL_Reg jsonb_funcs[] = {
 	{ "set_as_unknown", pllua_jsonb_table_set_unknown },
 	{ "pairs", pllua_jsonb_pairs },
 	{ "ipairs", pllua_jsonb_ipairs },
+	{ "type", pllua_jsonb_type },
 	{ NULL, NULL }
 };
 

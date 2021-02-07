@@ -1192,6 +1192,13 @@ In addition the following functions are provided from version 2.0.8 on:
 
     Note that `ipairs(val)` does not work on `jsonb` Datums.
 
+  + `jsonb.type(val)`
+
+    Returns the type of the top-level value within `val`, or nil if it
+    is not of `jsonb` type. The type name will be one of the strings
+    `"array"`, `"object"`, `"null"`, `"number"`, `"string"`,
+    `"boolean"`.
+
 
 `pllua.paths`
 -----------

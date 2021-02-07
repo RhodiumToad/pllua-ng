@@ -66,9 +66,10 @@ insert into jt2(a) values ('{"1":"foo", "2":[false,true], "foo":{}}');
 insert into jt2(a) values ('{"1":"foo", "2":[false,true]}');
 
 do language pllua $$
+  local jsonb = require 'pllua.jsonb'
   s = spi.prepare([[ select a from jt2 order by id ]])
   for r in s:rows() do
-    print(r.a)
+    print(r.a, jsonb.type(r.a))
     b = r.a(function(k,v,...)
               if type(v)~="table" then
 	        print("mapfunc",type(k),k,v,...)
@@ -86,11 +87,12 @@ create temp table jt3(id integer, a jsonb);
 -- then a couple with external toast
 insert into jt3 select i, ('[' || repeat('"foo",',10*(10^i)::integer) || i || ']')::jsonb from generate_series(1,5) i;
 do language pllua $$
+  local jsonb = require 'pllua.jsonb'
   s = spi.prepare([[ select a from jt3 where id = $1 ]])
   for i = 1,5 do
     local r = (s:execute(i))[1]
     local a = r.a()
-    print(#a,a[#a])
+    print(jsonb.type(r.a),#a,a[#a])
   end
 $$;
 

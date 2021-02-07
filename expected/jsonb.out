@@ -123,9 +123,10 @@ insert into jt2(a) values ('[{"foo":"bar"},{"baz":"foo"},123,null]');
 insert into jt2(a) values ('{"1":"foo", "2":[false,true], "foo":{}}');
 insert into jt2(a) values ('{"1":"foo", "2":[false,true]}');
 do language pllua $$
+  local jsonb = require 'pllua.jsonb'
   s = spi.prepare([[ select a from jt2 order by id ]])
   for r in s:rows() do
-    print(r.a)
+    print(r.a, jsonb.type(r.a))
     b = r.a(function(k,v,...)
               if type(v)~="table" then
 	        print("mapfunc",type(k),k,v,...)
@@ -137,40 +138,40 @@ do language pllua $$
     print(type(b))
   end
 $$;
-INFO:  1
+INFO:  1	number
 INFO:  mapfunc	nil	nil	1
 INFO:  number
-INFO:  "foo"
+INFO:  "foo"	string
 INFO:  mapfunc	nil	nil	foo
 INFO:  string
-INFO:  true
+INFO:  true	boolean
 INFO:  mapfunc	nil	nil	true
 INFO:  boolean
-INFO:  null
+INFO:  null	null
 INFO:  mapfunc	nil	nil	nil
 INFO:  nil
-INFO:  {"foo": 123}
+INFO:  {"foo": 123}	object
 INFO:  mapfunc	string	foo	123
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  {"foo": null}
+INFO:  {"foo": null}	object
 INFO:  mapfunc	string	foo	nil
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  [10, 20, 30]
+INFO:  [10, 20, 30]	array
 INFO:  mapfunc	number	0	10
 INFO:  mapfunc	number	1	20
 INFO:  mapfunc	number	2	30
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  {"foo": [2, 4, 6]}
+INFO:  {"foo": [2, 4, 6]}	object
 INFO:  mapfunc	number	0	2	foo
 INFO:  mapfunc	number	1	4	foo
 INFO:  mapfunc	number	2	6	foo
 INFO:  mapfunc	string	foo	table
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  [{"foo": "bar"}, {"baz": "foo"}, 123, null]
+INFO:  [{"foo": "bar"}, {"baz": "foo"}, 123, null]	array
 INFO:  mapfunc	string	foo	bar	0
 INFO:  mapfunc	number	0	table
 INFO:  mapfunc	string	baz	foo	1
@@ -179,7 +180,7 @@ INFO:  mapfunc	number	2	123
 INFO:  mapfunc	number	3	nil
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  {"1": "foo", "2": [false, true], "foo": {}}
+INFO:  {"1": "foo", "2": [false, true], "foo": {}}	object
 INFO:  mapfunc	string	1	foo
 INFO:  mapfunc	number	0	false	2
 INFO:  mapfunc	number	1	true	2
@@ -187,7 +188,7 @@ INFO:  mapfunc	string	2	table
 INFO:  mapfunc	string	foo	table
 INFO:  mapfunc	nil	nil	table
 INFO:  table
-INFO:  {"1": "foo", "2": [false, true]}
+INFO:  {"1": "foo", "2": [false, true]}	object
 INFO:  mapfunc	string	1	foo
 INFO:  mapfunc	number	0	false	2
 INFO:  mapfunc	number	1	true	2
@@ -199,18 +200,19 @@ create temp table jt3(id integer, a jsonb);
 -- then a couple with external toast
 insert into jt3 select i, ('[' || repeat('"foo",',10*(10^i)::integer) || i || ']')::jsonb from generate_series(1,5) i;
 do language pllua $$
+  local jsonb = require 'pllua.jsonb'
   s = spi.prepare([[ select a from jt3 where id = $1 ]])
   for i = 1,5 do
     local r = (s:execute(i))[1]
     local a = r.a()
-    print(#a,a[#a])
+    print(jsonb.type(r.a),#a,a[#a])
   end
 $$;
-INFO:  101	1
-INFO:  1001	2
-INFO:  10001	3
-INFO:  100001	4
-INFO:  1000001	5
+INFO:  array	101	1
+INFO:  array	1001	2
+INFO:  array	10001	3
+INFO:  array	100001	4
+INFO:  array	1000001	5
 -- test jsonb in jsonb and similar paths
 do language pllua $$
   local jtst1 = pgtype.jsonb('"foo"')   -- json scalar
