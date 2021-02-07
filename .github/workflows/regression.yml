@@ -50,12 +50,18 @@ jobs:
          echo LUALIB="-L$PWD/work-lua -llua"
          echo lua_osver="$(lsb_release -rs)"
         ) >>$GITHUB_ENV
+    - name: luajit environment
+      if: contains(env.LUAV, 'LuaJIT')
+      run: |
+        (echo LUAJIT="$PWD/work-lua/src/luajit"
+         echo LUAJITC="cp"
+        ) >>$GITHUB_ENV
     - name: get cached lua build
       id: cache-lua
       uses: actions/cache@v2
       with:
         path: work-lua
-        key: ${{ runner.os }}-${{ env.lua_osver }}-000000-work-lua-${{ env.LUAV }}
+        key: ${{ runner.os }}-${{ env.lua_osver }}-000001-work-lua-${{ env.LUAV }}
     - name: lua install
       if: ${{ steps.cache-lua.outputs.cache-hit != 'true' && ! contains(env.LUAV, 'LuaJIT') }}
       run: |
@@ -75,8 +81,6 @@ jobs:
         make -C work-lua/src \
           XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
           CFLAGS="-fPIC -O3" libluajit.a luajit
-        echo LUAJIT="$PWD/work-lua/src/luajit" >>$GITHUB_ENV
-        echo LUAJITC="cp" >>$GITHUB_ENV
         ln -s src/libluajit.a work-lua/liblua.a
     - name: pg user
       run: |
