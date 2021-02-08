@@ -1192,12 +1192,16 @@ In addition the following functions are provided from version 2.0.8 on:
 
     Note that `ipairs(val)` does not work on `jsonb` Datums.
 
-  + `jsonb.type(val)`
+  + `jsonb.type(val, [lax])`
 
-    Returns the type of the top-level value within `val`, or nil if it
-    is not of `jsonb` type. The type name will be one of the strings
-    `"array"`, `"object"`, `"null"`, `"number"`, `"string"`,
-    `"boolean"`.
+    Returns the type of the top-level value within `val`. The type
+    name will be one of the strings `"array"`, `"object"`, `"null"`,
+    `"number"`, `"string"`, `"boolean"`. If `lax` is supplied as a
+    true value, then the values `"null"`, `"number"`, `"string"`,
+    `"boolean"` will also be returned for plain Lua values of the
+    appropriate types, and `"number"` will be returned for Datum
+    values of `"numeric"` type; if `lax` is not given or is false,
+    then `nil` is returned for any value other than a `jsonb` datum.
 
 
 `pllua.paths`

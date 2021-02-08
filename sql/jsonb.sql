@@ -5,7 +5,7 @@
 --
 
 do language pllua $$
-
+  local jsonb = require 'pllua.jsonb'
   a = { json_test = "This is only a test.",
         foo = "If this were real data, it would make more sense.",
 	piem = [[
@@ -36,10 +36,10 @@ How to circles mensurate.
   f = pgtype.jsonb(a, { empty_object = true })
   print(f)
 
-  for k,v in pairs(b) do
-    print(k,type(v),v)
+  for k,v in pairs(f) do
+    print(k,type(v),jsonb.type(v),jsonb.type(v,true),v)
     if k == "mixed" then
-      for k2,v2 in pairs(v) do print("",k2,type(v2),v2) end
+      for k2,v2 in pairs(v) do print("",k2,type(v2),jsonb.type(v2),jsonb.type(v2,true),v2) end
     end
   end
 

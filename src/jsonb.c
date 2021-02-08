@@ -1085,7 +1085,10 @@ static int
 pllua_jsonb_type(lua_State *L)
 {
 	pllua_datum *d = pllua_todatum(L, 1, lua_upvalueindex(2));
+	bool lax = lua_toboolean(L, 2);
 	const char *typ = NULL;
+
+	luaL_checkany(L, 1);
 
 	if (d)
 	{
@@ -1146,6 +1149,22 @@ pllua_jsonb_type(lua_State *L)
 				pfree(jb);
 		}
 		PLLUA_CATCH_RETHROW();
+	}
+	else if (lax)
+	{
+		switch (lua_type(L, 1))
+		{
+			case LUA_TNIL:		typ = "null";		break;
+			case LUA_TBOOLEAN:	typ = "boolean";	break;
+			case LUA_TNUMBER:	typ = "number";		break;
+			case LUA_TSTRING:	typ = "string";		break;
+			case LUA_TUSERDATA:
+				if (pllua_todatum(L, 1, lua_upvalueindex(3)))
+					typ = "number";
+				break;
+			default:
+				break;
+		}
 	}
 
 	lua_pushstring(L, typ);
