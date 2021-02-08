@@ -53,7 +53,7 @@ pllua_jsonb_pushkeys(lua_State *L, bool empty_object, int array_thresh, int arra
 				known_object = true;
 			else
 				known_array = true;
-			/* FALLTHROUGH */
+			FALLTHROUGH; /* FALLTHROUGH */
 		default:
 			lua_pop(L, 1);
 			break;
@@ -231,7 +231,7 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 			lua_pushvalue(L, lua_upvalueindex(3));
 			lua_insert(L, -2);
 			lua_call(L, 1, 1);
-			/* FALLTHROUGH */
+			FALLTHROUGH; /* FALLTHROUGH */
 		case LUA_TUSERDATA:
 			if ((d = pllua_todatum(L, -1, lua_upvalueindex(3))))
 			{
@@ -268,7 +268,7 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 			lua_call(L, 1, 1);
 			if (lua_type(L, -1) != LUA_TSTRING)
 				luaL_error(L, "tostring on userdata object did not return a string");
-			/* FALLTHROUGH */
+			FALLTHROUGH; /* FALLTHROUGH */
 		case LUA_TSTRING:
 			PLLUA_TRY();
 			{
@@ -720,7 +720,7 @@ pllua_jsonb_map(lua_State *L)
 				case WJB_KEY:
 					if (v.type != jbvString)
 						luaL_error(L, "unexpected type for jsonb key");
-					/* fallthrough */
+					FALLTHROUGH; /* FALLTHROUGH */
 				case WJB_VALUE:
 				case WJB_ELEM:
 					if (v.type == jbvNull)
@@ -806,7 +806,7 @@ pllua_jsonb_map(lua_State *L)
 					if (is_scalar)
 						break;
 					lua_pop(L, 1);
-					/* FALLTHROUGH */
+					FALLTHROUGH; /* FALLTHROUGH */
 				case WJB_END_OBJECT:
 					/* we have stack: nil arrayval  or  ... [table] key arrayval */
 					{
@@ -966,7 +966,7 @@ pllua_jsonb_pairs_next(lua_State *L)
 					MemoryContextSwitchTo(oldcxt);
 				}
 				PLLUA_CATCH_RETHROW();
-				/* FALLTHROUGH */
+				FALLTHROUGH; /* FALLTHROUGH */
 			case WJB_ELEM:
 				if (vr == WJB_VALUE)
 					lua_pushlstring(L, vk.val.string.val, vk.val.string.len);

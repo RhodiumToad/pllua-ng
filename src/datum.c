@@ -1567,7 +1567,7 @@ static int pllua_datum_row_index(lua_State *L)
 			lua_pushvalue(L, 2);
 			if (lua_gettable(L, -2) != LUA_TNUMBER)
 				luaL_error(L, "datum has no column \"%s\"", lua_tostring(L, 2));
-			/*FALLTHROUGH*/
+			FALLTHROUGH; /*FALLTHROUGH*/
 
 		case LUA_TNUMBER:		/* column number */
 			attno = lua_tointeger(L, -1);
@@ -1616,7 +1616,7 @@ static int pllua_datum_row_newindex(lua_State *L)
 			if (lua_gettable(L, -2) != LUA_TNUMBER)
 				luaL_error(L, "datum has no column \"%s\"", lua_tostring(L, 2));
 			lua_replace(L, 2);
-			/*FALLTHROUGH*/
+			FALLTHROUGH; /*FALLTHROUGH*/
 
 		case LUA_TNUMBER:		/* column number */
 			attno = lua_tointeger(L, 2);
@@ -2620,7 +2620,7 @@ pllua_typeinfo *pllua_newtypeinfo_raw(lua_State *L, Oid oid, int32 typmod, Tuple
 					break;
 				case COERCION_PATH_ARRAYCOERCE:
 					t->coerce_typmod_element = true;
-					/*FALLTHROUGH*/
+					FALLTHROUGH; /*FALLTHROUGH*/
 				case COERCION_PATH_FUNC:
 					t->coerce_typmod = true;
 					break;
@@ -3178,7 +3178,7 @@ static int pllua_typeinfo_element(lua_State *L)
 				lua_pushvalue(L, 2);
 				if (lua_gettable(L, -2) != LUA_TNUMBER)
 					luaL_error(L, "type has no column \"%s\"", lua_tostring(L, 2));
-				/*FALLTHROUGH*/
+				FALLTHROUGH; /*FALLTHROUGH*/
 
 			case LUA_TNUMBER:		/* column number */
 				attno = lua_tointeger(L, -1);
@@ -3626,7 +3626,7 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 						values[idx] = (Datum)0;
 						isnull[idx] = true;
 					}
-					/*FALLTHROUGH*/
+					FALLTHROUGH; /*FALLTHROUGH*/
 				case COERCION_PATH_RELABELTYPE:
 					if (separate_typmod && (!isnull[idx] || !fn2->fn_strict))
 					{
@@ -5134,7 +5134,7 @@ pllua_typeconv_create(lua_State *L)
 				break;
 			case COERCION_PATH_RELABELTYPE:
 				funcid = InvalidOid;
-				/*FALLTHROUGH*/
+				FALLTHROUGH; /*FALLTHROUGH*/
 			case COERCION_PATH_FUNC:
 			case COERCION_PATH_ARRAYCOERCE:
 				lua_pushvalue(L, 1);

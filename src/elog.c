@@ -430,10 +430,10 @@ pllua_p_elog(lua_State *L)
 				break;
 			case 4:
 				e_hint = luaL_tolstring(L, 4, NULL);
-				/*FALLTHROUGH*/
+				FALLTHROUGH; /*FALLTHROUGH*/
 			case 3:
 				e_detail = luaL_tolstring(L, 3, NULL);
-				/*FALLTHROUGH*/
+				FALLTHROUGH; /*FALLTHROUGH*/
 			case 2:
 				e_message = luaL_tolstring(L, 2, NULL);
 				e_code = pllua_get_sqlstate(L, lua_upvalueindex(3),

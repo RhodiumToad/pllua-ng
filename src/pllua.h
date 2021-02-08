@@ -42,6 +42,23 @@
 #error Unsupported Lua version (only Lua 5.3+ and Luajit are supported)
 #endif
 
+/* Work around compiler issues. */
+
+#ifndef __has_attribute
+#define __has_attribute(x_) 0
+#endif
+
+#if __has_attribute(__fallthrough__)
+#define FALLTHROUGH __attribute__((__fallthrough__))
+#else
+#define FALLTHROUGH /* FALLTHROUGH */
+#endif
+
+LUA_API int   (lua_error) (lua_State *L) pg_attribute_noreturn();
+LUALIB_API int (luaL_argerror) (lua_State *L, int arg, const char *extramsg) pg_attribute_noreturn();
+LUALIB_API int (luaL_typeerror) (lua_State *L, int arg, const char *tname) pg_attribute_noreturn();
+LUALIB_API int (luaL_error) (lua_State *L, const char *fmt, ...) pg_attribute_noreturn();
+
 /*
  * Define how we want to handle int8 values.
  *

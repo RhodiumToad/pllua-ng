@@ -903,7 +903,7 @@ pllua_time_as_table(lua_State *L)
 			if (isnull)
 				luaL_error(L, "unexpected null from time_part");
 			tm.tm_gmtoff = (int) tmpflt;
-			/*FALLTHROUGH*/
+			FALLTHROUGH; /*FALLTHROUGH*/
 		case TIMEOID:
 			tmpflt = pllua_time_raw_part(L, "epoch", val, oid,
 										 (oid == TIMEOID) ? time_part : timetz_part,
