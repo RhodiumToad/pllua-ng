@@ -549,6 +549,7 @@ PGDLLEXPORT bool pllua_stack_is_too_deep(void);
 PGDLLEXPORT void pllua_stack_depth_error(void);
 
 extern bool pllua_track_gc_debt;
+extern bool pllua_do_install_globals;
 
 /*
  * This is a macro because we want to avoid executing (sz_) at all if not tracking
@@ -634,10 +635,10 @@ int pllua_panic(lua_State *L);
 int pllua_newerror(lua_State *L);
 int pllua_register_error(lua_State *L);
 void pllua_poperror(lua_State *L);
-void pllua_rethrow_from_lua(lua_State *L, int rc);
+void pllua_rethrow_from_lua(lua_State *L, int rc) pg_attribute_noreturn();
 
 /* These are DLLEXPORT so that transform modules can get at them */
-PGDLLEXPORT void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt);
+PGDLLEXPORT void pllua_rethrow_from_pg(lua_State *L, MemoryContext mcxt) pg_attribute_noreturn();
 PGDLLEXPORT int pllua_pcall_nothrow(lua_State *L, int nargs, int nresults, int msgh);
 PGDLLEXPORT int pllua_cpcall(lua_State *L, lua_CFunction func, void* arg);
 PGDLLEXPORT void pllua_pcall(lua_State *L, int nargs, int nresults, int msgh);
@@ -684,7 +685,7 @@ void **pllua_newrefobject(lua_State *L, char *objtype, void *value, bool userval
 void **pllua_torefobject(lua_State *L, int nd, char *objtype);
 void *pllua_newobject(lua_State *L, char *objtype, size_t sz, bool uservalue);
 void *pllua_toobject(lua_State *L, int nd, char *objtype);
-void pllua_type_error(lua_State *L, char *expected);
+void pllua_type_error(lua_State *L, char *expected) pg_attribute_noreturn();
 void **pllua_checkrefobject(lua_State *L, int nd, char *objtype);
 void *pllua_checkobject(lua_State *L, int nd, char *objtype);
 

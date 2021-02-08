@@ -749,7 +749,7 @@ static struct module_info sandbox_packages_early[] = {
 	{ "pllua.trusted.os",		"os",		"direct",	"os"			},
 	{ "pllua.trusted.package",	"package",	"direct",	"package"		},
 	{ "pllua.error",			NULL,		"copy",		NULL			},
-	{ NULL, NULL }
+	{ NULL, NULL, NULL, NULL }
 };
 
 static struct module_info sandbox_packages_late[] = {
@@ -759,7 +759,7 @@ static struct module_info sandbox_packages_late[] = {
 	{ "pllua.numeric",		NULL,	"copy",		NULL			},
 	{ "pllua.jsonb",		NULL,	"copy",		NULL			},
 	{ "pllua.time",			NULL,	"copy",		NULL			},
-	{ NULL, NULL }
+	{ NULL, NULL, NULL, NULL }
 };
 
 /*

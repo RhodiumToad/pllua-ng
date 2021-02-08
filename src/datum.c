@@ -870,7 +870,7 @@ void pllua_savedatum(lua_State *L,
 		nv = datumCopy(d->value, false, t->typlen);
 		d->value = nv;
 		d->need_gc = true;
-		pllua_record_gc_debt(L, t->typlen);
+		pllua_record_gc_debt(L, datumGetSize(d->value, false, t->typlen));
 		return;
 	}
 
@@ -1607,7 +1607,6 @@ static int pllua_datum_row_newindex(lua_State *L)
 	{
 		default:
 			luaL_error(L, "invalid type for key field");
-			return 0;
 
 		case LUA_TSTRING:
 			pllua_datum_getattrs(L, 1);
@@ -3170,7 +3169,6 @@ static int pllua_typeinfo_element(lua_State *L)
 		{
 			default:
 				luaL_argerror(L, 2, "expected string or number");
-				return 1;
 
 			case LUA_TSTRING:
 				pllua_get_user_field(L, 1, "attrs");
@@ -3526,7 +3524,7 @@ static void pllua_typeinfo_raw_coerce(lua_State *L, Datum *val, bool *isnull,
 	*isnull = fcinfo->isnull;
 }
 
-static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnull,
+static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *valnull,
 											CoercionPathType elempath,
 											int nf, Oid fnoid, int nf2, Oid fnoid2,
 											pllua_typeinfo *st,
@@ -3536,7 +3534,7 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 											int32 typmod,
 											bool is_explicit)
 {
-	if (!*isnull)
+	if (!*valnull)
 	{
 		MemoryContext mcxt = AllocSetContextCreate(CurrentMemoryContext,
 												   "pllua temporary array context",
@@ -3650,7 +3648,7 @@ static void pllua_typeinfo_raw_coerce_array(lua_State *L, Datum *val, bool *isnu
 		newarr = construct_md_array(values, isnull, ndim, dims, AARR_LBOUND(arr),
 									dt->elemtype, dt->elemtyplen, dt->elemtypbyval, dt->elemtypalign);
 		*val = PointerGetDatum(newarr);
-		*isnull = false;
+		*valnull = false;
 
 		MemoryContextDelete(mcxt);
 	}
@@ -5073,7 +5071,6 @@ pllua_typeconv_error(lua_State *L)
 	luaL_error(L, "cannot cast from type %s to %s",
 			   (srcname ? srcname : "(unknown)"),
 			   (dstname ? dstname : "(unknown)"));
-	return 0;
 }
 
 /*
@@ -5190,15 +5187,6 @@ pllua_typeconv_create(lua_State *L)
 				else
 					lua_pushvalue(L, 2);
 				lua_pushcclosure(L, pllua_typeconv_scalar_coerce_via_io, 3);
-				return 1;
-
-				lua_pushvalue(L, 1);
-				lua_pushvalue(L, 2);
-				if (!typmod_arg && dst_t->basetypmod >= 0)
-					pllua_pgfunc_new(L);
-				else
-					lua_pushnil(L);
-				lua_pushcclosure(L, pllua_typeconv_array_coerce, 5);
 				return 1;
 		}
 	}

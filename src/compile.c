@@ -720,7 +720,7 @@ pllua_acceptable_pseudotype(lua_State *L,
 static bool
 pllua_acceptable_name(lua_State *L, const char *name)
 {
-	unsigned char *p = (unsigned char *) name;
+	const unsigned char *p = (const unsigned char *) name;
 	unsigned char c;
 	if (!name)
 		return false;

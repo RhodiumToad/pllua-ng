@@ -324,12 +324,12 @@ pllua_time_tosql(lua_State *L)
 	tm.tm_isdst = -1;
 
 #define TMGET(name_,fname_) \
-	if (lua_getfield(L, 1, name_) != LUA_TNIL) \
+	do { if (lua_getfield(L, 1, name_) != LUA_TNIL) \
 	{ \
 		getnumber(L, -1, &tmpint, NULL, &inf_sign, name_); \
 		tm.tm_##fname_ = tmpint; \
 		found_##fname_ = 1; \
-	}
+	} } while (0)
 
 	TMGET("year", year);
 	TMGET("month",  mon);
@@ -361,12 +361,12 @@ pllua_time_tosql(lua_State *L)
 			if (tmpflt < 0)
 			{
 				tm.tm_sec = -((int) fisec + 1);
-				microsecs = 1000000 - (int) rint(frac * 1000000.0);
+				microsecs = 1000000 - (int) lrint(frac * 1000000.0);
 			}
 			else
 			{
 				tm.tm_sec = (int) fisec;
-				microsecs = (int) rint(frac * 1000000.0);
+				microsecs = (int) lrint(frac * 1000000.0);
 			}
 		}
 		else
@@ -382,14 +382,14 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "msec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "msec"))
-			microsecs += (int64) rint(tmpflt * 1000.0);
+			microsecs += (int64) lrint(tmpflt * 1000.0);
 		else
 			microsecs += (tmpint * INT64CONST(1000));
 	}
 	if (lua_getfield(L, 1, "usec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "usec"))
-			microsecs += (int64) rint(tmpflt);
+			microsecs += (int64) lrint(tmpflt);
 		else
 			microsecs += tmpint;
 	}
@@ -405,7 +405,7 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "epoch") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "epoch"))
-			epoch_microsecs = (int64) rint(tmpflt * 1000000.0);
+			epoch_microsecs = (int64) lrint(tmpflt * 1000000.0);
 		else
 			epoch_microsecs = tmpint * INT64CONST(1000000);
 		++found_epoch;
@@ -413,7 +413,7 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "epoch_msec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "epoch_msec"))
-			epoch_microsecs = (int64) rint(tmpflt * 1000.0);
+			epoch_microsecs = (int64) lrint(tmpflt * 1000.0);
 		else
 			epoch_microsecs = tmpint * INT64CONST(1000);
 		++found_epoch;
@@ -421,7 +421,7 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "epoch_usec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "epoch_usec"))
-			epoch_microsecs = (int64) rint(tmpflt);
+			epoch_microsecs = (int64) lrint(tmpflt);
 		else
 			epoch_microsecs = tmpint;
 		++found_epoch;
@@ -441,12 +441,12 @@ pllua_time_tosql(lua_State *L)
 
 		case LUA_TSTRING:
 			{
-				int tz = 0;
+				int tzoff = 0;
 				found_tz = 1;
 				tzname = lua_tostring(L, -1);
-				if (tzname && DecodeTimezone((char *) tzname, &tz) == 0)
+				if (tzname && DecodeTimezone((char *) tzname, &tzoff) == 0)
 				{
-					gmtoff = -tz;
+					gmtoff = -tzoff;
 					found_gmtoff = 1;
 				}
 			}
@@ -822,12 +822,12 @@ pllua_time_as_table(lua_State *L)
 
 			case LUA_TSTRING:
 				{
-					int tz = 0;
+					int tzoff = 0;
 					found_tz = 1;
 					tzname = lua_tostring(L, -1);
-					if (tzname && DecodeTimezone((char *) tzname, &tz) == 0)
+					if (tzname && DecodeTimezone((char *) tzname, &tzoff) == 0)
 					{
-						gmtoff = -tz;
+						gmtoff = -tzoff;
 						found_gmtoff = 1;
 					}
 				}
@@ -841,7 +841,6 @@ pllua_time_as_table(lua_State *L)
 	}
 	else if (!lua_isnil(L, 2))
 		luaL_error(L, "cannot specify timezone parameter for this type");
-
 
 	switch (oid)
 	{
@@ -911,7 +910,7 @@ pllua_time_as_table(lua_State *L)
 			if (isnull)
 				luaL_error(L, "unexpected null from time_part");
 			tmpflt += tm.tm_gmtoff;
-			microsecs = (int64) rint(1000000.0 * modf(tmpflt, &tmpflt2));
+			microsecs = (int64) lrint(1000000.0 * modf(tmpflt, &tmpflt2));
 			tmpint = (int) tmpflt2;
 			tm.tm_sec = (tmpint % 60);
 			tm.tm_min = ((tmpint / 60) % 60);
@@ -936,7 +935,7 @@ pllua_time_as_table(lua_State *L)
 
 	lua_createtable(L, 0, 10);
 
-	if (epoch_flt)
+	if (epoch_flt != 0.0)
 	{
 		lua_pushnumber(L, epoch_flt);
 		lua_setfield(L, -2, "epoch");
@@ -1008,7 +1007,6 @@ pllua_time_part(lua_State *L, pllua_datum *d, Oid oid, const char *opart)
 		case INTERVALOID:		func = interval_part; break;
 		default:
 			luaL_error(L, "unknown datetime type");
-			return 0; /* keep compiler happy */
 	}
 
 	res = pllua_time_raw_part(L, part, d->value, oid, func, &isnull);
@@ -1024,18 +1022,18 @@ pllua_time_part(lua_State *L, pllua_datum *d, Oid oid, const char *opart)
 		else if (strcmp(opart, "epoch_usec") == 0)
 		{
 #ifdef PLLUA_INT8_OK
-			lua_pushinteger(L, (int64) rint(res * 1000000.0));
+			lua_pushinteger(L, (int64) lrint(res * 1000000.0));
 #else
 			lua_pushnumber(L, rint(res * 1000000.0));
 #endif
 		}
 		else
-			lua_pushinteger(L, (lua_Integer) rint(res));
+			lua_pushinteger(L, (lua_Integer) lrint(res));
 	}
 	else if (strcmp(part,"epoch") == 0 || strcmp(part,"second") == 0)
 		lua_pushnumber(L, res);
 	else
-		lua_pushinteger(L, (lua_Integer) rint(res));
+		lua_pushinteger(L, (lua_Integer) lrint(res));
 
 	return 1;
 }

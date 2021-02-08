@@ -238,7 +238,7 @@ pllua_run_extra_gc(lua_State *L, unsigned long gc_debt)
 	if (pllua_gc_multiplier == 0.0)
 		return;
 
-	val = (gc_debt / 1024.0);
+	val = gc_debt / 1024;
 	if (val < pllua_gc_threshold)
 		return;
 	if (pllua_gc_multiplier > 999999.0)

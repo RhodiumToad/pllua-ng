@@ -1486,7 +1486,7 @@ int pllua_open_error(lua_State *L)
 	 * table (with the possibility of error) while actually doing error
 	 * handling.
 	 */
-	for (i = 0; i < sizeof(refs)/sizeof(int); ++i)
+	for (i = 0; i < (int)(sizeof(refs)/sizeof(int)); ++i)
 	{
 		lua_pushboolean(L, 1);
 		refs[i] = luaL_ref(L, LUA_REGISTRYINDEX);

@@ -235,12 +235,12 @@ pllua_jsonb_toscalar(lua_State *L, JsonbValue *pval, MemoryContext tmpcxt)
 		case LUA_TUSERDATA:
 			if ((d = pllua_todatum(L, -1, lua_upvalueindex(3))))
 			{
-				pllua_typeinfo *dt = *pllua_torefobject(L, lua_upvalueindex(3), PLLUA_TYPEINFO_OBJECT);
+				pllua_typeinfo *ndt = *pllua_torefobject(L, lua_upvalueindex(3), PLLUA_TYPEINFO_OBJECT);
 				pval->type = jbvNumeric;
 				PLLUA_TRY();
 				{
 					MemoryContext oldcontext = MemoryContextSwitchTo(tmpcxt);
-					pval->val.numeric = DatumGetNumeric(datumCopy(d->value, dt->typbyval, dt->typlen));
+					pval->val.numeric = DatumGetNumeric(datumCopy(d->value, ndt->typbyval, ndt->typlen));
 					MemoryContextSwitchTo(oldcontext);
 				}
 				PLLUA_CATCH_RETHROW();
@@ -747,23 +747,23 @@ pllua_jsonb_map(lua_State *L)
 					}
 					else
 					{
-						volatile Datum d;
+						volatile Datum vd;
 
 						PLLUA_TRY();
 						{
 							MemoryContext oldcxt = MemoryContextSwitchTo(tmpcxt);
 							Assert(norecurse);
 							MemoryContextReset(tmpcxt);
-							d = PointerGetDatum(JsonbValueToJsonb(&v));
+							vd = PointerGetDatum(JsonbValueToJsonb(&v));
 							MemoryContextSwitchTo(oldcxt);
 						}
 						PLLUA_CATCH_RETHROW();
 
-						pllua_datum_single(L, d, false, lua_upvalueindex(2), t);
+						pllua_datum_single(L, vd, false, lua_upvalueindex(2), t);
 					}
 					if (r == WJB_KEY)
 					{
-						/* leave on stack */;
+						/* leave on stack */
 					}
 					else if (r == WJB_VALUE)
 					{

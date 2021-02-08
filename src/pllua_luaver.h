@@ -32,9 +32,9 @@
 #else
 
 #define pllua_pushcfunction(L_,f_) do {					\
-		int rc PG_USED_FOR_ASSERTS_ONLY;				\
-		rc = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_));	\
-		Assert(rc==LUA_TFUNCTION); } while(0)
+		int rc_ PG_USED_FOR_ASSERTS_ONLY;				\
+		rc_ = lua_rawgetp((L_),LUA_REGISTRYINDEX,(f_));	\
+		Assert(rc_==LUA_TFUNCTION); } while(0)
 
 #endif
 

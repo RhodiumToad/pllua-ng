@@ -841,7 +841,7 @@ static FetchDirection pllua_spi_cursor_direction(lua_State *L, int nd)
 		case 'p': if (strcmp(str, "prior") == 0) return FETCH_BACKWARD; else break;
 		case 'n': if (strcmp(str, "next") == 0) return FETCH_FORWARD; else break;
 	}
-	return luaL_error(L, "unknown fetch direction '%s'", str);
+	luaL_error(L, "unknown fetch direction '%s'", str);
 }
 
 static int pllua_spi_cursor_fetch(lua_State *L)
