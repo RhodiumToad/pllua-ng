@@ -293,7 +293,7 @@ int pllua_value_from_datum(lua_State *L,
 			return LUA_TBOOLEAN;
 
 		case OIDOID:
-			lua_pushinteger(L, (lua_Integer) DatumGetObjectId(value));
+			pllua_pushbigint(L, (int64) DatumGetObjectId(value));
 			return LUA_TNUMBER;
 
 		case INT2OID:
@@ -444,10 +444,15 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 
 		case LUA_TNUMBER:
 			{
+#if LUA_VERSION_NUM < 503
+				float8 floatval = lua_tonumber(L, nd);
+				int64 intval = (int64) floatval;
+				int isint = ((float8)intval == floatval);
+#else
 				int isint = 0;
-				lua_Integer intval = lua_tointegerx(L, nd, &isint);
-				lua_Number floatval = lua_tonumber(L, nd);
-
+				int64 intval = lua_tointegerx(L, nd, &isint);
+				float8 floatval = lua_tonumber(L, nd);
+#endif
 				switch (typeid)
 				{
 					case FLOAT4OID:
@@ -466,7 +471,7 @@ bool pllua_datum_from_value(lua_State *L, int nd,
 						return true;
 
 					case OIDOID:
-						if (isint && intval == (lua_Integer)(Oid)intval)
+						if (isint && intval == (int64)(Oid)intval)
 							*result = ObjectIdGetDatum( (Oid)intval );
 						else
 							*errstr = "oid value out of range";

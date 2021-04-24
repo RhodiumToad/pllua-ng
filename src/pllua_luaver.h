@@ -7,6 +7,23 @@
 #define LUAJIT_VERSION_NUM 0
 #endif
 
+#ifndef PLLUA_MAX_INT_NUM
+#define PLLUA_MAX_INT_NUM LUA_MAXINTEGER
+#endif
+#ifndef PLLUA_MIN_INT_NUM
+#define PLLUA_MIN_INT_NUM LUA_MININTEGER
+#endif
+
+/*
+ * This must be able to push a value not outside PLLUA_*_INT_NUM as whatever
+ * passes for an integer in Lua.
+ */
+#if LUA_MAXINTEGER >= PLLUA_MAX_INT_NUM
+#define pllua_pushbigint(L_, v_) lua_pushinteger((L_), (lua_Integer)(v_))
+#else
+#define pllua_pushbigint(L_, v_) lua_pushnumber((L_), (lua_Number)(v_))
+#endif
+
 /*
  * We can only use 5.1 environments in a compatible way to 5.2+ uservalues if
  * we forcibly set an environment on every userdata we create.

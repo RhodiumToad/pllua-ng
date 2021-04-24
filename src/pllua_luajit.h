@@ -5,6 +5,20 @@
 
 #include <luajit.h>
 
+/*
+ * these should be the largest and smallest integers representable exactly in
+ * a lua number (note, NOT necessarily a lua_Integer); must be compile-time
+ * constant.
+ */
+#define PLLUA_MAX_INT_NUM (INT64CONST(9007199254740991))
+#define PLLUA_MIN_INT_NUM (-INT64CONST(9007199254740991))
+
+/*
+ * these must be the exact bounds of a lua_Integer.
+ */
+#define LUA_MAXINTEGER PTRDIFF_MAX
+#define LUA_MININTEGER PTRDIFF_MIN
+
 #include "pllua_luaver.h"
 
 /*
@@ -159,12 +173,6 @@ void pllua_requiref(lua_State *L, const char *modname, lua_CFunction openf, int 
 #endif
 
 #define LUA_OK 0
-/*
- * these should be the largest and smallest integers representable exactly in a
- * Lua number; must be compile-time constant
- */
-#define LUA_MAXINTEGER (INT64CONST(9007199254740991))
-#define LUA_MININTEGER (-INT64CONST(9007199254740991))
 
 #if LUAJIT_VERSION_NUM > 0 && !defined(NO_LUAJIT)
 #define LUA_TCDATA 10

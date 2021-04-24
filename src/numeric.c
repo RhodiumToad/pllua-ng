@@ -269,7 +269,7 @@ pllua_numeric_tointeger(lua_State *L)
 			Datum check = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(val));
 			if (DatumGetBool(DirectFunctionCall2(numeric_eq, d1->value, check)))
 			{
-				lua_pushinteger(L, (lua_Integer) val);  /* already range checked */
+				pllua_pushbigint(L, val);  /* already range checked */
 				res_isnil = false;
 			}
 			pfree(DatumGetPointer(check));
@@ -313,7 +313,7 @@ pllua_numeric_tonumber(lua_State *L)
 			Datum check = DirectFunctionCall1(int8_numeric, Int64GetDatumFast(val));
 			if (DatumGetBool(DirectFunctionCall2(numeric_eq, d1->value, check)))
 			{
-				lua_pushinteger(L, (lua_Integer) val);  /* already range checked */
+				pllua_pushbigint(L, val);  /* already range checked */
 				done = true;
 			}
 			pfree(DatumGetPointer(check));
@@ -402,12 +402,12 @@ int pllua_open_numeric(lua_State *L)
 	lua_pushvalue(L, 1);
 	lua_pushvalue(L, 2);
 	lua_getfield(L, 1, "to");
-	lua_pushinteger(L, LUA_MININTEGER);
+	pllua_pushbigint(L, PLLUA_MIN_INT_NUM);
 	lua_call(L, 1, 1);
 	lua_pushvalue(L, -1);
 	lua_setfield(L, 1, "mininteger");
 	lua_getfield(L, 1, "to");
-	lua_pushinteger(L, LUA_MAXINTEGER);
+	pllua_pushbigint(L, PLLUA_MAX_INT_NUM);
 	lua_call(L, 1, 1);
 	lua_pushvalue(L, -1);
 	lua_setfield(L, 1, "maxinteger");
