@@ -382,14 +382,14 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "msec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "msec"))
-			microsecs += (int64) lrint(tmpflt * 1000.0);
+			microsecs += (int64) llrint(tmpflt * 1000.0);
 		else
 			microsecs += (tmpint * INT64CONST(1000));
 	}
 	if (lua_getfield(L, 1, "usec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "usec"))
-			microsecs += (int64) lrint(tmpflt);
+			microsecs += (int64) llrint(tmpflt);
 		else
 			microsecs += tmpint;
 	}
@@ -405,7 +405,7 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "epoch") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "epoch"))
-			epoch_microsecs = (int64) lrint(tmpflt * 1000000.0);
+			epoch_microsecs = (int64) llrint(tmpflt * 1000000.0);
 		else
 			epoch_microsecs = tmpint * INT64CONST(1000000);
 		++found_epoch;
@@ -413,7 +413,7 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "epoch_msec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "epoch_msec"))
-			epoch_microsecs = (int64) lrint(tmpflt * 1000.0);
+			epoch_microsecs = (int64) llrint(tmpflt * 1000.0);
 		else
 			epoch_microsecs = tmpint * INT64CONST(1000);
 		++found_epoch;
@@ -421,7 +421,7 @@ pllua_time_tosql(lua_State *L)
 	if (lua_getfield(L, 1, "epoch_usec") != LUA_TNIL)
 	{
 		if (getnumber(L, -1, &tmpint, &tmpflt, &inf_sign, "epoch_usec"))
-			epoch_microsecs = (int64) lrint(tmpflt);
+			epoch_microsecs = (int64) llrint(tmpflt);
 		else
 			epoch_microsecs = tmpint;
 		++found_epoch;
@@ -910,7 +910,7 @@ pllua_time_as_table(lua_State *L)
 			if (isnull)
 				luaL_error(L, "unexpected null from time_part");
 			tmpflt += tm.tm_gmtoff;
-			microsecs = (int64) lrint(1000000.0 * modf(tmpflt, &tmpflt2));
+			microsecs = lrint(1000000.0 * modf(tmpflt, &tmpflt2));
 			tmpint = (int) tmpflt2;
 			tm.tm_sec = (tmpint % 60);
 			tm.tm_min = ((tmpint / 60) % 60);
@@ -1022,7 +1022,7 @@ pllua_time_part(lua_State *L, pllua_datum *d, Oid oid, const char *opart)
 		else if (strcmp(opart, "epoch_usec") == 0)
 		{
 #ifdef PLLUA_INT8_OK
-			lua_pushinteger(L, (int64) lrint(res * 1000000.0));
+			lua_pushinteger(L, (int64) llrint(res * 1000000.0));
 #else
 			lua_pushnumber(L, rint(res * 1000000.0));
 #endif
