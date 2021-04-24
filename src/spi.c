@@ -556,17 +556,20 @@ static int pllua_spi_execute_count(lua_State *L)
 	Datum *values = d_values;
 	bool *isnull = d_isnull;
 	Oid *argtypes = d_argtypes;
-	long count = luaL_optinteger(L, 2, 0);
+	lua_Integer count_param = luaL_optinteger(L, 2, 0);
+	long count;
 	volatile lua_Integer nrows = -1;
 	int i;
 
 	if (!str && !p)
 		luaL_error(L, "incorrect argument type for execute, string or statement expected");
 
-	if (count == 0)
-		count = Min(LUA_MAXINTEGER-1, LONG_MAX-1);
-	else if (count < 0 || count > LUA_MAXINTEGER-1 || count > LONG_MAX-1)
+	if (count_param == 0)
+		count = (long) Min(LUA_MAXINTEGER-1, LONG_MAX-1);
+	else if (count_param < 0 || count_param > LUA_MAXINTEGER-1 || count_param > LONG_MAX-1)
 		luaL_error(L, "requested number of rows is out of range");
+	else
+		count = (long) count_param;
 
 	if (pllua_ending)
 		luaL_error(L, "cannot call SPI during shutdown");
