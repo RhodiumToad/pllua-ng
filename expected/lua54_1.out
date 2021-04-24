@@ -33,7 +33,8 @@ do language pllua $$
     = setmetatable({}, { __close = function() error("inner error") end })
   error("outer error")
 $$;
-ERROR:  pllua: [string "DO-block"]:3: inner error
+WARNING:  pllua: error in __close metamethod ([string "DO-block"]:3: inner error)
+ERROR:  pllua: [string "DO-block"]:4: outer error
 -- db access in close method with outer lua error
 do language pllua $$
   local tc <close>
@@ -48,7 +49,8 @@ do language pllua $$
     = setmetatable({}, { __close = function() print(pgtype.numeric(0)) end })
   spi.error("outer error")
 $$;
-ERROR:  pllua: cannot call into PostgreSQL with pending errors
+WARNING:  pllua: error in __close metamethod (cannot call into PostgreSQL with pending errors)
+ERROR:  outer error
 -- close metamethod in SRF
 create function pg_temp.sf1(n integer) returns setof integer
   language pllua
