@@ -248,6 +248,17 @@ static int pllua_cursor_options(lua_State *L, int nd, int *fetch_count)
 static int pllua_spi_prepare_recursion = -1;
 static post_parse_analyze_hook_type pllua_spi_prev_parse_hook = NULL;
 
+#if PG_VERSION_NUM >= 140000
+static void pllua_spi_prepare_checkparam_hook(ParseState *pstate,
+											  Query *query,
+											  JumbleState *jstate)
+{
+	if (pllua_spi_prepare_recursion == 1)
+		check_variable_parameters(pstate, query);
+	if (pllua_spi_prev_parse_hook)
+		pllua_spi_prev_parse_hook(pstate, query, jstate);
+}
+#else
 static void pllua_spi_prepare_checkparam_hook(ParseState *pstate,
 											  Query *query)
 {
@@ -256,6 +267,7 @@ static void pllua_spi_prepare_checkparam_hook(ParseState *pstate,
 	if (pllua_spi_prev_parse_hook)
 		pllua_spi_prev_parse_hook(pstate, query);
 }
+#endif
 
 static void pllua_spi_prepare_parser_setup_hook(ParseState *pstate, void *arg)
 {
