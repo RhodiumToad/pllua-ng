@@ -18,8 +18,8 @@ jobs:
         shell: sh
     strategy:
       matrix:
-        lua: [ 5.3.6, 5.4.2, 5.4.3, LuaJIT-1e66d0f9e ]
-        pg: [ 9.5, 9.6, 10, 11, 12, 13 ]
+        lua: [ 5.3.6, 5.4.4, LuaJIT-1e66d0f9e ]
+        pg: [ 9.5, 9.6, 10, 11, 12, 13, 14, 15 ]
         pgrepo: [ "" ]
     env:
       PG:       ${{ matrix.pg }}

@@ -1,0 +1,13 @@
+--
+
+\set VERBOSITY terse
+
+--
+
+set timezone = 'GMT';
+set datestyle = 'ISO,YMD';
+
+-- errors (not worth testing many combinations, they all share a code path)
+do language pllua $$ print(pgtype.time('03:45:01.234567').dow) $$;
+
+--end

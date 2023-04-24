@@ -795,6 +795,7 @@ pllua_time_as_table(lua_State *L)
 	double tmpflt2;
 	int tmpint;
 	int64 microsecs = 0;
+	int64 long_hour = 0;
 	bool isnull;
 	const char *tzname = NULL;
 	const char *tzn = NULL;
@@ -893,6 +894,7 @@ pllua_time_as_table(lua_State *L)
 				}
 				PLLUA_CATCH_RETHROW();
 
+				long_hour = tm.tm_hour;
 				microsecs = FSEC_T_SCALE(fsec);
 			}
 			break;
@@ -914,21 +916,39 @@ pllua_time_as_table(lua_State *L)
 			tmpint = (int) tmpflt2;
 			tm.tm_sec = (tmpint % 60);
 			tm.tm_min = ((tmpint / 60) % 60);
-			tm.tm_hour = (tmpint / 3600);
+			long_hour = (tmpint / 3600);
 			omit_date = true;
 			break;
 
 		case INTERVALOID:
 			{
 				Interval *itmp = DatumGetIntervalP(val);
+
+#if PG_VERSION_NUM >= 150000
+				struct pg_itm	itm = { 0 };
+
+				/*
+				 * PG15 removes interval2tm, but fortunately interval2itm
+				 * cannot error, so we can skip the catch block.
+				 */
+				interval2itm(*itmp, &itm);
+				tm.tm_sec  = itm.tm_sec;
+				tm.tm_min  = itm.tm_min;
+				long_hour = itm.tm_hour;
+				tm.tm_mday = itm.tm_mday;
+				tm.tm_mon  = itm.tm_mon;
+				tm.tm_year = itm.tm_year;
+				microsecs = itm.tm_usec;
+#else
 				PLLUA_TRY();
 				{
 					if (interval2tm(*itmp, &tm, &fsec) != 0)
 						elog(ERROR, "interval output failed");
 				}
 				PLLUA_CATCH_RETHROW();
-
+				long_hour = tm.tm_hour;
 				microsecs = FSEC_T_SCALE(fsec);
+#endif
 			}
 			break;
 	}
@@ -953,7 +973,11 @@ pllua_time_as_table(lua_State *L)
 		}
 		if (!omit_time)
 		{
-			lua_pushinteger(L, tm.tm_hour);
+#ifdef PLLUA_INT8_OK
+			lua_pushinteger(L, long_hour);
+#else
+			lua_pushnumber(L, long_hour);
+#endif
 			lua_setfield(L, -2, "hour");
 			lua_pushinteger(L, tm.tm_min);
 			lua_setfield(L, -2, "min");

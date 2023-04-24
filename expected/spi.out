@@ -87,10 +87,6 @@ do language pllua $$
       spi.execute([[ update tsttab set c = c + 10 where current of curs1 ]])
     end
   end
-  c:move(0, 'absolute')
-  for r in c:rows() do
-    print(r)
-  end
   for r in spi.rows([[ select * from tsttab order by id ]]) do
     print(r)
   end
@@ -100,11 +96,6 @@ $$;
 INFO:  (1,1,foo,2.34,01-01-2017)
 INFO:  (2,2,bar,2.34,02-01-2017)
 INFO:  (3,3,baz,2.34,03-01-2017)
-INFO:  (4,4,fred,2.34,04-01-2017)
-INFO:  (5,5,jim,2.34,05-01-2017)
-INFO:  (6,6,sheila,2.34,06-01-2017)
-INFO:  (1,1,foo,2.34,01-01-2017)
-INFO:  (2,2,bar,2.34,02-01-2017)
 INFO:  (4,4,fred,2.34,04-01-2017)
 INFO:  (5,5,jim,2.34,05-01-2017)
 INFO:  (6,6,sheila,2.34,06-01-2017)

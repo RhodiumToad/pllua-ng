@@ -314,7 +314,4 @@ do language pllua $$
   end
 $$;
 
--- errors (not worth testing many combinations, they all share a code path)
-do language pllua $$ print(pgtype.time('03:45:01.234567').dow) $$;
-
 --end

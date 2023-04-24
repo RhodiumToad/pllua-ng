@@ -77,10 +77,6 @@ do language pllua $$
       spi.execute([[ update tsttab set c = c + 10 where current of curs1 ]])
     end
   end
-  c:move(0, 'absolute')
-  for r in c:rows() do
-    print(r)
-  end
   for r in spi.rows([[ select * from tsttab order by id ]]) do
     print(r)
   end

@@ -6,6 +6,7 @@ test: arrays
 test: jsonb
 test: numerics
 test: horology
+test: horology-errors
 test: paths
 test: rowdatum
 test: spi
