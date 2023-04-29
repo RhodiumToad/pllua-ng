@@ -11,15 +11,23 @@
 #include "access/sysattr.h"
 #include "catalog/pg_type.h"
 #include "mb/pg_wchar.h"
+#if PG_VERSION_NUM >= 160000
+#include "nodes/miscnodes.h"
+#endif
 #include "parser/parse_coerce.h"
 #include "parser/parse_type.h"
 #include "utils/arrayaccess.h"
 #include "utils/builtins.h"
 #include "utils/datum.h"
+#include "utils/expandeddatum.h"
 #include "utils/lsyscache.h"
 #include "utils/rangetypes.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#if PG_VERSION_NUM >= 160000
+#include "varatt.h"
+#endif
+
 
 #if PG_VERSION_NUM < 110000
 #define DatumGetRangeTypeP(d_) DatumGetRangeType(d_)
@@ -3261,14 +3269,18 @@ int pllua_typeinfo_parsetype(lua_State *L)
 	{
 		Oid oid = InvalidOid;
 		int32 typmod = -1;
-
+#if PG_VERSION_NUM >= 160000
+		ErrorSaveContext escontext = {T_ErrorSaveContext};
+		if (parseTypeString(str, &oid, &typmod, (Node *) &escontext))
+			ret_oid = oid;
+#else
 		/*
 		 * Don't really want regtypein because it allows things like numeric
 		 * oids, '-' and so on. Accept only valid names here.
-		 *
 		 */
 		parseTypeString(str, &oid, &typmod, true);
 		ret_oid = oid;
+#endif
 	}
 	PLLUA_CATCH_RETHROW();
 
@@ -4394,7 +4406,11 @@ static int pllua_typeinfo_range_call(lua_State *L)
 	PLLUA_TRY();
 	{
 		TypeCacheEntry *tc = lookup_type_cache(t->typeoid, TYPECACHE_RANGE_INFO);
-		Datum val = PointerGetDatum(make_range(tc, &lo, &hi, (nargs == 0)));
+		Datum val = PointerGetDatum(make_range(tc, &lo, &hi, (nargs == 0)
+#if PG_VERSION_NUM >= 160000
+											   , NULL
+#endif
+										));
 		MemoryContext oldcontext = MemoryContextSwitchTo(pllua_get_memory_cxt(L));
 		d->value = val;
 		pllua_savedatum(L, d, t);

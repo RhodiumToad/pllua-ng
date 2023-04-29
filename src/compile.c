@@ -9,7 +9,9 @@
 #include "utils/guc.h"
 #include "utils/syscache.h"
 #include "utils/lsyscache.h"
-
+#if PG_VERSION_NUM >= 160000
+#include "varatt.h"
+#endif
 
 /*
  * Do fairly minimalist validation on the procTup to ensure that we're not

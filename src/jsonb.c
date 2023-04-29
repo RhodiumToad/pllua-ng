@@ -11,6 +11,9 @@
 #include "utils/fmgrprotos.h"
 #endif
 #include "utils/jsonb.h"
+#if PG_VERSION_NUM >= 160000
+#include "varatt.h"
+#endif
 
 #if PG_VERSION_NUM < 110000
 #define DatumGetJsonbP(d_) DatumGetJsonb(d_)
