@@ -291,6 +291,11 @@ const char *luaL_tolstring(lua_State *L, int idx, size_t *len)
 }
 #endif
 
+const char *pllua_tolstring(lua_State *L, int idx, size_t *len)
+{
+	return luaL_tolstring(L, idx, len);
+}
+
 /*
  * User-visible global "print" function.
  *

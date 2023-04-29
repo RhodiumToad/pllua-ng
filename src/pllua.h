@@ -626,6 +626,9 @@ void pllua_warning(lua_State *L, const char *msg, ...) pg_attribute_printf(2, 3)
 void pllua_error_callback(void *arg);
 int pllua_error_callback_location(lua_State *L);
 
+/* DLLEXPORT so that transform modules can get at it */
+PGDLLEXPORT const char *pllua_tolstring(lua_State *L, int idx, size_t *len);
+
 /* error.c */
 int pllua_open_error(lua_State *L);
 ErrorData *pllua_make_recursive_error(void);

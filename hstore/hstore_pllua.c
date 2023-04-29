@@ -36,6 +36,8 @@ typedef bool (*pllua_pairs_start_t) (lua_State *L, int nd, bool noerror);
 static pllua_pairs_start_t pllua_pairs_start_p;
 typedef int (*pllua_pairs_next_t) (lua_State *L);
 static pllua_pairs_next_t pllua_pairs_next_p;
+typedef const char * (*pllua_tolstring_t) (lua_State *L, int idx, size_t *len);
+static pllua_tolstring_t pllua_tolstring_p;
 
 /*
  * Module initialize function: fetch function pointers for cross-module calls.
@@ -61,6 +63,7 @@ _PG_init(void)
 	EXTFUNC("$libdir/pllua", pllua_trampoline);
 	EXTFUNC("$libdir/pllua", pllua_pairs_start);
 	EXTFUNC("$libdir/pllua", pllua_pairs_next);
+	EXTFUNC("$libdir/pllua", pllua_tolstring);
 }
 
 
@@ -75,6 +78,7 @@ _PG_init(void)
 #define pllua_trampoline pllua_trampoline_p
 #define pllua_pairs_start pllua_pairs_start_p
 #define pllua_pairs_next pllua_pairs_next_p
+#define pllua_tolstring pllua_tolstring_p
 
 
 static int
@@ -156,11 +160,11 @@ pllua_to_hstore_real(lua_State *L)
 		}
 		else
 		{
-			luaL_tolstring(L, -1, NULL);
+			pllua_tolstring(L, -1, NULL);
 			lua_rawseti(L, 3, idx);
 			lua_pop(L, 1);
 		}
-		luaL_tolstring(L, -1, NULL);
+		pllua_tolstring(L, -1, NULL);
 		lua_rawseti(L, 2, idx);
 	}
 
