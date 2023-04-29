@@ -51,7 +51,7 @@ jobs:
          echo LUA="$PWD/work-lua/src/lua"
          echo LUAC="$PWD/work-lua/src/luac"
          echo LUA_INCDIR="$PWD/work-lua/src"
-         echo LUALIB="-L$PWD/work-lua -llua"
+         echo LUALIB="-L$PWD/work-lua -lmylua"
          echo lua_osver="$(lsb_release -rs)"
         ) >>$GITHUB_ENV
     - name: luajit environment
@@ -65,7 +65,7 @@ jobs:
       uses: actions/cache@v3
       with:
         path: work-lua
-        key: ${{ runner.os }}-${{ env.lua_osver }}-000001-work-lua-${{ env.LUAV }}
+        key: ${{ runner.os }}-${{ env.lua_osver }}-000002-work-lua-${{ env.LUAV }}
     - name: lua install
       if: ${{ steps.cache-lua.outputs.cache-hit != 'true' && ! contains(env.LUAV, 'LuaJIT') }}
       run: |
@@ -75,7 +75,7 @@ jobs:
           SYSCFLAGS="-DLUA_USE_POSIX -DLUA_USE_DLOPEN -ULUA_COMPAT_5_2" \
           SYSLIBS="-Wl,-E -ldl" \
           MYCFLAGS="-fPIC" liblua.a lua luac
-        ln -s src/liblua.a work-lua/liblua.a
+        ln -s src/liblua.a work-lua/libmylua.a
     - name: luajit install
       if: ${{ steps.cache-lua.outputs.cache-hit != 'true' && contains(env.LUAV, 'LuaJIT') }}
       run: |
@@ -85,7 +85,7 @@ jobs:
         make -C work-lua/src \
           XCFLAGS="-DLUAJIT_ENABLE_GC64 -DLUAJIT_ENABLE_LUA52COMPAT" \
           CFLAGS="-fPIC -O3" libluajit.a luajit
-        ln -s src/libluajit.a work-lua/liblua.a
+        ln -s src/libluajit.a work-lua/libmylua.a
     - name: pg user
       run: |
         sudo -u postgres createuser -s "$USER"
