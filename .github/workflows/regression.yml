@@ -58,7 +58,7 @@ jobs:
         ) >>$GITHUB_ENV
     - name: get cached lua build
       id: cache-lua
-      uses: actions/cache@v2
+      uses: actions/cache@v3
       with:
         path: work-lua
         key: ${{ runner.os }}-${{ env.lua_osver }}-000001-work-lua-${{ env.LUAV }}
