@@ -58,4 +58,16 @@ create function pg_temp.sf1(n integer) returns setof integer
 $$;
 select * from (values (1),(2)) v(n), lateral (select * from pg_temp.sf1(v.n) limit 1) s;
 
+-- error in close metamethod in SRF
+create function pg_temp.sf2(n integer) returns setof integer
+  language pllua
+  as $$
+    local x <close>
+        = setmetatable({}, { __close = function() error("inner error") end })
+    for i = n, n+3 do
+        coroutine.yield(i)
+    end
+$$;
+select * from (values (1),(2)) v(n), lateral (select * from pg_temp.sf2(v.n) limit 1) s;
+
 --end
