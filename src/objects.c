@@ -419,7 +419,7 @@ int pllua_resetactivation(lua_State *L)
 		rc = lua_resetthread(thread);
 		if (rc != LUA_OK)
 		{
-			lua_xmove(act->thread, L, 1);
+			lua_xmove(thread, L, 1);
 			lua_insert(L, -3);
 		}
 	}
