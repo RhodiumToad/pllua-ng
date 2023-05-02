@@ -972,6 +972,7 @@ pllua_newstate_phase1(const char *ident)
 
 	lua_atpanic(L, pllua_panic);  /* can't throw */
 
+#if LUA_VERSION_NUM == 504
 	/* This is a runtime detection for the broken versions 5.4.0 and 5.4.1,
 	 * which require ugly hacks to support setting the stack limit. Rather
 	 * than keep such hacks, we just refuse to run with them at all; in 5.4.2
@@ -986,6 +987,16 @@ pllua_newstate_phase1(const char *ident)
 		ereport(ERROR,
 				(errmsg_internal("Unacceptable Lua version (5.4.0-5.4.1) installed"),
 				 errhint("Install 5.4.2 or later instead")));
+	/*
+	 * Also blacklist the version 5.4.5, which contains an ABI break that
+	 * would cause us to crash.
+	 */
+#define VER545_STR "$LuaVersion: Lua 5.4.5 "
+    if (strncmp(lua_ident, VER545_STR, strlen(VER545_STR)) == 0)
+		ereport(ERROR,
+				(errmsg_internal("Unacceptable Lua version (5.4.5) installed"),
+				 errhint("Install 5.4.4 or 5.4.6 or later instead")));
+#endif
 
 	interp->warncount = 0;
 	/* Install warning handler */

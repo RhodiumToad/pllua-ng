@@ -7,14 +7,16 @@ Embeds Lua into PostgreSQL as a procedural language module.
 Please report any remaining bugs or missing functionality on github.
 
 Currently it should build against (recent point releases of) pg
-versions 9.5, 9.6, 10, 11, 12 and 13. It is known that this module
-will never work on pg versions before 9.5 (we rely critically on
-memory context callbacks, which were introduced in that version).
+versions 9.5 to 15. It is known that this module will never work on pg
+versions before 9.5 (we rely critically on memory context callbacks,
+which were introduced in that version).
 
-Lua 5.4 (only 5.4.2 onwards), Lua 5.3, and LuaJIT 2.1beta (with
-COMPAT52) are fully supported at this time. (Lua 5.4.0 and 5.4.1 are
-checked for at runtime and rejected, because they would otherwise
-require runtime stack limit calculations.)
+Lua 5.4 (only 5.4.2 onwards, excluding 5.4.5), Lua 5.3, and LuaJIT
+2.1beta (with COMPAT52) are fully supported at this time. (Lua 5.4.0
+and 5.4.1 are checked for at runtime and rejected, because they would
+otherwise require runtime stack limit calculations; 5.4.5 is checked
+for at compile and run time and rejected because of an incompatible
+ABI/API change.)
 
 Documentation is being migrated from this README to a more comprehensive
 document:

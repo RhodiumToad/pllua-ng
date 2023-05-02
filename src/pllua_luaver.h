@@ -3,6 +3,16 @@
 #ifndef PLLUA_LUAVER_H
 #define PLLUA_LUAVER_H
 
+/*
+ * Fail if the version is exactly 5.4.5, due to incompatible API changes; we
+ * check this here as well as at runtime because we'll get compile errors.
+ */
+#ifdef LUA_VERSION_RELEASE_NUM
+#if LUA_VERSION_RELEASE_NUM == 50405
+#error Unsupported Lua version (5.4.5 not supported due to API break)
+#endif
+#endif
+
 #ifndef LUAJIT_VERSION_NUM
 #define LUAJIT_VERSION_NUM 0
 #endif
