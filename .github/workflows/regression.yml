@@ -18,7 +18,7 @@ jobs:
         shell: sh
     strategy:
       matrix:
-        lua: [ 5.3.6, 5.4.4, LuaJIT-8bbd58e53 ]
+        lua: [ 5.3.6, 5.4.4, 5.4.6-rc1, LuaJIT-8bbd58e53 ]
         pg: [ 9.5, 9.6, 10, 11, 12, 13, 14, 15, 16 ]
         include:
           - pgrepo: ""
@@ -47,7 +47,10 @@ jobs:
                install postgresql-${PG:?} postgresql-contrib-${PG:?} postgresql-server-dev-${PG:?}
     - name: lua environment
       run: |
-        (echo LUA_URL="http://www.lua.org/ftp/lua-$LUAV.tar.gz"
+        (case "$LUAV" in
+           *-rc*) echo LUA_URL="http://www.lua.org/work/lua-$LUAV.tar.gz";;
+               *) echo LUA_URL="http://www.lua.org/ftp/lua-$LUAV.tar.gz";;
+         esac
          echo LUA="$PWD/work-lua/src/lua"
          echo LUAC="$PWD/work-lua/src/luac"
          echo LUA_INCDIR="$PWD/work-lua/src"
