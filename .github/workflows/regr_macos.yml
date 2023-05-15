@@ -30,7 +30,7 @@ jobs:
       run: |
         (echo LUA="/usr/local/opt/lua@5.3/bin/lua"
          echo LUAC="/usr/local/opt/lua@5.3/bin/luac"
-         echo LUA_INCDIR="/usr/local/opt/lua@5.3/include"
+         echo LUA_INCDIR="/usr/local/opt/lua@5.3/include/lua"
          echo LUALIB="-L/usr/local/opt/lua@5.3/lib -llua"
         ) >>$GITHUB_ENV
 
