@@ -18,7 +18,7 @@ jobs:
         shell: sh
     strategy:
       matrix:
-        lua: [ 5.3.6, 5.4.4, 5.4.6-rc1, LuaJIT-8bbd58e53 ]
+        lua: [ 5.3.6, 5.4.4, 5.4.6, LuaJIT-8bbd58e53 ]
         pg: [ 9.5, 9.6, 10, 11, 12, 13, 14, 15, 16 ]
         include:
           - pgrepo: ""
