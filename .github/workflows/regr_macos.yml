@@ -24,7 +24,7 @@ jobs:
 
     - name: install lua
       run: |
-        brew install lua@5.4.4
+        brew install lua@5.3
 
     - name: lua environment
       run: |
