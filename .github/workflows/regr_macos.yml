@@ -28,10 +28,10 @@ jobs:
 
     - name: lua environment
       run: |
-        (echo LUA="/usr/local/bin/lua"
-         echo LUAC="/usr/local/bin/luac"
-         echo LUA_INCDIR="/usr/local/include/lua"
-         echo LUALIB="-L/usr/local/lib -llua"
+        (echo LUA="/usr/local/opt/lua@5.3/bin/lua"
+         echo LUAC="/usr/local/opt/lua@5.3/bin/luac"
+         echo LUA_INCDIR="/usr/local/opt/lua@5.3/include"
+         echo LUALIB="-L/usr/local/opt/lua@5.3/lib -llua"
         ) >>$GITHUB_ENV
 
     - name: build
