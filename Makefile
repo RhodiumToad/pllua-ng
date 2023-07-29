@@ -90,10 +90,9 @@ REGRESS_LUA_5.4 := lua54
 EXTRA_REGRESS = $(REGRESS_BY_VERSION) $(REGRESS_LUA_$(LUAVER))
 
 define REGRESS_BY_VERSION
-$(strip
-   $(foreach v,$(filter REGRESS_V%,$(.VARIABLES)),
-      $(if $(call version_ge,$(MAJORVERSION),$(subst REGRESS_V,,$(v))),
-           $($(v)))))
+$(strip $(foreach v,$(filter REGRESS_V%,$(.VARIABLES)),
+           $(if $(call version_ge,$(MAJORVERSION),$(subst REGRESS_V,,$(v))),
+                $($(v)))))
 endef
 
 REGRESS = --schedule=$(srcdir)/serial_schedule $(EXTRA_REGRESS)
