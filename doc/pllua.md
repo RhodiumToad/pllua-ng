@@ -648,6 +648,9 @@ functions):
     Returns a table containing a sequence (possibly empty) of rows for
     queries that return rows, otherwise returns an integer count.
 
+	Specifying either `0` or `nil` for `maxrows` results in fetching
+	all available rows.
+
     For all query execution methods, if called from a nonvolatile
     function, the query will be run in "readonly" mode using the
     caller's snapshot. Otherwise a new snapshot is taken.
