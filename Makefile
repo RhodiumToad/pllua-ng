@@ -82,17 +82,19 @@ objdir := src
 # until after pgxs is loaded though.
 
 # version-dependent regression tests
-REGRESS_10 := triggers_10
-REGRESS_11 := $(REGRESS_10) procedures
-REGRESS_12 := $(REGRESS_11)
-REGRESS_13 := $(REGRESS_12)
-REGRESS_14 := $(REGRESS_13)
-REGRESS_15 := $(REGRESS_14)
-REGRESS_16 := $(REGRESS_15)
+REGRESS_V10 := triggers_10
+REGRESS_V11 := procedures
 
 REGRESS_LUA_5.4 := lua54
 
-EXTRA_REGRESS = $(REGRESS_$(MAJORVERSION)) $(REGRESS_LUA_$(LUAVER))
+EXTRA_REGRESS = $(REGRESS_BY_VERSION) $(REGRESS_LUA_$(LUAVER))
+
+define REGRESS_BY_VERSION
+$(strip
+   $(foreach v,$(filter REGRESS_V%,$(.VARIABLES)),
+      $(if $(call version_ge,$(MAJORVERSION),$(subst REGRESS_V,,$(v))),
+           $($(v)))))
+endef
 
 REGRESS = --schedule=$(srcdir)/serial_schedule $(EXTRA_REGRESS)
 REGRESS_PARALLEL = --schedule=$(srcdir)/parallel_schedule $(EXTRA_REGRESS)
@@ -138,6 +140,9 @@ VPATH := $(dir $(firstword $(MAKEFILE_LIST)))
 endif
 endif
 
+mklibdir := $(if $(VPATH),$(VPATH)/tools,tools)
+include $(mklibdir)/numeric.mk
+
 # actually load pgxs
 
 PGXS := $(shell $(PG_CONFIG) --pgxs)
@@ -145,7 +150,7 @@ include $(PGXS)
 
 # definitions that must follow pgxs
 
-ifeq ($(filter-out 7.% 8.% 9.0 9.1 9.2 9.3 9.4, $(MAJORVERSION)),)
+ifeq ($(call version_ge,$(MAJORVERSION),9.5),)
 $(error unsupported PostgreSQL version)
 endif
 
@@ -195,7 +200,7 @@ endif
 pllua_functable.h: $(SRCS_C) $(srcdir)/tools/functable.lua
 	$(LUA) $(srcdir)/tools/functable.lua $(SRCS_C) >$@
 
-ifneq ($(filter-out 9.% 10, $(MAJORVERSION)),)
+ifneq ($(call version_ge,$(MAJORVERSION),11),)
 
 #in pg 11+, we can get the server's errcodes.txt.
 plerrcodes.h: $(datadir)/errcodes.txt $(srcdir)/tools/errcodes.lua

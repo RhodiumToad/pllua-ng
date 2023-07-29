@@ -36,7 +36,7 @@ EXT_INCDIR = $(includedir_server)/extension
 EXT_INCDIR_OLD = $(srcdir)/old_inc
 
 PG_CPPFLAGS = -I$(LUA_INCDIR) -I$(srcdir)/../src
-PG_CPPFLAGS += -I$(EXT_INCDIR$(if $(filter 9.% 10,$(MAJORVERSION)),_OLD))
+PG_CPPFLAGS += -I$(EXT_INCDIR$(if $(call version_ge,$(MAJORVERSION),11),,_OLD))
 
 SHLIB_LINK = $(LUALIB)
 
@@ -49,9 +49,12 @@ VPATH := $(dir $(firstword $(MAKEFILE_LIST)))
 endif
 endif
 
+mklibdir := $(if $(VPATH),$(VPATH)/../tools,../tools)
+include $(mklibdir)/numeric.mk
+
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
-ifeq ($(filter-out 7.% 8.% 9.0 9.1 9.2 9.3 9.4, $(MAJORVERSION)),)
+ifeq ($(call version_ge,$(MAJORVERSION),9.5),)
 $(error unsupported PostgreSQL version)
 endif
