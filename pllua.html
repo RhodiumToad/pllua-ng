@@ -1066,6 +1066,8 @@ functions):</p>
 <p>execute the given query text as SQL with the given arguments.
 Returns a table containing a sequence (possibly empty) of rows for
 queries that return rows, otherwise returns an integer count.</p>
+<p>Specifying either <code class="shortcode">0</code> or <code class="shortcode">nil</code> for <code class="shortcode">maxrows</code> results in fetching
+all available rows.</p>
 <p>For all query execution methods, if called from a nonvolatile
 function, the query will be run in "readonly" mode using the
 caller's snapshot. Otherwise a new snapshot is taken.</p>
