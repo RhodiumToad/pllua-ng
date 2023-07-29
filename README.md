@@ -7,7 +7,7 @@ Embeds Lua into PostgreSQL as a procedural language module.
 Please report any remaining bugs or missing functionality on github.
 
 Currently it should build against (recent point releases of) pg
-versions 9.5 to 15. It is known that this module will never work on pg
+versions 9.5 to 16. It is known that this module will never work on pg
 versions before 9.5 (we rely critically on memory context callbacks,
 which were introduced in that version).
 
