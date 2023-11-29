@@ -15,9 +15,7 @@ $(if $(strip $(1)),
                t,
                $(if $(call numeric_lt,$(firstword $(1)),$(firstword $(2))),
                     ,
-                    $(call vge_2,
-                           $(wordlist 2,$(words $(1)),$(1)),
-                           $(wordlist 2,$(words $(2)),$(2))))),
+                    $(call vge_2,$(wordlist 2,$(words $(1)),$(1)),$(wordlist 2,$(words $(2)),$(2))))),
           t),
      $(if $(strip $(2)),,t))
 endef
