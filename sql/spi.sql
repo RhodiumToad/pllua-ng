@@ -202,4 +202,12 @@ do language pllua $$ collectgarbage() $$;  -- check cursor stays open
 fetch all from mycur2;
 commit;
 
+-- check correct error handling inside coroutines (issue #15)
+
+create function pg_temp.f1() returns setof text language pllua as $$
+  local r = spi.rows('syntaxerror')
+  return 'notreached'
+$$;
+select * from pg_temp.f1();
+
 --end

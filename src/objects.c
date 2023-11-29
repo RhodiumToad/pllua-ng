@@ -660,7 +660,13 @@ void pllua_deactivate_thread(lua_State *L, pllua_func_activation *act, ExprConte
 {
 	Assert(act->thread != NULL);
 
-	PLLUA_TRY();
+	/*
+	 * We need to be able to do this on error paths, and the unregister call
+	 * should only ever error on logic or memory corruption cases and can't
+	 * reach any user-supplied code, so it should be safe to use the _ERROK
+	 * variant.
+	 */
+	PLLUA_TRY_ERROK();
 	{
 		UnregisterExprContextCallback(econtext,
 									  pllua_resetactivation_cb,
